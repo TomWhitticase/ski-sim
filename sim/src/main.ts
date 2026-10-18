@@ -530,6 +530,8 @@ async function main(): Promise<void> {
     trails.flush();
     sound.update(soundLevels(airSpeed, contact));
     if (mode === 'ski' && ski.landingImpact > 0) sound.thump(ski.landingImpact);
+    if (mode === 'ski' && ski.footstep) sound.step();
+    if (mode === 'ski' && ski.polePlant) sound.polePlant();
   };
 
   renderer.setAnimationLoop(() => {

@@ -29,6 +29,9 @@ export const SKI = {
   /** Skating: strong enough to get moving on the flat, useless once you're quick. */
   pushAccel: 2.5,
   pushMaxSpeed: 6,
+  /** Double-poling: a gentler push that keeps you going on the flat. */
+  poleAccel: 1.5,
+  poleMaxSpeed: 9,
   maxSpeed: 38,
   /** Walking uphill: fastest on gentle grades, a slow plod on steep ones (m/s). */
   climbSpeedMax: 1.3,
@@ -61,6 +64,8 @@ export interface SkiState {
 export interface SkiIntent {
   tuck: boolean;
   push: boolean;
+  /** Double-poling (too fast to skate). */
+  pole?: boolean;
   brake: boolean;
   jump: boolean;
 }
@@ -170,6 +175,9 @@ function substep(state: SkiState, intent: SkiIntent, h: number, terrain: SkiTerr
 
   if (intent.push && !intent.brake && speed < SKI.pushMaxSpeed) {
     v.addScaledVector(skis, SKI.pushAccel * h);
+  }
+  if (intent.pole && !intent.brake && speed < SKI.poleMaxSpeed) {
+    v.addScaledVector(skis, SKI.poleAccel * h);
   }
   if (v.length() > SKI.maxSpeed) v.setLength(SKI.maxSpeed);
 

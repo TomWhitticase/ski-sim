@@ -98,3 +98,35 @@ describe('hockey stop', () => {
     expect(t.twist).toBe(1.4);
   });
 });
+
+describe('walking steps and double-poling', () => {
+  it('fires a step each half stride while skating or climbing', () => {
+    const stance = initialStance();
+    let steps = 0;
+    for (let i = 0; i < 120; i++) {
+      if (updateStance(stance, { ...cruising, speed: 1, skate: true, climb: true }, 1 / 60).step)
+        steps++;
+    }
+    // 0.9 Hz stride, two steps (left, right) per stride: ~3.6 in 2 s.
+    expect(steps).toBeGreaterThanOrEqual(3);
+    expect(steps).toBeLessThanOrEqual(4);
+  });
+
+  it('double-poles: reach and plant, then push the hands back past the hips', () => {
+    const reach = targetStance({ ...cruising, pole: true }, 0, 0.05);
+    const push = targetStance({ ...cruising, pole: true }, 0, Math.PI * 0.75);
+    expect(reach.armReach).toBeGreaterThan(0.8);
+    expect(reach.poleSweep).toBeLessThan(0); // tips planted ahead of vertical
+    expect(push.armReach).toBeLessThan(0);
+    expect(push.poleSweep).toBeGreaterThan(0.8); // poles swept back
+    expect(push.crouch).toBeGreaterThan(reach.crouch); // crunch into the push
+
+    const stance = initialStance();
+    let plants = 0;
+    for (let i = 0; i < 180; i++) {
+      if (updateStance(stance, { ...cruising, pole: true }, 1 / 60).plant) plants++;
+    }
+    expect(plants).toBeGreaterThanOrEqual(2); // 0.8 Hz over 3 s
+    expect(plants).toBeLessThanOrEqual(3);
+  });
+});

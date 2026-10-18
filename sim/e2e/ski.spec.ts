@@ -215,3 +215,29 @@ test('holding W walks you up a slope too steep to skate', async ({ page }) => {
   expect(after).toBeGreaterThan(before + 1); // ~6 s × ~0.5 m/s up a 21° slope
   expect(await hudNumber(page, 'speed')).toBeLessThan(6); // a walk, not a skate
 });
+
+test('above skating speed, W double-poles instead of skating', async ({ page }) => {
+  // Flat frozen lake; get going, then keep W held past ~16 km/h.
+  await start(page, 'at=45.28856,6.5752,2417.2&heading=90&pitch=-15');
+  await page.keyboard.press('KeyF');
+  await page.keyboard.press('KeyV');
+  await page.keyboard.down('KeyW');
+  const armReach: number[] = [];
+  for (let i = 0; i < 40; i++) {
+    await page.waitForTimeout(150);
+    if (i > 25) {
+      armReach.push(
+        await page.evaluate(() => {
+          const scene = (window.__sim as unknown as { scene: import('three').Scene }).scene;
+          return scene.getObjectByName('chest')!.position.z; // moves with the poling crunch
+        }),
+      );
+    }
+    if (i === 34) await page.screenshot({ path: 'test-results/views/ski-double-pole.png' });
+  }
+  await page.keyboard.up('KeyW');
+  const speed = await hudNumber(page, 'speed');
+  expect(speed).toBeGreaterThan(18); // poled past skating speed (~16 km/h)
+  expect(speed).toBeLessThan(34); // capped at a realistic double-pole speed
+  expect(Math.max(...armReach) - Math.min(...armReach)).toBeGreaterThan(0.03); // rhythmic crunch
+});

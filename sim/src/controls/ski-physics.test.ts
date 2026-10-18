@@ -147,3 +147,18 @@ describe('walking uphill', () => {
     expect(state.position.y).toBeLessThan(top);
   });
 });
+
+describe('double-poling', () => {
+  it('keeps you moving on the flat above skating speed, up to a limit', () => {
+    const t = slope(0);
+    const state = skier(t, DOWNHILL);
+    state.velocity.set(0, 0, 5); // already gliding at 18 km/h
+    run(state, t, 20, { ...idle, pole: true });
+    expect(state.velocity.length()).toBeGreaterThan(7);
+    expect(state.velocity.length()).toBeLessThan(SKI.poleMaxSpeed + 0.1);
+    const coasting = skier(t, DOWNHILL);
+    coasting.velocity.set(0, 0, 5);
+    run(coasting, t, 20);
+    expect(coasting.velocity.length()).toBeLessThan(state.velocity.length());
+  });
+});

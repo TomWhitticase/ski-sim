@@ -152,6 +152,7 @@ There are two layers. **Near** is lidar at 4 m covering the ski area. **Far** is
 - V (first/third person) works in both modes and is remembered. Fly mode tracks `FlyControls.position` (the eye); in third person the camera orbits behind it and the skier is shown hovering there, see-through (`FLYING_OPACITY`).
 - e2e tests use a frozen lake at 45.28856, 6.5752 (under 15 cm of relief over 100 m) as flat ground.
 - Off-piste (per the piste lookup grid) uses higher friction and drag than groomed runs.
+- W by speed: below ~16 km/h it skates (or walks or climbs, with footstep sounds under 9 km/h); above that it double-poles (`ski-stance` pole cycle plus `SKI.poleAccel`, up to ~32 km/h) with pole-plant sounds. Stance animation emits `step`/`plant` events and the controller exposes them as `footstep`/`polePlant` for audio.
 - Walking uphill: with W held and the skis pointing up a slope too steep to skate, `stepSki` switches to climbing (herringbone): ~1.3 m/s on gentle grades, down to 0.35 m/s on steep ones, never stuck. Releasing W lets you slide back.
 - Map teleports always land you on the ground (`groundedPose`, eye height above the DEM), aimed at the summit for peak destinations.
 

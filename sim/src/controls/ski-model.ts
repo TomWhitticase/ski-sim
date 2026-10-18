@@ -428,7 +428,13 @@ export class SkierModel {
 
       // Arms: shoulder to hand, elbows out and back. Hands come in front in a tuck.
       const shoulder = new Vector3(side * 0.2, 0.44, 0).applyMatrix4(this.chest.matrix);
-      const handLocal = new Vector3(side * (0.3 - 0.16 * c), 0.08 + 0.18 * c, -0.3 - 0.12 * c);
+      // armReach swings the hands forward and up (planting) or back past the hips (push).
+      const r = stance.armReach;
+      const handLocal = new Vector3(
+        side * (0.3 - 0.16 * c),
+        0.08 + 0.18 * c + 0.22 * Math.max(r, 0),
+        -0.3 - 0.12 * c - 0.3 * r,
+      );
       const hand = handLocal.applyMatrix4(this.chest.matrix);
       const elbow = solveJoint(shoulder, hand, UPPER_ARM, FOREARM, new Vector3(side, -0.3, 0.6));
       stretch(limb.upperArm, shoulder, elbow);

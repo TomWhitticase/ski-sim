@@ -12,8 +12,10 @@ import type { SnowContact } from '../fx/intensity';
 export const EYE_HEIGHT = 1.7;
 /** How far the eye drops in a full tuck (m). */
 const CROUCH_DROP = 0.6;
-/** Skating animates up to this speed; above it you're gliding, not striding. */
-const SKATE_ANIM_MAX = 8;
+/** Below this W skates (or walks); above it W double-poles instead (m/s, ~16 km/h). */
+const SKATE_MAX = 4.5;
+/** Slower than this, skating strides are really steps, so they sound like steps (m/s). */
+const WALK_MAX = 2.5;
 const TURN_RATE = 1.8; // rad/s with A/D
 /** How fast A/D swing the skis while S holds the upper body (rad/s). */
 const PIVOT_RATE = 3.5;
@@ -73,6 +75,10 @@ export class SkiControls {
   readonly contact: SnowContact = { speed: 0, sideslip: 0, edge: 0, onSnow: false, groomed: true };
   /** Impact speed (m/s) if you landed this frame, else 0. */
   landingImpact = 0;
+  /** A foot stepped this frame (walking, climbing or slow skating). */
+  footstep = false;
+  /** Poles planted this frame. */
+  polePlant = false;
 
   constructor(
     private readonly camera: PerspectiveCamera,
@@ -204,7 +210,10 @@ export class SkiControls {
 
     const tuck = input.down('ControlLeft', 'ControlRight');
     const plough = input.down('ShiftLeft', 'ShiftRight');
-    const skate = input.down('KeyW') && !tuck && !plough;
+    const forward = input.down('KeyW') && !tuck && !plough;
+    const flatSpeed = Math.hypot(this.state.velocity.x, this.state.velocity.z);
+    const skate = forward && (flatSpeed < SKATE_MAX || this.climbing);
+    const pole = forward && !skate;
     const wasAirborne = this.state.airborne;
     const fallSpeed = -this.state.velocity.y;
     stepSki(
@@ -212,6 +221,7 @@ export class SkiControls {
       {
         tuck,
         push: skate,
+        pole,
         brake: plough,
         jump: input.wasPressed('Space') && !this.state.airborne,
       },
@@ -269,7 +279,7 @@ export class SkiControls {
       onSnow: !this.state.airborne,
       groomed: this.terrain.groomed?.(p.x, p.z) ?? true,
     });
-    updateStance(
+    const events = updateStance(
       this.stance,
       {
         speed,
@@ -278,13 +288,16 @@ export class SkiControls {
         turnRate: this.turnRate,
         balanceEdge,
         plough,
-        skate: skate && speed < SKATE_ANIM_MAX,
+        skate,
+        pole,
         climb: this.state.climbing ?? false,
         tuck,
         airborne: this.state.airborne,
       },
       dt,
     );
+    this.footstep = events.step && (this.climbing || speed < WALK_MAX);
+    this.polePlant = events.plant;
     this.updateCamera();
   }
 

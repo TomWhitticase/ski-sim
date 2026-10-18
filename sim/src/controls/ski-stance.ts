@@ -31,6 +31,18 @@ export interface Stance {
   skatePhase: number;
   /** Pole angle back from vertical (rad); tucked poles lie almost flat. */
   poleSweep: number;
+  /** Double-poling cycle phase (rad), advancing while poling. */
+  polePhase: number;
+  /** Hands forward (+1, reaching to plant) to back (-0.3, end of the push). */
+  armReach: number;
+}
+
+/** Moments in the animation that make a sound. */
+export interface StanceEvents {
+  /** A foot steps or pushes off (walking, climbing, slow skating). */
+  step: boolean;
+  /** Both poles plant in the snow (double-poling). */
+  plant: boolean;
 }
 
 export interface StanceInput {
@@ -52,6 +64,8 @@ export interface StanceInput {
   skate: boolean;
   /** Stepping uphill: a slower, wider herringbone instead of skating strides. */
   climb?: boolean;
+  /** Double-poling: too fast to skate, so push along with both poles. */
+  pole?: boolean;
   tuck: boolean;
   airborne: boolean;
 }
@@ -68,6 +82,9 @@ const SKATE_WIDTH = 0.22;
 const SKATE_LIFT = 0.12;
 const STRIDE_HZ = 1.3;
 const CLIMB_HZ = 0.9;
+const POLE_HZ = 0.8;
+/** Share of the poling cycle spent pushing; the rest is the recovery swing. */
+const PUSH_SHARE = 0.4;
 const RESPONSE = 9; // 1/s, how quickly the pose follows the target
 
 export function initialStance(): Stance {
@@ -80,6 +97,8 @@ export function initialStance(): Stance {
     twist: 0,
     skatePhase: 0,
     poleSweep: 0.35,
+    polePhase: 0,
+    armReach: 0,
   };
 }
 
@@ -91,7 +110,11 @@ export function carveEdgeAngle(speed: number, turnRate: number): number {
 }
 
 /** The pose to aim for this instant. */
-export function targetStance(input: StanceInput, skatePhase: number): Omit<Stance, 'skatePhase'> {
+export function targetStance(
+  input: StanceInput,
+  skatePhase: number,
+  polePhase = 0,
+): Omit<Stance, 'skatePhase' | 'polePhase'> {
   // Skidding sideways, the skis bite on the edge facing the slide (a hockey stop).
   const skid = Math.max(-0.75, Math.min(0.75, -(input.sideslip ?? 0) * 0.12));
   const raw = input.balanceEdge ?? carveEdgeAngle(input.speed, input.turnRate) + skid;
@@ -140,17 +163,45 @@ export function targetStance(input: StanceInput, skatePhase: number): Omit<Stanc
     poleSweep = 0.45 + 0.35 * Math.abs(s);
   }
 
+  let armReach = 0;
+  if (input.pole && !input.airborne && !input.plough && !input.tuck) {
+    // Double-pole: reach forward and plant, then crunch down pushing the hands past
+    // the hips, then swing back up to reach again.
+    const t = polePhase / (2 * Math.PI);
+    if (t < PUSH_SHARE) {
+      const u = t / PUSH_SHARE;
+      armReach = 1 - 1.3 * u;
+      poleSweep = -0.15 + 1.25 * u;
+      crouch = Math.max(crouch, 0.15 + 0.4 * Math.sin(Math.PI * u));
+    } else {
+      const u = (t - PUSH_SHARE) / (1 - PUSH_SHARE);
+      armReach = -0.3 + 1.3 * u;
+      poleSweep = 1.1 - 1.25 * u;
+      crouch = Math.max(crouch, 0.15 * (1 - u));
+    }
+  }
   if (input.airborne) crouch = Math.max(crouch, 0.4);
-  return { left, right, crouch, lean: edge * 0.85, twist: input.twist ?? 0, poleSweep };
+  return { left, right, crouch, lean: edge * 0.85, twist: input.twist ?? 0, poleSweep, armReach };
 }
 
 /** Move `stance` toward the target for this input over `dt` seconds. */
-export function updateStance(stance: Stance, input: StanceInput, dt: number): void {
+export function updateStance(stance: Stance, input: StanceInput, dt: number): StanceEvents {
+  const events: StanceEvents = { step: false, plant: false };
   if (input.skate && !input.airborne) {
     const hz = input.climb ? CLIMB_HZ : STRIDE_HZ;
+    const before = stance.skatePhase;
     stance.skatePhase = (stance.skatePhase + dt * hz * 2 * Math.PI) % (2 * Math.PI);
+    // One step per half cycle (left foot, then right).
+    events.step = Math.floor(stance.skatePhase / Math.PI) !== Math.floor(before / Math.PI);
   }
-  const target = targetStance(input, stance.skatePhase);
+  if (input.pole && !input.airborne && !input.plough && !input.tuck) {
+    const before = stance.polePhase;
+    stance.polePhase = (stance.polePhase + dt * POLE_HZ * 2 * Math.PI) % (2 * Math.PI);
+    events.plant = stance.polePhase < before; // wrapped: start of a new push
+  } else {
+    stance.polePhase = 0;
+  }
+  const target = targetStance(input, stance.skatePhase, stance.polePhase);
   const k = 1 - Math.exp(-RESPONSE * dt);
   const ease = (a: SkiPose, b: SkiPose) => {
     a.x += (b.x - a.x) * k;
@@ -165,4 +216,6 @@ export function updateStance(stance: Stance, input: StanceInput, dt: number): vo
   stance.lean += (target.lean - stance.lean) * k;
   stance.twist = target.twist; // already smooth: follows the controls directly
   stance.poleSweep += (target.poleSweep - stance.poleSweep) * k;
+  stance.armReach += (target.armReach - stance.armReach) * k;
+  return events;
 }

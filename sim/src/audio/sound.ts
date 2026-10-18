@@ -103,6 +103,50 @@ export class Sound {
     if (this.ctx) this.hum.gain.setTargetAtTime(level, this.ctx.currentTime, 0.15);
   }
 
+  /** A short burst of the noise buffer through a filter, with a fast decay. */
+  private burst(
+    type: BiquadFilterType,
+    frequency: number,
+    q: number,
+    peak: number,
+    decay: number,
+    delay = 0,
+  ): void {
+    const ctx = this.ctx!;
+    const t = ctx.currentTime + delay;
+    const source = ctx.createBufferSource();
+    source.buffer = this.noise;
+    source.playbackRate.value = 0.85 + Math.random() * 0.3;
+    const filter = ctx.createBiquadFilter();
+    filter.type = type;
+    filter.frequency.value = frequency;
+    filter.Q.value = q;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(peak, t + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+    source.connect(filter).connect(gain).connect(this.master);
+    source.start(t, Math.random() * 1.5);
+    source.stop(t + decay + 0.05);
+  }
+
+  /** A boot-and-ski step in snow: a soft thud with a crunchy, squeaky top. */
+  step(): void {
+    if (!this.ctx) return;
+    const v = 0.8 + Math.random() * 0.4;
+    this.burst('lowpass', 220, 0.7, 0.35 * v, 0.12);
+    this.burst('bandpass', 1300 + Math.random() * 500, 1.2, 0.22 * v, 0.16, 0.01);
+    this.burst('bandpass', 3200, 2, 0.06 * v, 0.09, 0.03); // snow squeak
+  }
+
+  /** Both poles planting: a sharp tick of the tips, then a short scrape. */
+  polePlant(): void {
+    if (!this.ctx) return;
+    this.burst('bandpass', 2600, 4, 0.18, 0.04);
+    this.burst('bandpass', 2300, 4, 0.14, 0.04, 0.025); // second pole a moment later
+    this.burst('highpass', 1500, 0.7, 0.08, 0.22, 0.03);
+  }
+
   /** A carrier's grip rolling over a tower's sheave train: a quick run of clacks. */
   clack(): void {
     const ctx = this.ctx;
