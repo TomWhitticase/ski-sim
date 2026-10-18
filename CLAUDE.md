@@ -125,7 +125,7 @@ There are two layers. **Near** is lidar at 4 m covering the ski area. **Far** is
 - The mode (fly/ski) is remembered in localStorage.
 - Switching fly → ski keeps your position and flying velocity: if you're in the air you fall and land. Ski poses track the feet (`EYE_HEIGHT` below the camera).
 - Ski keys: W skate, Ctrl tuck, Shift snowplough, A/D or mouse steer, Space jump, V camera. Holding S locks the upper body/view and makes A/D swing only the skis (pivots, hockey stops). Grip scales with cos²(slip angle), so sideways skis skid instead of steering.
-- `controls/ski-stance.ts` (pure, unit-tested) turns what the skier is doing into a pose: carve edge angle from speed × path turn rate (atan(a/g), capped at 60°), plough wedge, alternating V-skate strides, tuck crouch. `controls/ski-model.ts` builds the skier (sidecut/rocker ski geometry, bindings, boots, poles, body) and applies the pose.
+- `controls/ski-stance.ts` (pure, unit-tested) turns what the skier is doing into a pose: carve edge angle from speed × path turn rate (atan(a/g), capped at 60°), plough wedge, alternating V-skate strides, tuck crouch. `controls/ski-model.ts` builds the skier (sidecut/rocker ski geometry, bindings, boots, poles; shell jacket, helmet, mirrored goggles) and applies the pose. Legs and arms use two-bone IK (`solveJoint`): ankles are pinned inside the boots so legs follow the skis in every stance, and hands follow the torso and carry the poles.
 - First person hides the body (`body`) but keeps skis, boots and poles visible below the camera.
 - e2e tests use a frozen lake at 45.28856, 6.5752 (under 15 cm of relief over 100 m) as flat ground.
 - Off-piste (per the piste lookup grid) uses higher friction and drag than groomed runs.

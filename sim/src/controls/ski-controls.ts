@@ -20,7 +20,7 @@ const PIVOT_RATE = 3.5;
 const REALIGN_RATE = 6;
 /** Most the skis can be twisted away from where you face (rad). */
 const MAX_TWIST = (110 * Math.PI) / 180;
-const CHASE_DISTANCE = 7;
+const CHASE_DISTANCE = 4.5;
 const UP = new Vector3(0, 1, 0);
 const ZERO = new Vector3();
 

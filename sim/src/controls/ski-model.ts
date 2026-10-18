@@ -4,10 +4,15 @@ import {
   BufferGeometry,
   CapsuleGeometry,
   CylinderGeometry,
+  DoubleSide,
+  Euler,
   Group,
   Mesh,
   MeshStandardNodeMaterial,
+  Quaternion,
   SphereGeometry,
+  TorusGeometry,
+  Vector3,
 } from 'three/webgpu';
 
 import type { SkiPose, Stance } from './ski-stance';
@@ -141,10 +146,18 @@ interface SkiRig {
 export class SkierModel {
   readonly root = new Group();
   private readonly figure = new Group();
-  private readonly upper = new Group();
+  private readonly chest = new Group();
   private readonly poles: Group[] = [];
+  private readonly limbs: {
+    thigh: Mesh;
+    shin: Mesh;
+    knee: Mesh;
+    upperArm: Mesh;
+    forearm: Mesh;
+    elbow: Mesh;
+    cuff: Mesh;
+  }[] = [];
   private readonly skis: { left: SkiRig; right: SkiRig };
-  private readonly legs: Mesh[] = [];
 
   constructor() {
     const mat = (color: number, roughness: number, metalness = 0) =>
@@ -155,10 +168,6 @@ export class SkierModel {
     const shell = mat(0x1f2124, 0.45);
     const cuff = mat(0xe8590c, 0.45);
     const buckle = mat(0xced4da, 0.3, 0.8);
-    const jacket = mat(0xd6336c, 0.7);
-    const trousers = mat(0x343a40, 0.8);
-    const helmet = mat(0xf1f3f5, 0.35);
-    const goggles = mat(0xf59f00, 0.1, 0.6);
     const glove = mat(0x212529, 0.7);
     const poleShaft = mat(0xadb5bd, 0.3, 0.8);
     const poleGrip = mat(0x212529, 0.8);
@@ -213,44 +222,126 @@ export class SkierModel {
     };
     this.skis = { left: makeSki(-1), right: makeSki(1) };
 
-    // Body for the chase camera. `figure` holds what first person hides.
-    const add = (parent: Group, mesh: Mesh, x: number, y: number, z: number) => {
-      mesh.position.set(x, y, z);
-      mesh.castShadow = true;
-      parent.add(mesh);
-      return mesh;
+    this.buildFigure(mat, poleShaft, poleGrip, glove);
+  }
+
+  private buildFigure(
+    mat: (color: number, roughness: number, metalness?: number) => MeshStandardNodeMaterial,
+    poleShaft: MeshStandardNodeMaterial,
+    poleGrip: MeshStandardNodeMaterial,
+    glove: MeshStandardNodeMaterial,
+  ): void {
+    const jacket = mat(0x0b7285, 0.65); // deep teal shell
+    const jacketDark = mat(0x16191d, 0.7);
+    const accent = mat(0xff7a1a, 0.5);
+    const pants = mat(0x25282c, 0.85);
+    const helmet = mat(0x1a1c1f, 0.55);
+    const gaiter = mat(0x495057, 0.95);
+    const frame = mat(0x101113, 0.4);
+    const lens = new MeshStandardNodeMaterial({
+      color: 0xff8a2a,
+      emissive: 0x4a1800,
+      metalness: 0.7,
+      roughness: 0.12,
+    });
+    const shade = (m: Mesh) => {
+      m.castShadow = true;
+      return m;
     };
-    for (const x of [-0.11, 0.11]) {
-      this.legs.push(
-        add(this.figure, new Mesh(new CapsuleGeometry(0.075, 0.5, 4, 8), trousers), x, 0.62, 0.02),
-      );
+    const put = (parent: Group, m: Mesh, x = 0, y = 0, z = 0) => {
+      m.position.set(x, y, z);
+      parent.add(shade(m));
+      return m;
+    };
+
+    // Torso (chest group pivots at the pelvis).
+    put(this.chest, new Mesh(new SphereGeometry(0.17, 16, 12), pants), 0, 0.02, 0.01).scale.set(
+      1,
+      0.75,
+      0.8,
+    );
+    const torso = put(
+      this.chest,
+      new Mesh(new CapsuleGeometry(0.15, 0.28, 6, 16), jacket),
+      0,
+      0.28,
+      0,
+    );
+    torso.scale.set(1.25, 1, 0.82);
+    const yoke = put(
+      this.chest,
+      new Mesh(new CapsuleGeometry(0.075, 0.3, 4, 12), jacketDark),
+      0,
+      0.44,
+      0.01,
+    );
+    yoke.rotation.z = Math.PI / 2;
+    put(this.chest, new Mesh(new BoxGeometry(0.014, 0.34, 0.012), jacketDark), 0, 0.27, -0.126);
+    put(this.chest, new Mesh(new BoxGeometry(0.05, 0.022, 0.01), accent), 0.07, 0.37, -0.118);
+    put(this.chest, new Mesh(new CylinderGeometry(0.075, 0.095, 0.09, 16), jacket), 0, 0.53, 0);
+
+    // Head: neck gaiter, helmet, goggle strap and a wraparound mirrored lens.
+    const head = new Group();
+    head.position.set(0, 0.67, -0.01);
+    put(head, new Mesh(new SphereGeometry(0.098, 16, 12), gaiter)).scale.set(1, 1.08, 1);
+    const shell = put(
+      head,
+      new Mesh(new SphereGeometry(0.124, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.56), helmet),
+      0,
+      0.022,
+      0.006,
+    );
+    shell.scale.set(1, 0.95, 1.1);
+    const strap = put(
+      head,
+      new Mesh(new TorusGeometry(0.121, 0.013, 6, 32), accent),
+      0,
+      0.01,
+      0.01,
+    );
+    strap.rotation.x = Math.PI / 2;
+    // Cylinder angle 0 points along +z; centre the arc on the face (-z).
+    const arc = (r: number, h: number, span: number, material: MeshStandardNodeMaterial) =>
+      new Mesh(new CylinderGeometry(r, r, h, 24, 1, true, Math.PI - span / 2, span), material);
+    frame.side = DoubleSide;
+    lens.side = DoubleSide;
+    put(head, arc(0.127, 0.066, 2.3, frame), 0, 0.012, 0.004);
+    put(head, arc(0.131, 0.05, 2.0, lens), 0, 0.012, 0.004);
+    this.chest.add(head);
+    this.figure.add(this.chest);
+
+    // Limbs: unit cylinders stretched between joints each frame.
+    const limb = (r1: number, r2: number, material: MeshStandardNodeMaterial) => {
+      const m = shade(new Mesh(new CylinderGeometry(r2, r1, 1, 12), material));
+      this.figure.add(m);
+      return m;
+    };
+    const joint = (r: number, material: MeshStandardNodeMaterial) => {
+      const m = shade(new Mesh(new SphereGeometry(r, 12, 8), material));
+      this.figure.add(m);
+      return m;
+    };
+    for (let i = 0; i < 2; i++) {
+      this.limbs.push({
+        thigh: limb(0.088, 0.074, pants),
+        shin: limb(0.074, 0.078, pants), // flares over the boot
+        knee: joint(0.078, pants),
+        upperArm: limb(0.062, 0.055, jacket),
+        forearm: limb(0.055, 0.05, jacket),
+        elbow: joint(0.058, jacket),
+        cuff: limb(0.052, 0.052, jacketDark),
+      });
     }
-    add(this.upper, new Mesh(new CapsuleGeometry(0.19, 0.38, 4, 10), jacket), 0, 0.33, 0);
-    add(this.upper, new Mesh(new SphereGeometry(0.135, 14, 10), helmet), 0, 0.74, -0.02);
-    add(this.upper, new Mesh(new BoxGeometry(0.2, 0.06, 0.06), goggles), 0, 0.74, -0.13);
-    for (const x of [-0.25, 0.25]) {
-      const arm = add(
-        this.upper,
-        new Mesh(new CapsuleGeometry(0.055, 0.38, 4, 8), jacket),
-        x,
-        0.32,
-        -0.08,
-      );
-      arm.rotation.x = 0.5;
-    }
-    this.upper.position.y = 0.9; // hips
-    this.figure.add(this.upper);
     this.figure.name = 'body';
     this.root.add(this.figure);
 
-    // Poles hang from the hands; their pivot is the grip.
-    for (const side of [-1, 1] as const) {
+    // Poles hang from the hands (gloves on the grips); their pivot is the grip.
+    for (let i = 0; i < 2; i++) {
       const pole = new Group();
-      add(pole, new Mesh(new CylinderGeometry(0.009, 0.006, 1.15, 6), poleShaft), 0, -0.575, 0);
-      add(pole, new Mesh(new CylinderGeometry(0.016, 0.014, 0.13, 8), poleGrip), 0, 0.02, 0);
-      add(pole, new Mesh(new CylinderGeometry(0.045, 0.045, 0.006, 12), poleGrip), 0, -1.05, 0);
-      add(pole, new Mesh(new SphereGeometry(0.03, 8, 6), glove), 0, 0.05, 0);
-      pole.position.set(side * 0.3, 0.98, -0.2);
+      put(pole, new Mesh(new CylinderGeometry(0.009, 0.006, 1.15, 6), poleShaft), 0, -0.575, 0);
+      put(pole, new Mesh(new CylinderGeometry(0.016, 0.014, 0.13, 8), poleGrip), 0, 0.02, 0);
+      put(pole, new Mesh(new CylinderGeometry(0.045, 0.045, 0.006, 12), poleGrip), 0, -1.05, 0);
+      put(pole, new Mesh(new BoxGeometry(0.075, 0.1, 0.07), glove), 0, 0.035, 0);
       this.root.add(pole);
       this.poles.push(pole);
     }
@@ -267,28 +358,93 @@ export class SkierModel {
       const edgeLift = Math.abs(Math.sin(pose.roll)) * 0.06;
       rig.group.position.set(pose.x, pose.lift + edgeLift, pose.z);
       rig.group.rotation.set(0, pose.yaw, pose.roll, 'YXZ');
+      rig.group.updateMatrix();
     };
     place(this.skis.left, stance.left);
     place(this.skis.right, stance.right);
 
-    // Crouch: hips drop, upper body folds forward; the whole body leans into turns.
+    // Ankles sit inside the boots, so they follow the skis (plough, skating, edging).
+    const ankles = [this.skis.left, this.skis.right].map((rig) =>
+      new Vector3(0, ANKLE_HEIGHT, 0.03).applyMatrix4(rig.group.matrix),
+    );
     const c = stance.crouch;
-    this.upper.position.set(0, 0.9 - 0.4 * c, 0.12 * c);
-    // Upper body keeps facing where you look while the skis point elsewhere.
-    this.upper.rotation.set(-0.15 - 0.9 * c, stance.twist, 0, 'YXZ');
-    for (const leg of this.legs) {
-      leg.scale.y = 1 - 0.45 * c;
-      leg.position.y = 0.62 - 0.2 * c;
-      leg.rotation.x = 0.35 * c;
-    }
-    this.figure.rotation.z = stance.lean;
+    const feet = ankles[0]!.clone().add(ankles[1]!).multiplyScalar(0.5);
+    // Pelvis: drops and sits back as you crouch, and swings inside on a lean.
+    const hipHeight = (THIGH + SHIN) * (0.95 - 0.36 * c);
+    const pelvis = new Vector3(
+      feet.x - Math.sin(stance.lean) * hipHeight,
+      feet.y + Math.cos(stance.lean) * hipHeight,
+      feet.z + 0.04 + 0.16 * c,
+    );
+    this.chest.position.copy(pelvis);
+    this.chest.rotation.set(-(0.12 + 0.85 * c), stance.twist, stance.lean * 0.35, 'YXZ');
+    this.chest.updateMatrix();
 
-    // Hands come in and down in a tuck; poles sweep back under the arms.
-    const leanX = Math.sin(stance.lean) * 0.9;
-    this.poles.forEach((pole, i) => {
+    const pelvisTurn = new Quaternion().setFromEuler(
+      new Euler(0, stance.twist * 0.35, stance.lean, 'YXZ'),
+    );
+    this.limbs.forEach((limb, i) => {
       const side = i === 0 ? -1 : 1;
-      pole.position.set(side * (0.3 - 0.12 * c) - leanX, 0.98 - 0.35 * c, -0.2 - 0.15 * c);
+      // Legs: hip to ankle with the knee bending forward.
+      const hip = new Vector3(side * 0.095, -0.03, 0).applyQuaternion(pelvisTurn).add(pelvis);
+      const knee = solveJoint(hip, ankles[i]!, THIGH, SHIN, KNEE_HINT);
+      stretch(limb.thigh, hip, knee);
+      stretch(limb.shin, knee, ankles[i]!);
+      limb.knee.position.copy(knee);
+
+      // Arms: shoulder to hand, elbows out and back. Hands come in front in a tuck.
+      const shoulder = new Vector3(side * 0.2, 0.44, 0).applyMatrix4(this.chest.matrix);
+      const handLocal = new Vector3(side * (0.3 - 0.16 * c), 0.08 + 0.18 * c, -0.3 - 0.12 * c);
+      const hand = handLocal.applyMatrix4(this.chest.matrix);
+      const elbow = solveJoint(shoulder, hand, UPPER_ARM, FOREARM, new Vector3(side, -0.3, 0.6));
+      stretch(limb.upperArm, shoulder, elbow);
+      const wrist = elbow.clone().lerp(hand, 0.85);
+      stretch(limb.forearm, elbow, wrist);
+      stretch(limb.cuff, wrist, hand);
+      limb.elbow.position.copy(elbow);
+
+      const pole = this.poles[i]!;
+      pole.position.copy(hand);
       pole.rotation.set(-stance.poleSweep, 0, side * 0.12 + stance.lean * 0.6);
     });
   }
+}
+
+const ANKLE_HEIGHT = 0.2; // ankle joint above the base of the ski, inside the boot
+const THIGH = 0.43;
+const SHIN = 0.42;
+const UPPER_ARM = 0.3;
+const FOREARM = 0.28;
+const KNEE_HINT = new Vector3(0, 0.2, -1);
+const Y_AXIS = new Vector3(0, 1, 0);
+
+/**
+ * Two-bone IK: where the middle joint goes so bones of length a and b join `from` to
+ * `to`, bending toward `hint`. Out-of-reach targets straighten the limb.
+ */
+export function solveJoint(
+  from: Vector3,
+  to: Vector3,
+  a: number,
+  b: number,
+  hint: Vector3,
+): Vector3 {
+  const offset = to.clone().sub(from);
+  const d = Math.min(Math.max(offset.length(), Math.abs(a - b) + 1e-4), a + b - 1e-4);
+  const along = offset.normalize();
+  const proj = (a * a - b * b + d * d) / (2 * d);
+  const h = Math.sqrt(Math.max(a * a - proj * proj, 0));
+  const perp = hint.clone().addScaledVector(along, -hint.dot(along));
+  if (perp.lengthSq() < 1e-8) perp.set(0, 0, -1);
+  perp.normalize();
+  return from.clone().addScaledVector(along, proj).addScaledVector(perp, h);
+}
+
+/** Point a unit-height cylinder from one joint to another. */
+function stretch(mesh: Mesh, from: Vector3, to: Vector3): void {
+  const dir = to.clone().sub(from);
+  const length = dir.length();
+  mesh.position.copy(from).add(to).multiplyScalar(0.5);
+  mesh.scale.set(1, Math.max(length, 1e-3), 1);
+  mesh.quaternion.setFromUnitVectors(Y_AXIS, dir.divideScalar(length || 1));
 }

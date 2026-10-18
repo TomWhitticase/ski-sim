@@ -37,3 +37,27 @@ describe('createSkiGeometry', () => {
     expect(pos.count).toBe(4 * 65 * 2);
   });
 });
+
+describe('solveJoint', () => {
+  it('keeps both bone lengths and bends toward the hint', async () => {
+    const { solveJoint } = await import('./ski-model');
+    const hip = new Vector3(0, 1, 0);
+    const ankle = new Vector3(0, 0.25, 0.05);
+    const knee = solveJoint(hip, ankle, 0.43, 0.42, new Vector3(0, 0, -1));
+    expect(knee.distanceTo(hip)).toBeCloseTo(0.43, 5);
+    expect(knee.distanceTo(ankle)).toBeCloseTo(0.42, 5);
+    expect(knee.z).toBeLessThan(0); // knee forward
+  });
+
+  it('straightens when the target is out of reach', async () => {
+    const { solveJoint } = await import('./ski-model');
+    const knee = solveJoint(
+      new Vector3(0, 2, 0),
+      new Vector3(0, 0, 0),
+      0.43,
+      0.42,
+      new Vector3(0, 0, -1),
+    );
+    expect(knee.y).toBeCloseTo(2 - 0.43, 2);
+  });
+});
