@@ -86,6 +86,10 @@ export class SkiControls {
     return this.state.velocity.length();
   }
 
+  get velocity(): Vector3 {
+    return this.state.velocity;
+  }
+
   /** Where the skis are (the camera may be behind, in chase view). */
   get feet(): Vector3 {
     return this.state.position;

@@ -1,8 +1,15 @@
 import { uniform } from 'three/tsl';
-import { ACESFilmicToneMapping, PerspectiveCamera, Scene, WebGPURenderer } from 'three/webgpu';
+import {
+  ACESFilmicToneMapping,
+  PerspectiveCamera,
+  Scene,
+  Vector3,
+  WebGPURenderer,
+} from 'three/webgpu';
 
 import { CAMERA, DEFAULT_RESORT, SIM_TIME, TERRAIN } from './config';
 import { FlyControls } from './controls/fly-controls';
+import { GliderControls } from './controls/glider-controls';
 import { Input } from './controls/input';
 import { EYE_HEIGHT, SkiControls } from './controls/ski-controls';
 import { Environment } from './env/environment';
@@ -147,8 +154,10 @@ async function main(): Promise<void> {
     bounds,
   );
   scene.add(ski.skier);
+  const glider = new GliderControls(camera, groundHeight, bounds);
+  scene.add(glider.root);
   let mode: Mode = loadMode();
-  const controls = () => (mode === 'ski' ? ski : fly);
+  const controls = () => (mode === 'ski' ? ski : mode === 'glide' ? glider : fly);
   const spawn: Pose = { ...manifest.spawn, pitch: -8 };
   const inBounds = (p: Pose) =>
     p.east > farExtent.west + 500 &&
@@ -159,7 +168,7 @@ async function main(): Promise<void> {
   let lastSaved: Pose | null = null;
   const currentPose = (): Pose => {
     // In ski mode, track the skier rather than a chase camera behind them.
-    const at = mode === 'ski' ? ski.feet : fly.position;
+    const at = mode === 'ski' ? ski.feet : mode === 'glide' ? glider.position : fly.position;
     const { east, north } = worldToEnu(at.x, at.z);
     return {
       east,
@@ -264,28 +273,38 @@ async function main(): Promise<void> {
     view = next;
     fly.view = view;
     ski.setView(view);
+    glider.setView(view);
     document.body.classList.toggle('chase', view === 'chase');
     localStorage.setItem(VIEW_KEY, view);
   };
   setView(view);
   const setMode = (next: Mode) => {
     const pose = currentPose();
+    // Ski and glide poses track the feet; fly mode's is the eye.
+    const eye = mode === 'fly' ? pose : { ...pose, altitude: pose.altitude + EYE_HEIGHT };
+    // Momentum carries across every switch (fly → glide, ski → glide, glide → ski...).
+    const velocity = (
+      mode === 'ski' ? ski.velocity : mode === 'glide' ? glider.velocity : fly.currentVelocity
+    ).clone();
+    const look = controls().look;
     mode = next;
     if (mode === 'ski') {
-      // Start right where you are, carrying your flying momentum; gravity does the rest.
-      ski.place(pose, fly.currentVelocity);
+      ski.place(eye, velocity);
+    } else if (mode === 'glide') {
+      const feet = eye.altitude - EYE_HEIGHT;
+      glider.launch(new Vector3(eye.east, feet, -eye.north), velocity, look.yaw, look.pitch);
     } else {
-      // Ski poses track the feet; fly mode's camera is at eye height.
-      fly.place({ ...pose, altitude: pose.altitude + EYE_HEIGHT });
+      fly.place(eye);
     }
     ski.setActive(mode === 'ski');
+    glider.setActive(mode === 'glide');
     hud.setMode(mode);
-    document.body.classList.toggle('skiing', mode === 'ski');
+    document.body.classList.toggle('skiing', mode !== 'fly');
     speedReset = true;
     localStorage.setItem(MODE_KEY, mode);
   };
   hud.setMode(mode);
-  document.body.classList.toggle('skiing', mode === 'ski');
+  document.body.classList.toggle('skiing', mode !== 'fly');
   const openMap = () => {
     if (document.pointerLockElement) document.exitPointerLock();
     worldMap.open(currentPose());
@@ -323,7 +342,10 @@ async function main(): Promise<void> {
     } else if (e.code === 'Escape' && worldMap.isOpen) {
       closeMap(false);
     } else if (e.code === 'KeyF' && !e.repeat && !worldMap.isOpen) {
-      setMode(mode === 'ski' ? 'fly' : 'ski');
+      setMode(mode === 'fly' ? 'ski' : 'fly');
+    } else if (e.code === 'KeyP' && !e.repeat && !worldMap.isOpen) {
+      // Deploy the paraglider (keeping your momentum), or drop it and ski.
+      setMode(mode === 'glide' ? 'ski' : 'glide');
     } else if (e.code === 'KeyV' && !e.repeat) {
       setView(view === 'first-person' ? 'chase' : 'first-person');
     } else if (e.code === 'F3') {
@@ -333,7 +355,7 @@ async function main(): Promise<void> {
       toggleLabels('lift');
     } else if (e.code === 'KeyO' && !e.repeat) {
       togglePisteColours();
-    } else if (e.code === 'KeyP' && !e.repeat) {
+    } else if (e.code === 'KeyN' && !e.repeat) {
       toggleLabels('peak');
     }
   });
@@ -366,7 +388,8 @@ async function main(): Promise<void> {
     // The fullscreen map covers everything; skip 3D work while it's open.
     if (worldMap.isOpen) return;
 
-    controls().update(dt, input);
+    const landed = controls().update(dt, input);
+    if (mode === 'glide' && landed) setMode('ski');
     if (mode === 'fly') {
       // Third-person flying shows your skier hovering where you are.
       if (view === 'chase') ski.showFlying(fly.position, fly.look.yaw);
@@ -374,7 +397,7 @@ async function main(): Promise<void> {
     }
     input.endFrame();
     // Your position (fly eye or skier's feet), not the camera, which may be behind you.
-    const pos = mode === 'ski' ? ski.feet : fly.position;
+    const pos = mode === 'ski' ? ski.feet : mode === 'glide' ? glider.position : fly.position;
     if (speedReset) {
       speed = 0;
       speedReset = false;
@@ -401,7 +424,8 @@ async function main(): Promise<void> {
     const here = pos;
     const { east, north } = worldToEnu(here.x, here.z);
     const { lat, lon } = frame.toLatLon(east, north);
-    hud.update({ altitude: here.y, lat, lon, speed: mode === 'ski' ? ski.speed : speed });
+    const ownSpeed = mode === 'ski' ? ski.speed : mode === 'glide' ? glider.speed : speed;
+    hud.update({ altitude: here.y, lat, lon, speed: ownSpeed });
     // Which run is underfoot (only meaningful near the snow).
     const nearSnow = here.y - groundHeight(here.x, here.z) < 60;
     const piste = nearSnow ? pisteLookup.at(east, north) : null;
@@ -424,9 +448,11 @@ async function main(): Promise<void> {
         `${fps.toFixed(0)} fps · ${backend} · render scale ${resolution.ratio.toFixed(2)}`,
         `draw calls ${info.drawCalls} · triangles ${(info.triangles / 1e6).toFixed(2)}M`,
         `E ${east.toFixed(1)}  N ${north.toFixed(1)}  ground ${groundHeight(pos.x, pos.z).toFixed(1)} m`,
-        mode === 'ski'
-          ? `heading ${ski.heading.toFixed(1)}° · ski ${(ski.speed * 3.6).toFixed(0)} km/h${ski.airborne ? ' (air)' : ''} · ${ski.view}`
-          : `heading ${fly.heading.toFixed(1)}° · fly speed ${fly.speed.toFixed(0)} m/s${fly.sprinting ? ' (sprint)' : ''}`,
+        mode === 'glide'
+          ? `heading ${glider.heading.toFixed(1)}° · glide ${(glider.speed * 3.6).toFixed(0)} km/h · vario ${glider.velocity.y.toFixed(1)} m/s`
+          : mode === 'ski'
+            ? `heading ${ski.heading.toFixed(1)}° · ski ${(ski.speed * 3.6).toFixed(0)} km/h${ski.airborne ? ' (air)' : ''} · ${ski.view}`
+            : `heading ${fly.heading.toFixed(1)}° · fly speed ${fly.speed.toFixed(0)} m/s${fly.sprinting ? ' (sprint)' : ''}`,
         `sun az ${environment.sun.azimuth.toFixed(1)}° el ${environment.sun.elevation.toFixed(1)}°`,
       ].join('\n');
     }
@@ -455,12 +481,14 @@ function poseFromUrl(params: URLSearchParams, frame: LocalFrame, spawn: Pose): P
   };
 }
 
-type Mode = 'fly' | 'ski';
+type Mode = 'fly' | 'ski' | 'glide';
 const MODE_KEY = 'mountain-map.mode';
 const VIEW_KEY = 'mountain-map.view';
 
 function loadMode(): Mode {
-  return localStorage.getItem(MODE_KEY) === 'ski' ? 'ski' : 'fly';
+  // A reload mid-flight drops you into ski mode (you fall and land).
+  const saved = localStorage.getItem(MODE_KEY);
+  return saved === 'ski' || saved === 'glide' ? 'ski' : 'fly';
 }
 
 const PREFS_KEY = 'mountain-map.labels';

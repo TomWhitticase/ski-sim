@@ -142,6 +142,13 @@ There are two layers. **Near** is lidar at 4 m covering the ski area. **Far** is
 
 Difficulty codes are 1 green (novice), 2 blue (easy), 3 red (intermediate), 4/5 black, 6 freeride. Freeride itineraries (and `piste:grooming=backcountry`) count as off-piste: no overlay and no markers.
 
+### Paraglider
+
+P deploys a paraglider from fly or ski mode, keeping your velocity; P again drops the wing (ski mode, falling), and touching down switches to ski mode automatically.
+- `controls/glider-physics.ts` (pure, unit-tested) uses real intermediate-wing numbers: trim ~38 km/h at 1.1 m/s sink, speed bar (W), brakes (S), bank to turn (A/D) at g·tan(bank)/v with extra sink. Speed changes trade height by energy balance, so a fast launch zooms up and a slow one dives.
+- `controls/glider-controls.ts` builds the canopy (vertex-coloured cells), the lines and a seated pilot (a second `SkierModel`).
+- Peak names moved from P to N.
+
 ### Lifts and buildings
 
 Both come from OSM through Overpass (`sources/osm.py`). The response is cached under `data/raw/osm/`; delete the cache to refresh.

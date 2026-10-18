@@ -37,10 +37,11 @@ export class Hud {
       <div class="hud-row hud-piste"><span class="hud-label">RUN</span><span data-piste><i></i><span></span></span></div>
       <div class="hud-toggles">
         <div class="hud-toggle" data-toggle="lift"><kbd>L</kbd> Lift names <b></b></div>
-        <div class="hud-toggle" data-toggle="peak"><kbd>P</kbd> Peak names <b></b></div>
+        <div class="hud-toggle" data-toggle="peak"><kbd>N</kbd> Peak names <b></b></div>
         <div class="hud-toggle" data-toggle="pistes"><kbd>O</kbd> Piste colours <b></b></div>
         <div class="hud-toggle"><kbd>M</kbd> Map &amp; teleport</div>
         <div class="hud-toggle"><kbd>F</kbd> Fly / ski</div>
+        <div class="hud-toggle"><kbd>P</kbd> Paraglider</div>
         <div class="hud-toggle"><kbd>V</kbd> Camera</div>
       </div>
     `;
@@ -76,8 +77,8 @@ export class Hud {
     row.querySelector('[data-piste] span')!.textContent = piste.name;
   }
 
-  setMode(mode: 'fly' | 'ski'): void {
-    this.root.querySelector('[data-mode]')!.textContent = mode === 'ski' ? 'SKI' : 'FLY';
+  setMode(mode: 'fly' | 'ski' | 'glide'): void {
+    this.root.querySelector('[data-mode]')!.textContent = mode.toUpperCase();
   }
 
   update(state: HudState): void {

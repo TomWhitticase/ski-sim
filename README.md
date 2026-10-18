@@ -25,7 +25,8 @@ Open http://localhost:5173 and click **Click to fly**. Your position is remember
 | Ctrl | Sprint |
 | Space / Shift | Up / down |
 | Mouse | Look |
-| L / P | Toggle lift / peak names |
+| L / N | Toggle lift / peak names |
+| P | Paraglider: deploy / release (A/D bank, W speed bar, S brakes) |
 | M | Map: search pistes/lifts/peaks, click to teleport |
 | O | Piste colours on the snow |
 | **Ski mode** | Mouse or A/D steer · W skate · Ctrl tuck · Shift snowplough · hold S + A/D to pivot the skis (hockey stop) · Space jump · V camera |

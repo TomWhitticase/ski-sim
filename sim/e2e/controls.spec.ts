@@ -103,7 +103,7 @@ test('mouse turns the view', async ({ page }) => {
   expect(Math.abs(after.lat - before.lat)).toBeLessThan(0.0002);
 });
 
-test('L and P toggle lift and peak names, and the choice persists', async ({ page }) => {
+test('L and N toggle lift and peak names, and the choice persists', async ({ page }) => {
   await startFlying(page, 'at=45.2981,6.5803,2700&heading=200&pitch=-8');
   const shown = (kind: string) => page.locator(`#labels .label-${kind}:not([hidden])`).count();
   const toggle = (kind: string) => page.locator(`#hud [data-toggle="${kind}"] b`);
@@ -119,7 +119,7 @@ test('L and P toggle lift and peak names, and the choice persists', async ({ pag
   expect(await shown('peak')).toBeGreaterThan(3);
   await expect(toggle('lift')).toHaveText('OFF');
 
-  await page.keyboard.press('KeyP');
+  await page.keyboard.press('KeyN');
   await page.waitForTimeout(200);
   expect(await shown('peak')).toBe(0);
 
