@@ -137,3 +137,36 @@ test('carving tilts the skis onto their edges', async ({ page }) => {
   await page.screenshot({ path: 'test-results/views/ski-carve-chase.png' });
   await page.keyboard.up('KeyA');
 });
+
+test('S + A swings the skis sideways for a hockey stop while you keep facing downhill', async ({
+  page,
+}) => {
+  await start(page, SLOPE);
+  await page.keyboard.press('KeyF');
+  await page.waitForTimeout(4500); // build up speed
+  const before = await hudNumber(page, 'speed');
+  expect(before).toBeGreaterThan(30);
+  const camYaw = () =>
+    page.evaluate(() => {
+      const cam = (window.__sim as unknown as { camera: import('three').Camera }).camera;
+      const d = new (cam.position.constructor as typeof import('three').Vector3)();
+      cam.getWorldDirection(d);
+      return Math.atan2(d.x, -d.z);
+    });
+  const facing = await camYaw();
+
+  await page.keyboard.down('KeyS');
+  await page.keyboard.down('KeyA');
+  await page.waitForTimeout(450); // ~90° of ski swing
+  await page.keyboard.up('KeyA');
+  await page.keyboard.press('KeyV');
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: 'test-results/views/ski-hockey-stop.png' });
+  await page.waitForTimeout(2300); // a real hockey stop from ~50 km/h on 21° takes 2-3 s
+  expect(await hudNumber(page, 'speed')).toBeLessThan(before * 0.25);
+  await page.keyboard.press('KeyV');
+  await page.waitForTimeout(100);
+  // View still points the same way (within the drift of the slide).
+  expect(Math.abs((await camYaw()) - facing)).toBeLessThan(0.3);
+  await page.keyboard.up('KeyS');
+});

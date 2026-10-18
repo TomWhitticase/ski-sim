@@ -88,3 +88,13 @@ describe('skating edges', () => {
     expect(rightPush.right.roll).toBeGreaterThan(0);
   });
 });
+
+describe('hockey stop', () => {
+  it('digs in the edge facing the slide and keeps the upper body twisted', () => {
+    // Skis sideways, sliding toward the skis' right at 10 m/s.
+    const t = targetStance({ ...cruising, sideslip: 10, twist: 1.4 }, 0);
+    expect(t.left.roll).toBeLessThan(-0.5); // right edges down
+    expect(t.right.roll).toBeLessThan(-0.5);
+    expect(t.twist).toBe(1.4);
+  });
+});

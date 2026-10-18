@@ -14,6 +14,12 @@ const CROUCH_DROP = 0.6;
 /** Skating animates up to this speed; above it you're gliding, not striding. */
 const SKATE_ANIM_MAX = 8;
 const TURN_RATE = 1.8; // rad/s with A/D
+/** How fast A/D swing the skis while S holds the upper body (rad/s). */
+const PIVOT_RATE = 3.5;
+/** How quickly the skis swing back under you when S is released (1/s). */
+const REALIGN_RATE = 6;
+/** Most the skis can be twisted away from where you face (rad). */
+const MAX_TWIST = (110 * Math.PI) / 180;
 const CHASE_DISTANCE = 7;
 const UP = new Vector3(0, 1, 0);
 const ZERO = new Vector3();
@@ -22,7 +28,9 @@ export type SkiCamera = 'first-person' | 'chase';
 
 /**
  * Ski mode: mouse looks and steers (skis point where you look), A/D also turn,
- * W skates, Ctrl tucks, Shift (or S) snowploughs, Space jumps, V swaps camera.
+ * W skates, Ctrl tucks, Shift snowploughs, Space jumps, V swaps camera.
+ * Holding S locks the upper body to where you face and lets A/D swing just the skis,
+ * e.g. sideways across your path for a hockey stop.
  */
 export class SkiControls {
   readonly look = new Look(FLY.mouseSensitivity);
@@ -44,6 +52,8 @@ export class SkiControls {
   /** Smoothed rate the direction of travel is turning (rad/s, > 0 = left). */
   private turnRate = 0;
   private travelYaw = 0;
+  /** Direction the skis point (Look.yaw convention); can differ from the view while S is held. */
+  private skiYaw = 0;
 
   constructor(
     private readonly camera: PerspectiveCamera,
@@ -93,7 +103,8 @@ export class SkiControls {
     }
     this.look.heading = pose.heading;
     this.look.pitchDegrees = Math.min(pose.pitch, 10);
-    this.state.yaw = this.look.yaw;
+    this.skiYaw = this.look.yaw;
+    this.state.yaw = this.skiYaw;
     this.updateCamera();
   }
 
@@ -115,11 +126,20 @@ export class SkiControls {
   update(dt: number, input: Input): void {
     this.look.apply(input, (80 * Math.PI) / 180);
     const turn = (input.down('KeyA') ? 1 : 0) - (input.down('KeyD') ? 1 : 0);
-    this.look.yaw += turn * TURN_RATE * dt;
-    this.state.yaw = this.look.yaw;
+    const pivot = input.down('KeyS');
+    if (pivot) {
+      // Upper body stays put; only the skis swing.
+      const twist = wrapAngle(this.skiYaw + turn * PIVOT_RATE * dt - this.look.yaw);
+      this.skiYaw = this.look.yaw + Math.max(-MAX_TWIST, Math.min(MAX_TWIST, twist));
+    } else {
+      this.look.yaw += turn * TURN_RATE * dt;
+      const twist = wrapAngle(this.skiYaw - this.look.yaw);
+      this.skiYaw = this.look.yaw + twist * Math.exp(-REALIGN_RATE * dt);
+    }
+    this.state.yaw = this.skiYaw;
 
     const tuck = input.down('ControlLeft', 'ControlRight');
-    const plough = input.down('ShiftLeft', 'ShiftRight', 'KeyS');
+    const plough = input.down('ShiftLeft', 'ShiftRight');
     const skate = input.down('KeyW') && !tuck && !plough;
     stepSki(
       this.state,
@@ -149,10 +169,14 @@ export class SkiControls {
     } else {
       this.turnRate *= Math.exp(-dt * 6);
     }
+    // Sideways slide relative to the skis (m/s, > 0 = sliding toward the skis' right).
+    const sideslip = v.x * Math.cos(this.skiYaw) - v.z * Math.sin(this.skiYaw);
     updateStance(
       this.stance,
       {
         speed,
+        sideslip,
+        twist: wrapAngle(this.look.yaw - this.skiYaw),
         turnRate: this.turnRate,
         plough,
         skate: skate && speed < SKATE_ANIM_MAX,
@@ -191,9 +215,13 @@ export class SkiControls {
     // Stand on the slope, facing the skis.
     surfaceNormal(this.terrain, p.x, p.z, this.normal);
     this.q.setFromUnitVectors(UP, this.normal);
-    this.qYaw.setFromAxisAngle(UP, this.look.yaw);
+    this.qYaw.setFromAxisAngle(UP, this.skiYaw);
     this.skier.position.copy(p);
     this.skier.quaternion.copy(this.q).multiply(this.qYaw);
     this.model.apply(this.stance);
   }
+}
+
+function wrapAngle(a: number): number {
+  return Math.atan2(Math.sin(a), Math.cos(a));
 }

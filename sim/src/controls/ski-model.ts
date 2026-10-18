@@ -274,7 +274,8 @@ export class SkierModel {
     // Crouch: hips drop, upper body folds forward; the whole body leans into turns.
     const c = stance.crouch;
     this.upper.position.set(0, 0.9 - 0.4 * c, 0.12 * c);
-    this.upper.rotation.x = -0.15 - 0.9 * c;
+    // Upper body keeps facing where you look while the skis point elsewhere.
+    this.upper.rotation.set(-0.15 - 0.9 * c, stance.twist, 0, 'YXZ');
     for (const leg of this.legs) {
       leg.scale.y = 1 - 0.45 * c;
       leg.position.y = 0.62 - 0.2 * c;

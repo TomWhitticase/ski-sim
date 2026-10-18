@@ -22,8 +22,8 @@ export const SKI = {
   dragTuck: 0.0018,
   /** How quickly velocity direction swings toward the skis (1/s). */
   carveRate: 2.8,
-  /** Deceleration at a full sideways skid (m/s²). */
-  skidDecel: 5,
+  /** Deceleration at a full sideways skid (m/s²): a hockey stop bites at ~0.7 g. */
+  skidDecel: 8,
   /** Snowplough braking (m/s²). */
   brakeDecel: 4,
   /** Skating: strong enough to get moving on the flat, useless once you're quick. */
@@ -122,7 +122,10 @@ function substep(state: SkiState, intent: SkiIntent, h: number, terrain: SkiTerr
     dir.copy(v).divideScalar(speed);
     const cos = Math.min(1, Math.abs(dir.dot(target)));
     const sideways = Math.sqrt(1 - cos * cos);
-    dir.lerp(target, 1 - Math.exp(-SKI.carveRate * h)).normalize();
+    // Skis grip and steer when roughly aligned (carving); the further across the path they
+    // are, the more they just scrape sideways instead (skidding, hockey stop).
+    const grip = cos * cos;
+    dir.lerp(target, 1 - Math.exp(-SKI.carveRate * grip * h)).normalize();
 
     const groomed = terrain.groomed?.(p.x, p.z) ?? true;
     const friction = groomed ? SKI.snowFriction : SKI.powderFriction;

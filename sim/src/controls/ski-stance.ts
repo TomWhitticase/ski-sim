@@ -25,6 +25,8 @@ export interface Stance {
   crouch: number;
   /** Body lean into the turn (rad, > 0 leans left). */
   lean: number;
+  /** Upper body rotation relative to the skis (rad, > 0 = facing left of the skis). */
+  twist: number;
   /** Skating stride phase (rad), advancing while skating. */
   skatePhase: number;
   /** Pole angle back from vertical (rad); tucked poles lie almost flat. */
@@ -36,6 +38,10 @@ export interface StanceInput {
   speed: number;
   /** Rate the skier is turning (rad/s, > 0 = turning left). */
   turnRate: number;
+  /** Speed sliding sideways relative to the skis (m/s, > 0 = toward the skis' right). */
+  sideslip?: number;
+  /** Where the upper body faces relative to the skis (rad). */
+  twist?: number;
   plough: boolean;
   skate: boolean;
   tuck: boolean;
@@ -62,6 +68,7 @@ export function initialStance(): Stance {
     right: flat(STANCE_WIDTH),
     crouch: 0,
     lean: 0,
+    twist: 0,
     skatePhase: 0,
     poleSweep: 0.35,
   };
@@ -76,7 +83,11 @@ export function carveEdgeAngle(speed: number, turnRate: number): number {
 
 /** The pose to aim for this instant. */
 export function targetStance(input: StanceInput, skatePhase: number): Omit<Stance, 'skatePhase'> {
-  const edge = input.airborne ? 0 : carveEdgeAngle(input.speed, input.turnRate);
+  // Skidding sideways, the skis bite on the edge facing the slide (a hockey stop).
+  const skid = Math.max(-0.75, Math.min(0.75, -(input.sideslip ?? 0) * 0.12));
+  const edge = input.airborne
+    ? 0
+    : Math.max(-MAX_EDGE, Math.min(MAX_EDGE, carveEdgeAngle(input.speed, input.turnRate) + skid));
   // Inside ski leads a little in a carve and the stance widens with edge angle.
   const lead = Math.abs(edge) * 0.12 * Math.sign(edge);
   const width = STANCE_WIDTH + Math.abs(edge) * 0.08;
@@ -91,7 +102,7 @@ export function targetStance(input: StanceInput, skatePhase: number): Omit<Stanc
 
   let left = carve(-1);
   let right = carve(1);
-  let crouch = input.tuck ? 1 : Math.min(Math.abs(edge) / MAX_EDGE, 1) * 0.35;
+  let crouch = input.tuck ? 1 : Math.min(Math.abs(edge) / MAX_EDGE, 1) * 0.45;
   let poleSweep = input.tuck ? 1.35 : 0.35;
 
   if (input.plough && !input.airborne) {
@@ -122,7 +133,7 @@ export function targetStance(input: StanceInput, skatePhase: number): Omit<Stanc
   }
 
   if (input.airborne) crouch = Math.max(crouch, 0.4);
-  return { left, right, crouch, lean: edge * 0.85, poleSweep };
+  return { left, right, crouch, lean: edge * 0.85, twist: input.twist ?? 0, poleSweep };
 }
 
 /** Move `stance` toward the target for this input over `dt` seconds. */
@@ -143,5 +154,6 @@ export function updateStance(stance: Stance, input: StanceInput, dt: number): vo
   ease(stance.right, target.right);
   stance.crouch += (target.crouch - stance.crouch) * k;
   stance.lean += (target.lean - stance.lean) * k;
+  stance.twist = target.twist; // already smooth: follows the controls directly
   stance.poleSweep += (target.poleSweep - stance.poleSweep) * k;
 }
