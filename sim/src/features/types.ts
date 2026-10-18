@@ -25,6 +25,13 @@ export interface Lift {
   vertical: number;
   /** Bottom station first. */
   supports: LiftSupport[];
+  /** Published specs from OSM, where tagged. */
+  occupancy?: number | null;
+  /** People per hour. */
+  capacity?: number | null;
+  /** Ride time in seconds. */
+  duration?: number | null;
+  bubble?: boolean;
 }
 
 export interface Building {

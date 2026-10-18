@@ -101,7 +101,8 @@ sim/src/
   main.ts             Bootstrap and frame loop
   config.ts           Sim-wide tunables (time of day, fly speeds, LOD, minimap zoom)
   terrain/            Chunked LOD terrain, normal-map texture, TSL snow/rock material
-  features/           Lifts (instanced towers/arms/cables/stations) and extruded buildings
+  features/           Extruded buildings
+  lifts/              Lift operation model, carriers, lift system (statics + moving carriers), riding
   env/                Sky, sun position, lights, cascaded shadows, fog
   render/             Adaptive resolution (render scale follows frame time)
   controls/           Shared input + mouse look; fly mode; ski mode (ski-physics.ts is pure and unit-tested)
@@ -157,6 +158,12 @@ P deploys a paraglider from fly or ski mode, keeping your velocity; P again drop
 - `controls/glider-controls.ts` builds the canopy (vertex-coloured cells), the lines and a seated pilot (a second `SkierModel`).
 - Peak names moved from P to N.
 
+### Lift operation and riding
+
+- `lifts/operation.ts` (pure, unit-tested) gives speed, carrier spacing and count from OSM specs (`aerialway:duration/occupancy/capacity`, parsed by the pipeline) with typical fallbacks. Loop lifts run continuously; cable cars run as jig-backs (two cabins, 45 s dwell).
+- `lifts/lift-system.ts`: towers, crossarms, sheave trains, bullwheels, ropes and stations are static instances. Carriers are one InstancedMesh per type and seat count, all updated each frame (~3.6k carriers at 60 fps).
+- `lifts/ride.ts`: press E within 35 m of a bottom station to board the next carrier (cable cars: wait for the cabin). Hold W to fast-forward the lift clock (×8). You're unloaded at the top in ski mode, moving; E mid-ride jumps off.
+
 ### Lifts and buildings
 
 Both come from OSM through Overpass (`sources/osm.py`). The response is cached under `data/raw/osm/`; delete the cache to refresh.
@@ -182,7 +189,7 @@ Known limits:
 - 4 m data looks soft at ground level, though a tiling procedural snow-detail normal map (`terrain/snow-detail.ts`) adds texture within ~400 m. Skiing will need finer tiles streamed near the camera.
 - There's no texture/imagery drape yet. Snow vs rock is decided by slope.
 - Pistes use default widths, so edges are approximate where OSM has no area polygon.
-- Lifts are static: no chairs or cabins. Cables are straight with no sag. Building roofs are flat, and multipolygon buildings (courtyards) are skipped.
+- Lift cables are straight with no sag. Carriers jump between tracks at the bullwheel instead of going round it, and don't slow in stations. Building roofs are flat, and multipolygon buildings (courtyards) are skipped.
 
 Large binaries (DEMs, imagery, meshes) are never committed directly. Generate them through the pipeline. If shared assets ever have to live in the repo, use Git LFS.
 

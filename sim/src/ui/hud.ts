@@ -78,8 +78,9 @@ export class Hud {
     row.querySelector('[data-piste] span')!.textContent = piste.name;
   }
 
-  setMode(mode: 'fly' | 'ski' | 'glide'): void {
-    this.root.querySelector('[data-mode]')!.textContent = mode.toUpperCase();
+  setMode(mode: 'fly' | 'ski' | 'glide' | 'ride'): void {
+    this.root.querySelector('[data-mode]')!.textContent =
+      mode === 'ride' ? 'LIFT' : mode.toUpperCase();
   }
 
   update(state: HudState): void {

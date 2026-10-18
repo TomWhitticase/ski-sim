@@ -94,3 +94,28 @@ def test_peaks_snap_to_summit_and_filter_far_minor_peaks():
     assert by_name["Near"]["east"] == pytest.approx(20)
     assert by_name["Near"]["ground"] == 2500
     assert by_name["Near"]["ele"] == 2501
+
+
+@pytest.mark.parametrize(
+    ("value", "seconds"),
+    [("04:45", 285), ("3", 180), ("12", 720), ("1:02:00", 3720), ("abc", None), (None, None)],
+)
+def test_parse_duration(value, seconds):
+    from mountain_pipeline.features import parse_duration
+
+    assert parse_duration(value) == seconds
+
+
+def test_lift_specs():
+    from mountain_pipeline.features import lift_specs
+
+    specs = lift_specs(
+        {
+            "aerialway:occupancy": "6",
+            "aerialway:capacity": "4000",
+            "aerialway:duration": "04:45",
+            "aerialway:bubble": "no",
+        }
+    )
+    assert specs == {"occupancy": 6, "capacity": 4000.0, "duration": 285.0, "bubble": False}
+    assert lift_specs({})["occupancy"] is None

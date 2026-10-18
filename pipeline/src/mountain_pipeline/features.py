@@ -168,9 +168,46 @@ def extract_lifts(
                 "length": round(length, 1),
                 "vertical": round(supports[-1]["ground"] - supports[0]["ground"], 1),
                 "supports": [_round(s) for s in supports],
+                **lift_specs(tags),
             }
         )
     return lifts
+
+
+def parse_duration(value: str | None) -> float | None:
+    """OSM aerialway:duration in seconds. Bare numbers are minutes; "mm:ss" or
+    "hh:mm:ss" are clock style."""
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        if ":" in value:
+            parts = [float(p) for p in value.split(":")]
+            seconds = 0.0
+            for part in parts:
+                seconds = seconds * 60 + part
+            return seconds
+        return float(value.replace(",", ".")) * 60
+    except ValueError:
+        return None
+
+
+def lift_specs(tags: dict) -> dict:
+    """Published operating specs from OSM, where tagged (None otherwise)."""
+
+    def number(key: str) -> float | None:
+        try:
+            return float(tags[key].replace(",", "."))
+        except (KeyError, ValueError):
+            return None
+
+    occupancy = number("aerialway:occupancy")
+    return {
+        "occupancy": int(occupancy) if occupancy else None,
+        "capacity": number("aerialway:capacity"),
+        "duration": parse_duration(tags.get("aerialway:duration")),
+        "bubble": tags.get("aerialway:bubble") == "yes",
+    }
 
 
 # --- Buildings ---------------------------------------------------------------------------

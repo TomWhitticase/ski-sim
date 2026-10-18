@@ -483,3 +483,21 @@ body.map-open #overlay {
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
+
+#prompt {
+  position: fixed;
+  left: 50%;
+  bottom: 48px;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: rgba(14, 20, 30, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  font-size: 14px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+#prompt[hidden] {
+  display: none;
+}

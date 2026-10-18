@@ -29,6 +29,7 @@ const MAX_BALANCE_ACCEL = 1.3 * SKI.gravity;
 const BALANCE_RATE = 6;
 const ZERO = new Vector3();
 const FLYING_STANCE = initialStance();
+const RIDING_STANCE = initialStance();
 /** In fly mode your character is shown see-through. */
 const FLYING_OPACITY = 0.45;
 
@@ -141,6 +142,22 @@ export class SkiControls {
   setView(view: SkiCamera): void {
     this.view = view;
     this.applyView();
+  }
+
+  groundAt(x: number, z: number): number {
+    return this.terrain.height(x, z);
+  }
+
+  /** Pose the skier riding a lift: `crouch` ~0.6 seated on a chair, ~0.15 standing. */
+  showRiding(feet: Vector3, yaw: number, crouch: number): void {
+    this.skier.visible = true;
+    this.model.setOpacity(1);
+    this.model.setFirstPerson(this.view === 'first-person');
+    this.skier.position.copy(feet);
+    this.skier.quaternion.setFromAxisAngle(UP, yaw);
+    RIDING_STANCE.crouch = crouch;
+    RIDING_STANCE.poleSweep = crouch > 0.5 ? 1.1 : 0.4;
+    this.model.apply(RIDING_STANCE, UP);
   }
 
   /** World positions of the two skis (after this frame's pose). */
