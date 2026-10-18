@@ -47,6 +47,14 @@ Don't consider visual work done until you've looked at it. `pnpm screenshot` ren
 
 Accuracy checks belong in automated tests, not eyeballing. The pipeline compares DEM summit heights against the `landmarks` in each resort config and records the errors in the manifest. Val Thorens summits are currently within ~1–6 m.
 
+### Station audit
+
+`pnpm station-audit` (needs `pnpm dev` running; `--port` or `SIM_PORT` if it's not on 5173) renders every lift terminal from four angles (front, side, behind, top-down) into `sim/test-results/station-audit/index.html`, a contact sheet with failing stations first, plus `report.json`.
+- **Failing** means a static check in `sim/scripts/station-checks.mjs` failed (a tower inside the hall, or an exit rope steeper than 18° to the next support), or a `LiftSystem.check()` problem or console error names the lift. Add new checks to `CHECKS` in that module.
+- **Selection:** by default it renders every failing terminal plus `--sample N` (8) passing ones. `--lift "<regex>"` renders all matching terminals; `--all`, `--failing-only` and `--limit N` are also available. Other options: `--resort <id>`, `--out <dir>`.
+- **Speed:** ~0.8 s a shot. One page loads the sim once, then teleports the camera by hooking the dev-exposed camera, and falls back to a reload if the hook stops working. `--reload` forces a reload for every shot.
+- **Occlusion:** side and behind views try mirrored, further-out and higher candidates and keep the one buildings hide least. Captions show how much of each view is still hidden.
+
 When something renders wrong, isolate it before guessing. Tinting each terrain layer a flat colour (near vs far) quickly shows which layer, or which gap, is at fault.
 
 ## Core principles
