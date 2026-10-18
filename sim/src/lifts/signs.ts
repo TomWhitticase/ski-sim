@@ -17,13 +17,21 @@ import {
 
 import { liftTypeName } from '../nav/places';
 import type { LiftLine } from './lift-system';
+import { checkSign, placeSign } from './sign-placement';
 
 const CELL_W = 1024;
 const CELL_H = 192;
-const COLUMNS = 2;
+/** Keep the atlas within GPU texture limits (8192 px is the WebGPU default). */
+const MAX_ATLAS = 8192;
+
+/** Grid for `count` sign cells: roughly square, so it stays under the size limit. */
+export function atlasLayout(count: number): { columns: number; rows: number; scale: number } {
+  const columns = Math.max(1, Math.ceil(Math.sqrt((count * CELL_H) / CELL_W)));
+  const rows = Math.max(1, Math.ceil(count / columns));
+  const scale = Math.min(1, MAX_ATLAS / (columns * CELL_W), MAX_ATLAS / (rows * CELL_H));
+  return { columns, rows, scale };
+}
 const BOARD = { width: 11, height: 2.1 };
-/** Board centre above the station's ground (m). */
-const MOUNT_HEIGHT = 8;
 
 /** Text for the second line of a sign, e.g. "Chairlift · 6 seats · 1,410 m". */
 export function signSubtitle(line: LiftLine): string {
@@ -34,11 +42,12 @@ export function signSubtitle(line: LiftLine): string {
 }
 
 function drawAtlas(lines: LiftLine[]): CanvasTexture {
-  const rows = Math.ceil(lines.length / COLUMNS);
+  const { columns: COLUMNS, rows, scale } = atlasLayout(lines.length);
   const canvas = document.createElement('canvas');
-  canvas.width = CELL_W * COLUMNS;
-  canvas.height = CELL_H * Math.max(rows, 1);
+  canvas.width = Math.floor(CELL_W * COLUMNS * scale);
+  canvas.height = Math.floor(CELL_H * rows * scale);
   const ctx = canvas.getContext('2d')!;
+  ctx.scale(scale, scale);
   lines.forEach((line, i) => {
     const x = (i % COLUMNS) * CELL_W;
     const y = Math.floor(i / COLUMNS) * CELL_H;
@@ -77,32 +86,43 @@ function drawAtlas(lines: LiftLine[]): CanvasTexture {
 export function createLiftSigns(
   lines: LiftLine[],
   groundHeight: (x: number, z: number) => number,
-  /** Highest building roof near (x, z), if any: signs go on top of station buildings. */
-  roofNear: (x: number, z: number) => number | null = () => null,
+  /** Whether a world point is inside any building footprint. */
+  insideBuilding: (x: number, z: number) => boolean = () => false,
 ): Group {
   const group = new Group();
   group.name = 'lift-signs';
   const atlas = drawAtlas(lines);
-  const rows = Math.max(Math.ceil(lines.length / COLUMNS), 1);
+  const { columns: COLUMNS, rows } = atlasLayout(lines.length);
 
   const boards: { matrix: Matrix4; cell: number }[] = [];
   const posts: Matrix4[] = [];
   const q = new Quaternion();
   const m = new Matrix4();
+  const problems: string[] = [];
 
   lines.forEach((line, cell) => {
     const along = line.top.clone().sub(line.bottom).setY(0).normalize();
-    for (const [station, facing] of [
-      [line.bottom, along.clone().negate()], // read by skiers approaching from below
-      [line.top, along.clone()], // and by those arriving at the top
+    for (const [station, facing, end] of [
+      [line.bottom, along.clone().negate(), 'bottom'], // read by skiers approaching from below
+      [line.top, along.clone(), 'top'], // and by those arriving at the top
     ] as const) {
-      // Gantry over the line, just ahead of the station, above the carriers and any
-      // station roof, so it's visible from a long way off.
-      const centre = station.clone().addScaledVector(facing, 4);
-      const ground = groundHeight(centre.x, centre.z);
-      const roof = roofNear(station.x, station.z);
-      const base = roof ?? ground;
-      centre.y = Math.max(ground + MOUNT_HEIGHT, station.y + 2.5, (roof ?? -Infinity) + 2.2);
+      const site = placeSign(
+        {
+          station,
+          facing,
+          across: line.across,
+          gauge: line.lift.gauge,
+          boardWidth: BOARD.width,
+          boardHeight: BOARD.height,
+        },
+        groundHeight,
+        insideBuilding,
+      );
+      if (!site) continue; // nowhere clear to stand it: no sign beats a floating one
+      for (const p of checkSign(site, BOARD.height, groundHeight, insideBuilding)) {
+        problems.push(`${line.name} (${end}): ${p}`);
+      }
+      const centre = new Vector3(site.x, site.y, site.z);
       for (const dir of [facing, facing.clone().negate()]) {
         q.setFromUnitVectors(new Vector3(0, 0, 1), dir);
         // Back-to-back faces 4 cm apart so they never share a plane.
@@ -110,21 +130,23 @@ export function createLiftSigns(
         m.compose(face, q, new Vector3(BOARD.width, BOARD.height, 1));
         boards.push({ matrix: m.clone(), cell });
       }
-      // Posts either side of the line (standing on the roof if there's a building).
-      const span = Math.max(BOARD.width / 2.6, line.lift.gauge / 2 + 1.2);
-      for (const side of [-1, 1]) {
-        const post = centre.clone().addScaledVector(line.across, side * span);
-        const height = centre.y - base + 0.6;
-        post.y = base + height / 2;
-        posts.push(m.compose(post, q.identity(), new Vector3(1, height, 1)).clone());
+      // Posts from the ground under each one up to the top of the board.
+      const top = site.y + BOARD.height / 2;
+      for (const foot of site.posts) {
+        const height = top - foot.ground + 0.3; // 0.3 m sunk into the snow
+        posts.push(
+          m
+            .compose(
+              new Vector3(foot.x, foot.ground - 0.3 + height / 2, foot.z),
+              q.identity(),
+              new Vector3(1, height, 1),
+            )
+            .clone(),
+        );
       }
-      // Crossbeam joining the posts under the board.
-      const beam = centre.clone();
-      beam.y -= BOARD.height / 2 + 0.1;
-      q.setFromUnitVectors(new Vector3(0, 1, 0), line.across);
-      posts.push(m.compose(beam, q, new Vector3(0.8, span * 2, 0.8)).clone());
     }
   });
+  if (problems.length) console.error(`Lift sign placement problems:\n${problems.join('\n')}`);
 
   const cells = new InstancedBufferAttribute(new Float32Array(boards.map((b) => b.cell)), 1);
   const material = new MeshBasicNodeMaterial();

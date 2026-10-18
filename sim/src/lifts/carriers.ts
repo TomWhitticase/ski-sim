@@ -96,7 +96,7 @@ export function gondolaGeometry(seats: number, hang: number): BufferGeometry {
       -0.15 - (hang - h / 2 - 0.15) / 2,
       0,
     ]),
-    part(new RoundedBoxGeometry(w, h, d, 3, 0.28), GONDOLA, [0, cy, 0]),
+    part(new RoundedBoxGeometry(w, h, d, 2, 0.28), GONDOLA, [0, cy, 0]),
     // Window band all round.
     part(new BoxGeometry(w + 0.02, h * 0.38, d * 0.82), GLASS, [0, cy + h * 0.12, 0]),
     part(new BoxGeometry(w * 0.82, h * 0.38, d + 0.02), GLASS, [0, cy + h * 0.12, 0]),
@@ -120,7 +120,7 @@ export function cabinGeometry(seats: number, hang: number): BufferGeometry {
       ]),
     ),
     part(new BoxGeometry(w * 0.7, 0.15, 2.6), STEEL, [0, cy + h / 2 + 0.08, 0]),
-    part(new RoundedBoxGeometry(w, h, d, 3, 0.35), CABIN, [0, cy, 0]),
+    part(new RoundedBoxGeometry(w, h, d, 2, 0.35), CABIN, [0, cy, 0]),
     part(new BoxGeometry(w + 0.02, h * 0.42, d * 0.88), GLASS, [0, cy + h * 0.12, 0]),
     part(new BoxGeometry(w * 0.86, h * 0.42, d + 0.02), GLASS, [0, cy + h * 0.12, 0]),
     part(new BoxGeometry(w + 0.04, 0.22, d + 0.04), STRIPE, [0, cy - h * 0.22, 0]),
@@ -180,5 +180,5 @@ export function sheaveGeometry(): BufferGeometry {
 }
 
 export function bullwheelGeometry(): BufferGeometry {
-  return merge([part(new TorusGeometry(1, 0.06, 6, 32), DARK, [0, 0, 0], [Math.PI / 2, 0, 0])]);
+  return merge([part(new TorusGeometry(1, 0.06, 4, 18), DARK, [0, 0, 0], [Math.PI / 2, 0, 0])]);
 }

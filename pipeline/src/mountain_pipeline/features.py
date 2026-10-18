@@ -288,9 +288,11 @@ def dedupe_buildings(buildings: list[dict]) -> list[dict]:
     same outline). Coincident walls and roofs would z-fight. Of each duplicate pair the
     larger footprint is kept, taking the taller top and the lift-station type if either
     had it."""
+    from shapely import make_valid
     from shapely.strtree import STRtree
 
-    polygons = [Polygon(b["footprint"]) for b in buildings]
+    # Rounded footprints can self-touch; repair them so the overlap test can't throw.
+    polygons = [make_valid(Polygon(b["footprint"])) for b in buildings]
     order = sorted(range(len(buildings)), key=lambda i: -polygons[i].area)
     tree = STRtree(polygons)
     dropped: set[int] = set()

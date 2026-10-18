@@ -42,8 +42,13 @@ describe('peakLabel', () => {
     const local = peakLabel(peak, extent);
     expect(local.detail).toBe('3,195 m');
     expect(local.position.z).toBe(-500);
-    const distant = peakLabel({ ...peak, east: 50_000, ele: 4807 }, extent);
+    const distant = peakLabel({ ...peak, east: 50_000, ele: 3600 }, extent);
     expect(distant.tier).toBeGreaterThan(local.tier);
     expect(distant.maxDistance).toBeGreaterThan(local.maxDistance);
+    // ...except the great 4000 m+ summits on the horizon, which always win.
+    const montBlanc = peakLabel({ ...peak, east: 50_000, ele: 4807 }, extent);
+    expect(montBlanc.tier).toBeLessThan(local.tier);
+    const tacul = peakLabel({ ...peak, east: 50_000, ele: 4248 }, extent);
+    expect(montBlanc.tier).toBeLessThan(tacul.tier); // the higher giant wins an overlap
   });
 });

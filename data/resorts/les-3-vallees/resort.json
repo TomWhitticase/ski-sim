@@ -1,0 +1,16 @@
+{
+  "id": "les-3-vallees",
+  "name": "Les 3 Vallées",
+  "country": "FR",
+  "bounds": {
+    "south": 45.2,
+    "west": 6.49,
+    "north": 45.455,
+    "east": 6.685
+  },
+  "spawn": {
+    "lat": 45.2981,
+    "lon": 6.5803,
+    "heading": 200
+  }
+}

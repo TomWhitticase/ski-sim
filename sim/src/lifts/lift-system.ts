@@ -30,6 +30,13 @@ const BURY = 2;
 const PLATTER_HEIGHT = 0.85;
 /** How close to a bottom station you must be to board (m). */
 const BOARDING_RADIUS = 35;
+/** Carriers farther than this from the camera aren't drawn (m). */
+const DRAW_RANGE = 3500;
+const X_AXIS = new Vector3(1, 0, 0);
+const tilt = new Quaternion();
+const q2 = new Quaternion();
+const poleTop = new Vector3();
+const bottom = new Vector3();
 
 /** One lift line: supports in world space plus its operating model. */
 export class LiftLine {
@@ -77,6 +84,23 @@ export class LiftLine {
     out.addScaledVector(this.across, (side * this.lift.gauge) / 2);
     if (direction) direction.copy(b).sub(a).normalize().multiplyScalar(side);
     return out;
+  }
+
+  /** Horizontal distance from a point to the line's bounding box (m). */
+  distanceTo(p: Vector3): number {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const q of this.points) {
+      minX = Math.min(minX, q.x);
+      maxX = Math.max(maxX, q.x);
+      minZ = Math.min(minZ, q.z);
+      maxZ = Math.max(maxZ, q.z);
+    }
+    const dx = Math.max(minX - p.x, 0, p.x - maxX);
+    const dz = Math.max(minZ - p.z, 0, p.z - maxZ);
+    return Math.hypot(dx, dz);
   }
 
   /** Bottom station position (cable height). */
@@ -187,40 +211,55 @@ export class LiftSystem {
   }
 
   /** Advance the lift clock and move every carrier. */
-  update(dt: number): void {
+  update(dt: number, camera?: Vector3): void {
     this.time += dt * this.rate;
+    // Only carriers near the camera are drawn: beyond DRAW_RANGE they're sub-pixel, and
+    // a big resort has >10k of them (each drawn in the main pass and every shadow
+    // cascade). Visible carriers are packed at the front of each instance buffer.
+    const near = this.lines.map((line) => !camera || line.distanceTo(camera) < DRAW_RANGE);
+    const close = (p: Vector3) => !camera || p.distanceToSquared(camera) < DRAW_RANGE ** 2;
     for (const g of this.groups.values()) {
-      g.members.forEach(([li, ci], i) => {
+      let k = 0;
+      for (const [li, ci] of g.members) {
+        if (!near[li]) continue;
         this.carrierMatrix(li, ci, m);
-        g.mesh.setMatrixAt(i, m);
-      });
-      g.mesh.instanceMatrix.needsUpdate = true;
+        if (!close(pos)) continue;
+        g.mesh.setMatrixAt(k++, m);
+      }
+      g.mesh.count = k;
+      if (k) g.mesh.instanceMatrix.needsUpdate = true;
     }
     // Drag lifts: pole from the grip down to the skier's platter, just above the snow.
-    const platterIndex = { platters: 0, tbars: 0 };
-    this.poles.members.forEach(([li, ci], i) => {
+    let poles = 0;
+    const platterCount = { platters: 0, tbars: 0 };
+    for (const [li, ci] of this.poles.members) {
       const line = this.lines[li]!;
+      if (!near[li]) continue;
       const state = carrierAt(line.op, ci, this.time);
       line.cablePoint(state.distance, state.side, pos, dir);
+      if (!close(pos)) continue;
       const ground = this.groundHeight(pos.x, pos.z);
       const length = Math.max(0.3, pos.y - 0.6 - (ground + PLATTER_HEIGHT));
       q.setFromAxisAngle(UP, Math.atan2(-dir.x, -dir.z));
       // Uphill the pole trails back to a skier; on the return it hangs straight.
       const lean = state.side === 1 ? 0.45 : 0;
-      const tilt = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -lean);
-      const poleTop = pos.clone().setY(pos.y - 0.6);
-      m.compose(poleTop, q.clone().multiply(tilt), scale.set(1, length / Math.cos(lean), 1));
-      this.poles.mesh.setMatrixAt(i, m);
-      const bottom = new Vector3(0, -length, length * Math.tan(lean))
+      tilt.setFromAxisAngle(X_AXIS, -lean);
+      poleTop.copy(pos).setY(pos.y - 0.6);
+      m.compose(poleTop, q2.copy(q).multiply(tilt), scale.set(1, length / Math.cos(lean), 1));
+      this.poles.mesh.setMatrixAt(poles++, m);
+      bottom
+        .set(0, -length, length * Math.tan(lean))
         .applyQuaternion(q)
         .add(poleTop);
-      const target = line.op.kind === 'tbar' ? this.tbars : this.platters;
       const key = line.op.kind === 'tbar' ? 'tbars' : 'platters';
       m.compose(bottom, q, ONE);
-      target.mesh.setMatrixAt(platterIndex[key]++, m);
-    });
+      this[key].mesh.setMatrixAt(platterCount[key]++, m);
+    }
+    this.poles.mesh.count = poles;
+    this.platters.mesh.count = platterCount.platters;
+    this.tbars.mesh.count = platterCount.tbars;
     for (const g of [this.poles, this.platters, this.tbars]) {
-      if (g.members.length) g.mesh.instanceMatrix.needsUpdate = true;
+      if (g.mesh.count) g.mesh.instanceMatrix.needsUpdate = true;
     }
   }
 
@@ -380,8 +419,10 @@ export class LiftSystem {
       new MeshStandardNodeMaterial({ color: 0x6c7076, metalness: 0.5, roughness: 0.45 }),
       arms,
     );
-    add(sheaveGeometry(), material, sheaves);
-    add(bullwheelGeometry(), material, wheels);
+    // Sheaves and bullwheels are a few cm thick: shadows wouldn't show but would cost
+    // every shadow cascade thousands of instances.
+    add(sheaveGeometry(), material, sheaves, false);
+    add(bullwheelGeometry(), material, wheels, false);
     add(new BoxGeometry(1, 1, 1), cableMaterial, cables, false);
     add(new BoxGeometry(1, 1, 1), stationMaterial, stations);
   }

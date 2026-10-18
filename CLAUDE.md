@@ -6,7 +6,7 @@ Guidance for Claude Code when working in this repository.
 
 **mountain-map** is a 3D immersive simulation of real ski resorts. The goal is fidelity: a resort in the sim should match its real-world counterpart as closely as public geospatial data allows. Terrain, pistes, lifts, buildings and tree lines all come from real data, not hand-authored approximations.
 
-Status: **first vertical slice.** Val Thorens (France) renders from real lidar terrain, with basic lifts and buildings from OSM, fly mode, HUD, minimap and a bluebird sky. The long-term goal is the whole Three Valleys (Val Thorens, Les Menuires, Méribel, Courchevel). Grow extents and add resorts through config.
+Status: **playable multi-valley map.** Val Thorens (France) renders from real lidar terrain, with basic lifts and buildings from OSM, fly mode, HUD, minimap and a bluebird sky. The long-term goal is the whole Three Valleys (Val Thorens, Les Menuires, Méribel, Courchevel). Grow extents and add resorts through config.
 
 ## Tech stack
 
@@ -23,14 +23,15 @@ The project is built by Claude Code, so **everything must be operable from text 
 
 ```sh
 # Pipeline (run from pipeline/)
-uv run mountain-pipeline build val-thorens   # fetch sources (cached in data/raw) and write data/processed/val-thorens
+uv run mountain-pipeline init <id> --name "Name" --country FR --bbox S,W,N,E   # or --ski-area "OSM name"
+uv run mountain-pipeline build <id>          # fetch sources (cached in data/raw), write data/processed/<id>
 uv run pytest                                # tests
 uv run ruff check . && uv run ruff format --check .
 
 # Sim (run from sim/)
 pnpm dev               # http://localhost:5173 (serves data/processed as static files)
 pnpm test              # Vitest unit tests
-pnpm screenshot        # Playwright: renders e2e view poses + runs control tests
+pnpm screenshot        # Playwright: renders e2e view poses + runs control tests (serial: workers=1)
 pnpm perf              # load time + fps at fixed poses (needs pnpm dev running)
 pnpm typecheck && pnpm lint
 pnpm build
@@ -55,6 +56,25 @@ When something renders wrong, isolate it before guessing. Tinting each terrain l
 3. **Reproducible pipeline.** Raw data → processed assets must be a scripted, re-runnable pipeline. No manual edits to generated assets; fix the pipeline or add an explicit override file.
 4. **Measurable accuracy.** Prefer things we can verify: lift lengths/vertical against published specs, piste lengths against the resort's own figures, summit/base elevations against official values.
 5. **Resort-agnostic.** The pipeline should work for any resort given a bounding box/boundary. Resort-specific data lives in config, not code.
+
+## Adding a resort
+
+The whole pipeline is driven by `data/resorts/<id>/resort.json`, and only `id`, `name`, `country` and `bounds` (a lat/lon box) are required. `mountain-pipeline init` writes that file from a bbox, or from an OSM ski-area name (matches are clustered around the largest one, because names repeat worldwide). Everything else is derived in `config.load_resort`:
+- origin (bbox centre) and near extent, snapped to whole kilometres;
+- far extent (55 km margin);
+- terrain sources by country (FR: IGN LiDAR HD then RGE ALTI; elsewhere: Copernicus, so any resort builds);
+- cell size, coarsened automatically to keep the grid within 8000 px for GPU texture limits;
+- spawn height (150 m above the DEM);
+- summit validation against every OSM peak with an `ele` tag.
+
+Lifts, stations, signs, buildings, pistes, peaks and sounds all come from OSM with no per-resort code. Optional overrides: `origin`, `spawn` (lat/lon/heading/altitude), `terrain.near/far`, `minimap`, `landmarks`. Then open `?resort=<id>`, or set `DEFAULT_RESORT` in `sim/src/config.ts`.
+
+Current resorts: `les-3-vallees` (default: Val Thorens, Orelle, Les Menuires, Saint-Martin, Méribel incl. Mont Vallon and the Olympe gondola, Courchevel; Pralognan excluded) and `val-thorens` (the original slice).
+
+Scaling notes for big areas (learned on the 3 Vallées):
+- Anything turned into a texture must stay under 8192 px a side. The terrain cell size auto-coarsens for this, and the lift-sign atlas is a square grid. The view tests fail on any console error, so they catch a GPU validation error.
+- Lift carriers are drawn only within 3.5 km of the camera, packed into the instance buffer each frame. Tiny parts (sheaves, bullwheels) cast no shadows: thousands of instances × 3 shadow cascades was the biggest cost.
+- Label priority: lifts beyond 3 km yield to peaks; 4000 m+ horizon peaks always win.
 
 ## Geospatial data sources
 
@@ -132,6 +152,8 @@ There are two layers. **Near** is lidar at 4 m covering the ski area. **Far** is
 - V (first/third person) works in both modes and is remembered. Fly mode tracks `FlyControls.position` (the eye); in third person the camera orbits behind it and the skier is shown hovering there, see-through (`FLYING_OPACITY`).
 - e2e tests use a frozen lake at 45.28856, 6.5752 (under 15 cm of relief over 100 m) as flat ground.
 - Off-piste (per the piste lookup grid) uses higher friction and drag than groomed runs.
+- Walking uphill: with W held and the skis pointing up a slope too steep to skate, `stepSki` switches to climbing (herringbone): ~1.3 m/s on gentle grades, down to 0.35 m/s on steep ones, never stuck. Releasing W lets you slide back.
+- Map teleports always land you on the ground (`groundedPose`, eye height above the DEM), aimed at the summit for peak destinations.
 
 ### Pistes
 
@@ -162,7 +184,7 @@ P deploys a paraglider from fly or ski mode, keeping your velocity; P again drop
 
 - `lifts/operation.ts` (pure, unit-tested) gives speed, carrier spacing and count from OSM specs (`aerialway:duration/occupancy/capacity`, parsed by the pipeline) with typical fallbacks. Loop lifts run continuously; cable cars run as jig-backs (two cabins, 45 s dwell).
 - `lifts/lift-system.ts`: towers, crossarms, sheave trains, bullwheels, ropes and stations are static instances. Carriers are one InstancedMesh per type and seat count, all updated each frame (~3.6k carriers at 60 fps).
-- `lifts/signs.ts`: a name board on a gantry at each end of every lift, raised above any station roof. One canvas atlas, one instanced mesh.
+- `lifts/signs.ts` + `lifts/sign-placement.ts`: a name board on two posts at each end of every lift, standing on the ground beside the station entrance. `placeSign` (pure, unit-tested) tries candidate spots in order and rejects any inside a building (`features/building-index.ts`), straddling a step over 2.5 m, or over the cable corridor. If nothing qualifies, it places no sign: no sign beats a floating one. `checkSign` re-verifies every placed sign at load (posts on the ground, board at reading height, not floating) and logs a console error for any violation, which fails the e2e view tests. Never derive sign height from nearby roofs (that was the Arpasson bug). One canvas atlas, one instanced mesh.
 - Lift sounds: drive hum near stations, sheave clacks as your carrier passes each tower, a clunk on boarding and unloading.
 - Avoid coplanar geometry (z-fighting): lifts sharing a station get one placeholder box; back-to-back sign faces sit 4 cm apart.
 - `lifts/ride.ts`: press E within 35 m of a bottom station to board the next carrier (cable cars: wait for the cabin). Hold W to fast-forward the lift clock (×8); S skips straight to the top. You're unloaded at the top in ski mode, moving; E mid-ride jumps off.

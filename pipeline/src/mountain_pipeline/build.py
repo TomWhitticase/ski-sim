@@ -50,20 +50,25 @@ def build_near(
     coverage: dict[str, float] = {}
 
     for source in cfg.near.sources:
-        layer = ign.LAYERS.get(source)
-        if layer is None:
-            raise ValueError(f"Unsupported near terrain source {source!r}")
         layer_heights = grid.empty()
-        for path in ign.fetch(layer, bounds, fetch_cell, raw_dir):
-            reproject_into(
-                layer_heights,
-                grid,
-                frame,
-                path,
-                Resampling.average,
-                src_crs=ign.CRS,
-                src_nodata=ign.NODATA,
-            )
+        if source == "copernicus-glo30":
+            # Global fallback: coarse, but lets any resort on Earth build.
+            lonlat = frame.bounds_in("EPSG:4326", grid.extent, margin=100)
+            for path in copernicus.fetch(lonlat, raw_dir / "copernicus-glo30"):
+                reproject_into(layer_heights, grid, frame, path, Resampling.cubic)
+        elif (layer := ign.LAYERS.get(source)) is not None:
+            for path in ign.fetch(layer, bounds, fetch_cell, raw_dir):
+                reproject_into(
+                    layer_heights,
+                    grid,
+                    frame,
+                    path,
+                    Resampling.average,
+                    src_crs=ign.CRS,
+                    src_nodata=ign.NODATA,
+                )
+        else:
+            raise ValueError(f"Unsupported near terrain source {source!r}")
         fill = np.isnan(heights) & ~np.isnan(layer_heights)
         heights[fill] = layer_heights[fill]
         coverage[source] = round(float(fill.mean()), 6)
@@ -133,7 +138,7 @@ def build_pistes(
         return sample_bilinear(near, near_grid, east, north)
 
     fine_grid = Grid(extent, pistes.RASTER_CELL)
-    fine = pistes.rasterise(shapes, fine_grid)
+    fine = pistes.rasterise(shapes, fine_grid, runs)
     overlay_factor = round(near_grid.cell_size / pistes.RASTER_CELL)
     lookup_factor = round(pistes.LOOKUP_CELL / pistes.RASTER_CELL)
     pistes.overlay_image(fine, runs, overlay_factor).save(
@@ -169,6 +174,42 @@ def build_pistes(
     }
 
 
+def validate_peaks(peaks: list[dict], extent) -> list[dict]:
+    """Check DEM summit heights against every OSM peak in the resort area that has a
+    published elevation (no hand-picked list needed). Logs a summary and the outliers."""
+    results = [
+        {
+            "name": p["name"],
+            "published": p["ele"],
+            "dem": p["ground"],
+            "error": round(p["ground"] - p["ele"], 1),
+        }
+        for p in peaks
+        if p["ele"] is not None and extent.contains(p["east"], p["north"])
+    ]
+    if not results:
+        log.warning("No OSM peaks with elevations to validate the terrain against")
+        return results
+    errors = np.abs([r["error"] for r in results])
+    within = int((errors <= LANDMARK_TOLERANCE).sum())
+    log.info(
+        "Summit check: %d/%d OSM peaks within %.0f m (median error %.1f m)",
+        within,
+        len(results),
+        LANDMARK_TOLERANCE,
+        float(np.median(errors)),
+    )
+    for r in sorted(results, key=lambda r: -abs(r["error"]))[:5]:
+        if abs(r["error"]) > LANDMARK_TOLERANCE:
+            log.warning(
+                "  outlier %-28s published %6.0f m  DEM %7.1f m  (OSM tag may be off)",
+                r["name"],
+                r["published"],
+                r["dem"],
+            )
+    return results
+
+
 def validate_landmarks(
     cfg: ResortConfig, frame: LocalFrame, heights: np.ndarray, grid: Grid
 ) -> list[dict]:
@@ -186,7 +227,7 @@ def validate_landmarks(
         error = dem - lm.ele
         ok = abs(error) <= LANDMARK_TOLERANCE
         (log.info if ok else log.warning)(
-            "Landmark %-22s published %6.0f m  DEM %7.1f m  error %+6.1f m%s",
+            "Landmark %-28s published %6.0f m  DEM %7.1f m  error %+6.1f m%s",
             lm.name,
             lm.ele,
             dem,
@@ -212,10 +253,12 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     near, near_grid, coverage = build_near(cfg, frame, raw_root, far, far_grid)
     stitch_far_to_near(far, far_grid, near, near_grid)
 
-    validation = validate_landmarks(cfg, frame, near, near_grid)
-
     log.info("Building lifts and buildings (OpenStreetMap)")
     feature_data = build_features(cfg, frame, raw_root, near, near_grid, far, far_grid)
+    if cfg.landmarks:
+        validation = validate_landmarks(cfg, frame, near, near_grid)
+    else:
+        validation = validate_peaks(feature_data["peaks"], near_grid.extent)
 
     log.info("Building pistes (OpenStreetMap)")
     pistes_meta = build_pistes(frame, raw_root, near, near_grid, out_dir)
@@ -257,7 +300,9 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         "spawn": {
             "east": round(spawn_east, 2),
             "north": round(spawn_north, 2),
-            "altitude": cfg.spawn.altitude,
+            "altitude": cfg.spawn.altitude
+            if cfg.spawn.altitude is not None
+            else round(float(sample_bilinear(near, near_grid, spawn_east, spawn_north)) + 150),
             "heading": cfg.spawn.heading,
         },
         "terrain": {"near": near_meta, "far": far_meta},

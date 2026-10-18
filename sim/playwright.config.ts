@@ -2,6 +2,9 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: 'e2e',
+  // One browser at a time: each renders the whole resort on the GPU, and parallel
+  // instances starve each other, which breaks the real-time physics assertions.
+  workers: 1,
   timeout: 120_000,
   outputDir: 'test-results',
   use: {

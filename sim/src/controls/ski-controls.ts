@@ -103,6 +103,11 @@ export class SkiControls {
     return this.state.position;
   }
 
+  /** Walking uphill (W on a slope too steep to skate). */
+  get climbing(): boolean {
+    return this.state.climbing ?? false;
+  }
+
   get airborne(): boolean {
     return this.state.airborne;
   }
@@ -274,6 +279,7 @@ export class SkiControls {
         balanceEdge,
         plough,
         skate: skate && speed < SKATE_ANIM_MAX,
+        climb: this.state.climbing ?? false,
         tuck,
         airborne: this.state.airborne,
       },

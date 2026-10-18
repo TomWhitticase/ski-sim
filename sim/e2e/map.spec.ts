@@ -18,6 +18,17 @@ const hudNumber = async (page: Page, field: string) =>
     ((await page.locator(`#hud [data-field="${field}"]`).textContent()) ?? '').replace(/,/g, ''),
   );
 
+/** Eye height above the terrain right after a teleport: standing, not hovering. */
+async function expectOnGround(page: Page) {
+  await page.keyboard.press('F3');
+  await expect(page.locator('#debug')).toContainText('ground');
+  const debug = (await page.locator('#debug').textContent()) ?? '';
+  const ground = parseFloat(/ground ([\d.]+) m/.exec(debug)![1]!);
+  const altitude = await hudNumber(page, 'altitude');
+  expect(altitude - ground).toBeGreaterThan(1);
+  expect(altitude - ground).toBeLessThan(4);
+}
+
 test('your location is restored after a reload', async ({ page }) => {
   await fakePointerLock(page);
   await load(page, '?at=45.2981,6.5803,2800&heading=0&pitch=0');
@@ -52,12 +63,12 @@ test('M opens the map; search and teleport to a peak', async ({ page }) => {
   await visible.filter({ hasText: 'Cime de Caron' }).first().click();
   await expect(map).toBeHidden();
   await page.waitForTimeout(300);
-  // Viewpoint is ~450 m from the summit (45.2632, 6.5610), 80 m above it.
+  // Viewpoint is ~450 m from the summit (45.2632, 6.5610), standing on the ground.
   expect(await hudNumber(page, 'lat')).toBeCloseTo(45.266, 2);
-  expect(await hudNumber(page, 'altitude')).toBeGreaterThan(3200);
+  await expectOnGround(page);
 });
 
-test('clicking the map teleports to that spot above the ground', async ({ page }) => {
+test('clicking the map teleports you onto the ground there', async ({ page }) => {
   await load(page);
   await page.keyboard.press('KeyM');
   const canvas = page.locator('#world-map canvas');
@@ -67,6 +78,7 @@ test('clicking the map teleports to that spot above the ground', async ({ page }
   await expect(page.locator('#world-map')).toBeHidden();
   await page.waitForTimeout(300);
   expect(await hudNumber(page, 'lon')).toBeLessThan(6.5803 - 0.012);
+  await expectOnGround(page);
   expect(await hudNumber(page, 'lon')).toBeGreaterThan(6.5803 - 0.019);
 });
 

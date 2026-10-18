@@ -51,3 +51,20 @@ def test_rasterise_overlay_and_lookup():
     lookup = np.asarray(lookup_image(fine, pistes, 2))
     assert lookup[3, 5, 0] == 1 and lookup[3, 5, 2] == 3
     assert lookup[7, 5, 0] == 2 and lookup[7, 5, 2] == 6
+
+
+def test_named_runs_win_over_unnamed_connectors():
+    grid = Grid(Extent(0, 40, -40, 0), 2)
+    runs = [{"index": 1, "name": "Christine"}, {"index": 2, "name": None}]
+    blob = LineString([(0, -20), (40, -20)]).buffer(6)
+    # Unnamed listed last would normally overwrite; the named run must still win.
+    fine = rasterise([(1, blob, False, None), (2, blob, False, None)], grid, runs)
+    assert fine[10, 10] == 1
+
+
+def test_named_centrelines_win_over_unnamed_areas():
+    grid = Grid(Extent(0, 40, -40, 0), 2)
+    runs = [{"index": 1, "name": "Christine"}, {"index": 2, "name": None}]
+    blob = LineString([(0, -20), (40, -20)]).buffer(6)
+    fine = rasterise([(1, blob, False, None), (2, blob, True, None)], grid, runs)
+    assert fine[10, 10] == 1

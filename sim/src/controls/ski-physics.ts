@@ -30,6 +30,11 @@ export const SKI = {
   pushAccel: 2.5,
   pushMaxSpeed: 6,
   maxSpeed: 38,
+  /** Walking uphill: fastest on gentle grades, a slow plod on steep ones (m/s). */
+  climbSpeedMax: 1.3,
+  climbSpeedMin: 0.35,
+  /** Uphill pull along the skis (m/s²) beyond which skating gives way to stepping. */
+  climbThreshold: 0.8,
   jumpSpeed: 3.5,
   /** Height above the snow before we count as airborne (m). */
   airThreshold: 0.4,
@@ -49,6 +54,8 @@ export interface SkiState {
   /** Ski direction; same convention as Look.yaw (0 = north, positive = left). */
   yaw: number;
   airborne: boolean;
+  /** Stepping uphill (herringbone / side-step) this step. */
+  climbing?: boolean;
 }
 
 export interface SkiIntent {
@@ -112,6 +119,28 @@ function substep(state: SkiState, intent: SkiIntent, h: number, terrain: SkiTerr
   surfaceNormal(terrain, p.x, p.z, n);
   // Gravity minus its component into the slope.
   gravityAlong.set(0, -SKI.gravity, 0).addScaledVector(n, SKI.gravity * n.y);
+
+  // Walking uphill: with W held and the skis pointing up a slope too steep to skate,
+  // step up it (herringbone / side-step). Slow, but you can never get stuck.
+  skiDirection(state.yaw, n, skis);
+  const uphillPull = -gravityAlong.dot(skis);
+  const climbSpeed = Math.max(
+    SKI.climbSpeedMin,
+    SKI.climbSpeedMax - (SKI.climbSpeedMax - SKI.climbSpeedMin) * Math.min(1, (1 - n.y) / 0.3),
+  );
+  state.climbing =
+    intent.push &&
+    !intent.brake &&
+    uphillPull > SKI.climbThreshold &&
+    v.dot(skis) <= climbSpeed + 0.3;
+  if (state.climbing) {
+    v.lerp(target.copy(skis).multiplyScalar(climbSpeed), 1 - Math.exp(-8 * h));
+    p.addScaledVector(v, h);
+    p.y = terrain.height(p.x, p.z);
+    surfaceNormal(terrain, p.x, p.z, n);
+    v.addScaledVector(n, -v.dot(n));
+    return;
+  }
   v.addScaledVector(gravityAlong, h);
 
   skiDirection(state.yaw, n, skis);

@@ -50,6 +50,8 @@ export interface StanceInput {
   balanceEdge?: number;
   plough: boolean;
   skate: boolean;
+  /** Stepping uphill: a slower, wider herringbone instead of skating strides. */
+  climb?: boolean;
   tuck: boolean;
   airborne: boolean;
 }
@@ -65,6 +67,7 @@ const SKATE_ROLL = 0.25; // pushing ski on its inside edge
 const SKATE_WIDTH = 0.22;
 const SKATE_LIFT = 0.12;
 const STRIDE_HZ = 1.3;
+const CLIMB_HZ = 0.9;
 const RESPONSE = 9; // 1/s, how quickly the pose follows the target
 
 export function initialStance(): Stance {
@@ -144,7 +147,8 @@ export function targetStance(input: StanceInput, skatePhase: number): Omit<Stanc
 /** Move `stance` toward the target for this input over `dt` seconds. */
 export function updateStance(stance: Stance, input: StanceInput, dt: number): void {
   if (input.skate && !input.airborne) {
-    stance.skatePhase = (stance.skatePhase + dt * STRIDE_HZ * 2 * Math.PI) % (2 * Math.PI);
+    const hz = input.climb ? CLIMB_HZ : STRIDE_HZ;
+    stance.skatePhase = (stance.skatePhase + dt * hz * 2 * Math.PI) % (2 * Math.PI);
   }
   const target = targetStance(input, stance.skatePhase);
   const k = 1 - Math.exp(-RESPONSE * dt);

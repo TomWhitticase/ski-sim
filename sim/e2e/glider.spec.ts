@@ -30,8 +30,9 @@ test('P deploys a paraglider mid-run, keeping your speed', async ({ page }) => {
   await page.keyboard.press('KeyP');
   await page.waitForTimeout(150);
   expect(await mode(page)).toBe('GLIDE');
-  // Momentum carried over: not reset to zero, not instantly at trim.
-  expect(await hudNumber(page, 'speed')).toBeGreaterThan(skiing * 0.7);
+  // Horizontal momentum carries over (the downhill, vertical part becomes lift):
+  // well above the wing's 38 km/h trim speed, not reset to zero.
+  expect(await hudNumber(page, 'speed')).toBeGreaterThan(Math.max(38, skiing * 0.5));
   await page.screenshot({ path: 'test-results/views/glide-first-person.png' });
   await page.keyboard.press('KeyV');
   await page.waitForTimeout(300);

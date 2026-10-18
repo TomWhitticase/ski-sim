@@ -1,6 +1,8 @@
 import { expect, type Page, test } from '@playwright/test';
 
-const SLOPE = 'at=45.2830,6.5760,2600&heading=27&pitch=-10';
+// Standing on the 21° slope (ground ~2571 m), so no landing skid muddies the
+// "running straight" measurement.
+const SLOPE = 'at=45.2830,6.5760,2573&heading=27&pitch=-10';
 
 async function start(page: Page, query: string) {
   await page.addInitScript(() => {
@@ -32,10 +34,13 @@ test('skiing leaves tracks; a hockey stop throws far more snow than running stra
 
   await page.keyboard.down('KeyS');
   await page.keyboard.down('KeyA');
-  await page.waitForTimeout(500);
-  await page.keyboard.up('KeyA');
-  await page.waitForTimeout(150);
-  const stopping = await count(page, 'snow-spray');
+  // Track the peak spray during the stop (a single sample depends on frame timing).
+  let stopping = 0;
+  for (let i = 0; i < 14; i++) {
+    await page.waitForTimeout(60);
+    if (i === 8) await page.keyboard.up('KeyA');
+    stopping = Math.max(stopping, await count(page, 'snow-spray'));
+  }
   await page.screenshot({ path: 'test-results/views/snow-hockey-stop.png' });
   await page.keyboard.up('KeyS');
   expect(stopping).toBeGreaterThan(60);

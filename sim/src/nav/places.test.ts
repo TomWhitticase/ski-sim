@@ -69,3 +69,26 @@ describe('buildPlaces', () => {
     expect(places[1]!.detail).toBe('Gondola · 2,439 m');
   });
 });
+
+describe('groundedPose', () => {
+  it('stands you on the ground and aims at the target', async () => {
+    const { groundedPose } = await import('./places');
+    const ground = () => 2500;
+    const pose = groundedPose(
+      { east: 0, north: 0, altitude: 9999, heading: 0, pitch: -30 },
+      ground,
+      1.8,
+      { east: 0, north: 450, altitude: 2800 },
+    );
+    expect(pose.altitude).toBeCloseTo(2501.8);
+    expect(pose.heading).toBeCloseTo(0);
+    expect(pose.pitch).toBeCloseTo((Math.atan2(298.2, 450) * 180) / Math.PI);
+    const plain = groundedPose(
+      { east: 5, north: 5, altitude: 3000, heading: 90, pitch: -40 },
+      ground,
+      1.8,
+    );
+    expect(plain.altitude).toBeCloseTo(2501.8);
+    expect(plain.pitch).toBe(-10);
+  });
+});

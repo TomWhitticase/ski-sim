@@ -119,10 +119,11 @@ def collect(
     return pistes, shapes
 
 
-def rasterise(shapes: list[tuple], grid: Grid) -> np.ndarray:
-    """Piste index per cell (0 = none). Areas are drawn after buffered lines so the
-    surveyed extents win where they overlap."""
-    ordered = sorted(shapes, key=lambda s: s[2])
+def rasterise(shapes: list[tuple], grid: Grid, pistes: list[dict] | None = None) -> np.ndarray:
+    """Piste index per cell (0 = none). Later shapes win where they overlap: named runs
+    beat unnamed connectors, then surveyed areas beat buffered centrelines."""
+    named = {p["index"] for p in pistes if p.get("name")} if pistes else set()
+    ordered = sorted(shapes, key=lambda s: (s[0] in named, s[2]))
     return rio_features.rasterize(
         [(geom, idx) for idx, geom, _, _ in ordered],
         out_shape=(grid.height, grid.width),

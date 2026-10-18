@@ -1,6 +1,6 @@
 // Sim-wide settings. Resort-specific values belong in data/resorts/<id>/resort.json.
 
-export const DEFAULT_RESORT = 'val-thorens';
+export const DEFAULT_RESORT = 'les-3-vallees';
 
 /** Bluebird mid-February morning; sun position is computed for the resort's location. */
 export const SIM_TIME = new Date('2026-02-15T11:00:00+01:00');

@@ -7,7 +7,7 @@ import {
   WebGPURenderer,
 } from 'three/webgpu';
 
-import { CAMERA, DEFAULT_RESORT, SIM_TIME, TERRAIN } from './config';
+import { CAMERA, DEFAULT_RESORT, FLY, SIM_TIME, TERRAIN } from './config';
 import { Sound } from './audio/sound';
 import { liftHumLevel, soundLevels } from './audio/levels';
 import { FlyControls } from './controls/fly-controls';
@@ -19,6 +19,7 @@ import { GliderControls } from './controls/glider-controls';
 import { Input } from './controls/input';
 import { EYE_HEIGHT, SkiControls } from './controls/ski-controls';
 import { Environment } from './env/environment';
+import { BuildingIndex } from './features/building-index';
 import { createBuildings } from './features/buildings';
 import type { ResortFeatures } from './features/types';
 import { Heightmap } from './geo/heightmap';
@@ -28,7 +29,7 @@ import { createNormalTexture } from './terrain/normals';
 import { AdaptiveResolution } from './render/adaptive-resolution';
 import { Terrain } from './terrain/terrain';
 import { createTerrainMaterial } from './terrain/terrain-material';
-import { buildPlaces, liftTypeName } from './nav/places';
+import { buildPlaces, groundedPose, liftTypeName } from './nav/places';
 import { LiftSystem } from './lifts/lift-system';
 import { RideControls } from './lifts/ride';
 import { createLiftSigns } from './lifts/signs';
@@ -172,17 +173,10 @@ async function main(): Promise<void> {
   const fxNormal = new Vector3();
   const fxSlide = new Vector3();
   const lifts = new LiftSystem(features.lifts, groundHeight);
-  // Tallest building roof within ~25 m of a point (for mounting station signs).
-  const roofNear = (x: number, z: number): number | null => {
-    let best: number | null = null;
-    for (const b of features.buildings) {
-      if (!b.footprint.some(([e, n]) => Math.hypot(e - x, -n - z) < 25)) continue;
-      const top = b.top + (b.roof?.rise ?? 0);
-      if (best === null || top > best) best = top;
-    }
-    return best;
-  };
-  scene.add(lifts.root, createLiftSigns(lifts.lines, groundHeight, roofNear));
+  // Signs stand clear of buildings (world z = -north).
+  const buildingIndex = new BuildingIndex(features.buildings, 1.5);
+  const insideBuilding = (x: number, z: number) => buildingIndex.contains(x, -z);
+  scene.add(lifts.root, createLiftSigns(lifts.lines, groundHeight, insideBuilding));
   const ride = new RideControls(camera, lifts, ski);
   let mode: Mode = loadMode();
   const controls = () =>
@@ -305,8 +299,15 @@ async function main(): Promise<void> {
       groundHeight: (east, north) => groundHeight(east, -north),
       toLatLon: (east, north) => frame.toLatLon(east, north),
     },
-    (pose) => {
+    (target, lookAt) => {
       if (mode === 'ride') setMode('ski');
+      // Arrive standing on the ground, not hovering above it.
+      const pose = groundedPose(
+        target,
+        (east, north) => groundHeight(east, -north),
+        Math.max(EYE_HEIGHT, FLY.minHeightAboveGround) + 0.1,
+        lookAt,
+      );
       controls().place(pose);
       speedReset = true;
       persistPose();
@@ -454,7 +455,8 @@ async function main(): Promise<void> {
     void input.lock();
   });
   status.textContent =
-    manifest.resort.country === 'FR' ? 'Savoie, France' : manifest.resort.country;
+    new Intl.DisplayNames(['en'], { type: 'region' }).of(manifest.resort.country) ??
+    manifest.resort.country;
   start.hidden = false;
 
   const sim = { ready: false, frames: 0 };
@@ -540,7 +542,7 @@ async function main(): Promise<void> {
     // The fullscreen map covers everything; skip 3D work while it's open.
     if (worldMap.isOpen) return;
 
-    lifts.update(dt);
+    lifts.update(dt, camera.position);
     const landed = controls().update(dt, input);
     if (mode === 'glide' && landed) setMode('ski');
     if (mode === 'ride' && landed) unload();

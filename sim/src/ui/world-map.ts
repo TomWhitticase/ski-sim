@@ -27,7 +27,6 @@ const DRAG_COLOUR = '#7048e8';
 
 const MIN_MPP = 0.5; // metres per CSS pixel, fully zoomed in
 const MAX_MPP = 40;
-const TELEPORT_HEIGHT = 120; // above ground when clicking the map
 const CLICK_SLOP = 4; // px of movement before a press becomes a drag
 
 const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -59,7 +58,7 @@ export class WorldMap {
   constructor(
     private readonly root: HTMLElement,
     private readonly data: WorldMapData,
-    private readonly onTeleport: (pose: Pose) => void,
+    private readonly onTeleport: (pose: Pose, lookAt?: Place['lookAt']) => void,
     private readonly onClose: () => void,
   ) {
     this.canvas = root.querySelector('canvas')!;
@@ -368,7 +367,7 @@ export class WorldMap {
       if (place.colour) icon.style.color = place.colour;
       li.querySelector('.map-place-name')!.textContent = place.name;
       li.querySelector('.map-place-detail')!.textContent = place.detail;
-      li.addEventListener('click', () => this.onTeleport(place.pose));
+      li.addEventListener('click', () => this.onTeleport(place.pose, place.lookAt));
       li.addEventListener('mouseenter', () => {
         this.hoverPlace = place;
         this.requestDraw();
@@ -438,9 +437,9 @@ export class WorldMap {
     this.onTeleport({
       east,
       north,
-      altitude: this.data.groundHeight(east, north) + TELEPORT_HEIGHT,
+      altitude: this.data.groundHeight(east, north), // grounded by the handler
       heading: this.player.heading,
-      pitch: -15,
+      pitch: 0,
     });
   };
 

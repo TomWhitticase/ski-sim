@@ -198,3 +198,20 @@ test('standing across a side slope, the body stays upright against gravity', asy
   expect(tilt.slope).toBeGreaterThan(12); // the snow tips sideways under you
   expect(tilt.chest).toBeLessThan(5); // shoulders stay ~level: balanced on gravity
 });
+
+test('holding W walks you up a slope too steep to skate', async ({ page }) => {
+  // On the 21° slope, facing straight up it (fall line points to ~27°).
+  await start(page, 'at=45.2830,6.5760,2572&heading=207&pitch=-5');
+  await page.keyboard.press('KeyF');
+  await page.keyboard.press('KeyV');
+  await page.waitForTimeout(300);
+  const before = await hudNumber(page, 'altitude');
+  await page.keyboard.down('KeyW');
+  await page.waitForTimeout(2500);
+  await page.screenshot({ path: 'test-results/views/ski-climb.png' });
+  await page.waitForTimeout(3500);
+  await page.keyboard.up('KeyW');
+  const after = await hudNumber(page, 'altitude');
+  expect(after).toBeGreaterThan(before + 1); // ~6 s × ~0.5 m/s up a 21° slope
+  expect(await hudNumber(page, 'speed')).toBeLessThan(6); // a walk, not a skate
+});

@@ -16,6 +16,8 @@ export interface LabelSpec {
   maxDistance: number;
   /** Labels with a lower tier win overlaps first; ties go to the nearer label. */
   tier: number;
+  /** Tier to use beyond NEAR_DISTANCE, if different (distant lifts yield to big peaks). */
+  farTier?: number;
 }
 
 /** Lift label sits above the middle of the line, half way along its length. */
@@ -45,6 +47,7 @@ export function liftLabel(lift: Lift): LabelSpec | null {
     position: new Vector3(east, top + 12, -north),
     maxDistance: 7000,
     tier: 0,
+    farTier: 2,
   };
 }
 
@@ -60,7 +63,9 @@ export function peakLabel(peak: Peak, resortExtent: Extent): LabelSpec {
     detail: `${Math.round(ele).toLocaleString('en-GB')} m`,
     position: new Vector3(peak.east, peak.ground + 25, -peak.north),
     maxDistance: local ? 20_000 : 150_000,
-    tier: local ? 0 : 1 + (5000 - ele) / 10_000,
+    // The great 4000 m peaks on the horizon (Mont Blanc...) always get their label.
+    // Among them, the higher summit wins an overlap (Mont Blanc over its satellites).
+    tier: ele >= 4000 && !local ? -1 - (ele - 4000) / 1000 : local ? 0 : 1 + (5000 - ele) / 10_000,
   };
 }
 
@@ -73,6 +78,8 @@ interface Label extends LabelSpec {
 }
 
 const OCCLUSION_SAMPLES = 40;
+/** Beyond this, labels use their `farTier` (m). */
+const NEAR_DISTANCE = 3000;
 /** Recheck terrain occlusion for a slice of labels each frame to spread the cost. */
 const OCCLUSION_BUDGET = 40;
 /** The pointer arrow below each tag, plus breathing room between tags (px). */
@@ -129,7 +136,7 @@ export class Labels {
 
     const width = this.root.clientWidth;
     const height = this.root.clientHeight;
-    const candidates: { label: Label; x: number; y: number; distance: number }[] = [];
+    const candidates: { label: Label; tier: number; x: number; y: number; distance: number }[] = [];
     for (const label of this.labels) {
       if (!this.visible[label.kind] || label.occluded) continue;
       const distance = label.position.distanceTo(camera.position);
@@ -140,14 +147,16 @@ export class Labels {
       if (view.z > -camera.near) continue;
       const p = view.applyMatrix4(camera.projectionMatrix);
       if (p.x < -1.2 || p.x > 1.2 || p.y < -1.2 || p.y > 1.2) continue;
+      const tier = distance > NEAR_DISTANCE ? (label.farTier ?? label.tier) : label.tier;
       candidates.push({
         label,
+        tier,
         x: (p.x * 0.5 + 0.5) * width,
         y: (-p.y * 0.5 + 0.5) * height,
         distance,
       });
     }
-    candidates.sort((a, b) => a.label.tier - b.label.tier || a.distance - b.distance);
+    candidates.sort((a, b) => a.tier - b.tier || a.distance - b.distance);
 
     // Greedy declutter: keep a label only if its box doesn't hit one already placed.
     const placed: { l: number; r: number; t: number; b: number }[] = [];

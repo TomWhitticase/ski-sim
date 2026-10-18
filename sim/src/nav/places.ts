@@ -13,6 +13,8 @@ export interface Place {
   pose: Pose;
   /** Swatch colour for the list (piste difficulty). */
   colour?: string;
+  /** Point to look at on arrival (e.g. a summit), so the view aims at it from the ground. */
+  lookAt?: { east: number; north: number; altitude: number };
 }
 
 const RAD = Math.PI / 180;
@@ -140,7 +142,29 @@ export function buildPlaces(
       name: peak.name,
       detail: `${Math.round(ele).toLocaleString('en-GB')} m`,
       pose: peakViewpoint(peak, centre),
+      lookAt: { east: peak.east, north: peak.north, altitude: peak.ground },
     });
   }
   return places;
+}
+
+/**
+ * Put a teleport destination on the ground: `eyeHeight` above the terrain, looking at
+ * `lookAt` if given (otherwise keeping the pose's heading and a level-ish view).
+ */
+export function groundedPose(
+  pose: Pose,
+  groundHeight: (east: number, north: number) => number,
+  eyeHeight: number,
+  lookAt?: { east: number; north: number; altitude: number },
+): Pose {
+  const eye = groundHeight(pose.east, pose.north) + eyeHeight;
+  if (!lookAt) return { ...pose, altitude: eye, pitch: Math.max(-10, Math.min(pose.pitch, 10)) };
+  const distance = Math.hypot(lookAt.east - pose.east, lookAt.north - pose.north);
+  return {
+    ...pose,
+    altitude: eye,
+    heading: bearing(pose.east, pose.north, lookAt.east, lookAt.north),
+    pitch: (Math.atan2(lookAt.altitude - eye, distance) * 180) / Math.PI,
+  };
 }

@@ -29,6 +29,8 @@ const CELL_COLOURS: [number, number, number][] = [
   [0.04, 0.45, 0.52], // teal (matches the jacket)
 ];
 const CHASE_DISTANCE = 13;
+/** Seconds after launch before touching the snow counts as landing. */
+const LAUNCH_GRACE = 1.2;
 const HANG_POINT = 1.45; // risers clip in around chest height
 
 /** Point on the wing's arc at spanwise s ∈ [-1, 1], in the pilot's frame. */
@@ -122,6 +124,8 @@ export class GliderControls {
   };
   private readonly euler = new Euler(0, 0, 0, 'YXZ');
   private readonly swing = new Group();
+  /** Seconds since launch: touching the snow while the wing inflates isn't a landing. */
+  private airTime = 0;
 
   constructor(
     private readonly camera: PerspectiveCamera,
@@ -175,6 +179,13 @@ export class GliderControls {
   launch(feet: Vector3, velocity: Vector3, lookYaw: number, lookPitch: number): void {
     this.state.position.copy(feet);
     this.state.velocity.copy(velocity);
+    // Launching off the snow: the wing lifts you clear rather than "landing" at once.
+    const ground = this.groundHeight(feet.x, feet.z);
+    if (this.state.position.y < ground + 0.6) {
+      this.state.position.y = ground + 0.6;
+      this.state.velocity.y = Math.max(this.state.velocity.y, 1);
+    }
+    this.airTime = 0;
     this.state.bank = 0;
     const horizontal = Math.hypot(velocity.x, velocity.z);
     this.state.heading = horizontal > 1 ? Math.atan2(-velocity.x, -velocity.z) : lookYaw;
@@ -188,12 +199,20 @@ export class GliderControls {
     const headingBefore = this.state.heading;
     this.look.apply(input);
     const turn = (input.down('KeyA') ? 1 : 0) - (input.down('KeyD') ? 1 : 0);
-    const landed = stepGlider(
+    this.airTime += dt;
+    const touched = stepGlider(
       this.state,
       { turn, bar: input.down('KeyW'), brake: input.down('KeyS') },
       dt,
       this.groundHeight,
     );
+    const landed = touched && this.airTime > LAUNCH_GRACE;
+    if (touched && !landed) {
+      // Still inflating: skim the snow and keep going.
+      const p = this.state.position;
+      p.y = this.groundHeight(p.x, p.z) + 0.3;
+      this.state.velocity.y = Math.max(this.state.velocity.y, 0.5);
+    }
     // The view turns with the wing, so steering feels natural; mouse look is on top.
     this.look.yaw += this.state.heading - headingBefore;
 

@@ -59,6 +59,41 @@ def fetch_pistes(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict
     return _query(query, cache_dir, "pistes")
 
 
+def find_ski_area(name: str, cache_dir: Path) -> tuple[float, float, float, float] | None:
+    """Lat/lon bounds (south, west, north, east) of OSM ski areas (`landuse=winter_sports`)
+    whose name matches, unioned. None if nothing matches."""
+    pattern = name.replace('"', "")
+    query = (
+        "[out:json][timeout:120];"
+        f'(way["landuse"="winter_sports"]["name"~"{pattern}",i];'
+        f'relation["landuse"="winter_sports"]["name"~"{pattern}",i];);out bb tags;'
+    )
+    elements = _query(query, cache_dir, f"ski area '{name}'")
+    boxes = [e["bounds"] for e in elements if "bounds" in e]
+    if not boxes:
+        return None
+
+    # Names repeat around the world: keep only areas near the largest match.
+    def centre(b: dict) -> tuple[float, float]:
+        return (b["minlat"] + b["maxlat"]) / 2, (b["minlon"] + b["maxlon"]) / 2
+
+    def size(b: dict) -> float:
+        return (b["maxlat"] - b["minlat"]) * (b["maxlon"] - b["minlon"])
+
+    anchor = centre(max(boxes, key=size))
+    boxes = [
+        b
+        for b in boxes
+        if abs(centre(b)[0] - anchor[0]) < 0.3 and abs(centre(b)[1] - anchor[1]) < 0.4
+    ]
+    return (
+        min(b["minlat"] for b in boxes),
+        min(b["minlon"] for b in boxes),
+        max(b["maxlat"] for b in boxes),
+        max(b["maxlon"] for b in boxes),
+    )
+
+
 def _query(query: str, cache_dir: Path, description: str) -> list[dict]:
     key = hashlib.sha256(query.encode()).hexdigest()[:16]
     dest = cache_dir / "osm" / f"overpass-{key}.json"

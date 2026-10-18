@@ -117,3 +117,33 @@ describe('stepSki', () => {
     expect(offPiste).toBeGreaterThan(5); // still skiable
   });
 });
+
+describe('walking uphill', () => {
+  const push = { ...idle, push: true };
+  const UPHILL = 0; // yaw 0 faces north (-z): uphill on these south-falling slopes
+
+  it('walks up even a steep 35° slope, slowly, instead of getting stuck', () => {
+    const t = slope(35);
+    const state = run(skier(t, UPHILL), t, 10, push);
+    const climbed = state.position.y - t.height(0, 0);
+    expect(climbed).toBeGreaterThan(1.5); // ~0.35-0.6 m/s along the slope
+    expect(state.velocity.length()).toBeLessThan(1.4);
+    expect(state.climbing).toBe(true);
+  });
+
+  it('climbs gentle grades faster than steep ones', () => {
+    const gentle = slope(8);
+    const steep = slope(30);
+    const a = run(skier(gentle, UPHILL), gentle, 6, push);
+    const b = run(skier(steep, UPHILL), steep, 6, push);
+    expect(Math.abs(a.position.z)).toBeGreaterThan(Math.abs(b.position.z));
+  });
+
+  it('slides back down when you stop pushing', () => {
+    const t = slope(25);
+    const state = run(skier(t, UPHILL), t, 4, push);
+    const top = state.position.y;
+    run(state, t, 3);
+    expect(state.position.y).toBeLessThan(top);
+  });
+});
