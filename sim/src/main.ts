@@ -12,6 +12,7 @@ import { Heightmap } from './geo/heightmap';
 import { LocalFrame, worldToEnu } from './geo/local-frame';
 import { type HeightmapMeta, loadManifest, resortUrl } from './resort/manifest';
 import { createNormalTexture } from './terrain/normals';
+import { AdaptiveResolution } from './render/adaptive-resolution';
 import { Terrain } from './terrain/terrain';
 import { createTerrainMaterial } from './terrain/terrain-material';
 import { buildPlaces } from './nav/places';
@@ -52,7 +53,6 @@ async function main(): Promise<void> {
   document.title = `${manifest.resort.name} · mountain-map`;
   $('#attribution').textContent =
     'Terrain: ' + manifest.provenance.map((p) => p.attribution).join(' · ');
-
   status.textContent = 'Loading terrain…';
   const [near, far, features] = await Promise.all([
     loadHeightmap(resortId, manifest.terrain.near),
@@ -66,8 +66,9 @@ async function main(): Promise<void> {
   };
 
   const canvas = $<HTMLCanvasElement>('#scene');
-  const renderer = new WebGPURenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  const renderer = new WebGPURenderer({ canvas, antialias: true, reversedDepthBuffer: true });
+  const resolution = new AdaptiveResolution(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(resolution.ratio);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.55;
@@ -87,7 +88,7 @@ async function main(): Promise<void> {
   await nextFrame();
   const nearTerrain = new Terrain(
     near,
-    createTerrainMaterial(near, createNormalTexture(near)),
+    createTerrainMaterial(near, createNormalTexture(near), undefined, { snowDetail: true }),
     TERRAIN.near,
   );
   const farTerrain = new Terrain(
@@ -152,7 +153,6 @@ async function main(): Promise<void> {
   const startPose = poseFromUrl(params, frame, spawn) ?? (saved && inBounds(saved) ? saved : spawn);
   controls().place(startPose);
   ski.setActive(mode === 'ski');
-
   nearTerrain.update(camera.position, Infinity);
   farTerrain.update(camera.position, Infinity);
 
@@ -272,6 +272,8 @@ async function main(): Promise<void> {
 
   const sim = { ready: false, frames: 0 };
   window.__sim = sim;
+  // Dev-only handles for profiling scripts and debugging from the console.
+  if (import.meta.env.DEV) Object.assign(sim, { scene, renderer, camera, labels, minimap });
   let last = performance.now();
   let lastX = camera.position.x;
   let lastY = camera.position.y;
@@ -283,7 +285,10 @@ async function main(): Promise<void> {
 
   renderer.setAnimationLoop(() => {
     const now = performance.now();
-    const dt = Math.min((now - last) / 1000, 0.1);
+    const frameMs = now - last;
+    const dt = Math.min(frameMs / 1000, 0.1);
+    // Ignore hitches from tab switches or the map being open.
+    if (frameMs < 250 && resolution.sample(frameMs)) renderer.setPixelRatio(resolution.ratio);
     last = now;
     // The fullscreen map covers everything; skip 3D work while it's open.
     if (worldMap.isOpen) return;
@@ -306,6 +311,12 @@ async function main(): Promise<void> {
     nearTerrain.update(pos, TERRAIN.buildBudgetMs);
     farTerrain.update(pos, TERRAIN.buildBudgetMs);
     environment.update(camera);
+    // A touch wider field of view at speed when skiing.
+    const fov = CAMERA.fov + (mode === 'ski' ? Math.min(ski.speed / 30, 1) * 10 : 0);
+    if (Math.abs(fov - camera.fov) > 0.05) {
+      camera.fov += (fov - camera.fov) * Math.min(1, dt * 3);
+      camera.updateProjectionMatrix();
+    }
     renderer.render(scene, camera);
 
     const here = mode === 'ski' ? ski.feet : pos;
@@ -321,7 +332,7 @@ async function main(): Promise<void> {
         ? 'WebGPU'
         : 'WebGL 2';
       debug.textContent = [
-        `${fps.toFixed(0)} fps · ${backend}`,
+        `${fps.toFixed(0)} fps · ${backend} · render scale ${resolution.ratio.toFixed(2)}`,
         `draw calls ${info.drawCalls} · triangles ${(info.triangles / 1e6).toFixed(2)}M`,
         `E ${east.toFixed(1)}  N ${north.toFixed(1)}  ground ${groundHeight(pos.x, pos.z).toFixed(1)} m`,
         mode === 'ski'

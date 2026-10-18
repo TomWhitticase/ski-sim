@@ -1,4 +1,5 @@
 import {
+  cameraPosition,
   Discard,
   Fn,
   float,
@@ -19,6 +20,7 @@ import { DoubleSide, MeshStandardNodeMaterial, type Texture } from 'three/webgpu
 
 import type { Heightmap } from '../geo/heightmap';
 import type { Extent } from '../resort/manifest';
+import { createSnowDetailTexture } from './snow-detail';
 
 const SNOW = vec3(0.93, 0.95, 0.98);
 const SNOW_SHADED = vec3(0.84, 0.88, 0.95);
@@ -29,6 +31,12 @@ const ROCK_LIGHT = vec3(0.4, 0.37, 0.34);
 // layer's edge, whose skirts then cover the join. Without this, hairline gaps show sky.
 const HOLE_EDGE_DIP = 40;
 
+/** Close-range snow texture: tile sizes (m) and the distance it fades out over. */
+const DETAIL_TILES = [9, 1.7];
+const DETAIL_STRENGTH = [0.22, 0.14];
+const DETAIL_FADE: [number, number] = [40, 400];
+let snowDetailTexture: Texture | null = null;
+
 /**
  * Winter terrain: snow everywhere except slopes too steep to hold it.
  * Lighting uses the full-resolution normal texture, not the (possibly coarse) geometry.
@@ -38,6 +46,7 @@ export function createTerrainMaterial(
   hm: Heightmap,
   normalTexture: Texture,
   hole?: Extent,
+  { snowDetail: withSnowDetail = false }: { snowDetail?: boolean } = {},
 ): MeshStandardNodeMaterial {
   // Double-sided so chunk skirts hide LOD cracks whichever side they're seen from.
   const material = new MeshStandardNodeMaterial({ side: DoubleSide });
@@ -48,7 +57,23 @@ export function createTerrainMaterial(
     positionWorld.z.add(north).div(hm.cellSize).add(0.5).div(hm.height),
   );
   const normal = texture(normalTexture, uv).xyz.mul(2).sub(1).normalize();
-  material.normalNode = transformNormalToView(normal);
+  let shadingNormal = normal;
+  if (withSnowDetail) {
+    // Below-lidar-resolution snow texture near the camera, faded out with distance.
+    snowDetailTexture ??= createSnowDetailTexture();
+    const tex = snowDetailTexture;
+    const fade = smoothstep(
+      DETAIL_FADE[0],
+      DETAIL_FADE[1],
+      cameraPosition.distance(positionWorld),
+    ).oneMinus();
+    const [coarse, fine] = DETAIL_TILES.map((tile, i) =>
+      texture(tex, positionWorld.xz.div(tile)).xy.mul(2).sub(1).mul(DETAIL_STRENGTH[i]!),
+    );
+    const slope = coarse!.add(fine!).mul(fade);
+    shadingNormal = normal.add(vec3(slope.x.negate(), 0, slope.y.negate())).normalize();
+  }
+  material.normalNode = transformNormalToView(shadingNormal);
 
   const ground = vec3(positionWorld.x, 0, positionWorld.z);
   const breakup = mx_fractal_noise_float(ground.mul(0.02), 3);

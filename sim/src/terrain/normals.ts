@@ -13,10 +13,10 @@ export function normalAt(hm: Heightmap, col: number, row: number, out: Float32Ar
   const rs = row < hm.height - 1 ? row + 1 : row;
   const dhdEast = (hm.at(cr, row) - hm.at(cl, row)) / ((cr - cl) * hm.cellSize);
   const dhdNorth = (hm.at(col, rn) - hm.at(col, rs)) / ((rs - rn) * hm.cellSize);
-  const len = Math.hypot(dhdEast, 1, dhdNorth);
-  out[i] = -dhdEast / len;
-  out[i + 1] = 1 / len;
-  out[i + 2] = dhdNorth / len;
+  const inv = 1 / Math.sqrt(dhdEast * dhdEast + 1 + dhdNorth * dhdNorth);
+  out[i] = -dhdEast * inv;
+  out[i + 1] = inv;
+  out[i + 2] = dhdNorth * inv;
 }
 
 /**
@@ -24,15 +24,24 @@ export function normalAt(hm: Heightmap, col: number, row: number, out: Float32Ar
  * Texel (col, row) matches heightmap sample (col, row); RGB = normal * 0.5 + 0.5.
  */
 export function createNormalTexture(hm: Heightmap): DataTexture {
-  const pixels = new Uint8Array(hm.width * hm.height * 4);
-  const n = new Float32Array(3);
-  for (let row = 0; row < hm.height; row++) {
-    for (let col = 0; col < hm.width; col++) {
-      normalAt(hm, col, row, n, 0);
-      const p = (row * hm.width + col) * 4;
-      pixels[p] = (n[0]! * 0.5 + 0.5) * 255;
-      pixels[p + 1] = (n[1]! * 0.5 + 0.5) * 255;
-      pixels[p + 2] = (n[2]! * 0.5 + 0.5) * 255;
+  const { width: w, height: h, data } = hm;
+  const pixels = new Uint8Array(w * h * 4);
+  // Hot loop over every sample (~10M near): inline differences, avoid Math.hypot (slow).
+  for (let row = 0; row < h; row++) {
+    const rn = row > 0 ? row - 1 : row;
+    const rs = row < h - 1 ? row + 1 : row;
+    const invDy = 1 / ((rs - rn) * hm.cellSize);
+    const base = row * w;
+    for (let col = 0; col < w; col++) {
+      const cl = col > 0 ? col - 1 : col;
+      const cr = col < w - 1 ? col + 1 : col;
+      const dhdEast = (data[base + cr]! - data[base + cl]!) / ((cr - cl) * hm.cellSize);
+      const dhdNorth = (data[rn * w + col]! - data[rs * w + col]!) * invDy;
+      const inv = 1 / Math.sqrt(dhdEast * dhdEast + 1 + dhdNorth * dhdNorth);
+      const p = (base + col) * 4;
+      pixels[p] = (-dhdEast * inv * 0.5 + 0.5) * 255;
+      pixels[p + 1] = (inv * 0.5 + 0.5) * 255;
+      pixels[p + 2] = (dhdNorth * inv * 0.5 + 0.5) * 255;
       pixels[p + 3] = 255;
     }
   }

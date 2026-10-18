@@ -134,8 +134,12 @@ export class Labels {
       if (!this.visible[label.kind] || label.occluded) continue;
       const distance = label.position.distanceTo(camera.position);
       if (distance > label.maxDistance) continue;
-      const p = this.projected.copy(label.position).project(camera);
-      if (p.z > 1 || p.x < -1.2 || p.x > 1.2 || p.y < -1.2 || p.y > 1.2) continue;
+      // Cull behind the camera in view space: projected depth can't be used for this
+      // because its range depends on the depth-buffer convention (reversed-Z here).
+      const view = this.projected.copy(label.position).applyMatrix4(camera.matrixWorldInverse);
+      if (view.z > -camera.near) continue;
+      const p = view.applyMatrix4(camera.projectionMatrix);
+      if (p.x < -1.2 || p.x > 1.2 || p.y < -1.2 || p.y > 1.2) continue;
       candidates.push({
         label,
         x: (p.x * 0.5 + 0.5) * width,

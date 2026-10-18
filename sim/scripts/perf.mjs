@@ -1,0 +1,32 @@
+// Measures load time and steady-state fps at a few camera poses against the running dev
+// server (pnpm dev). Usage: pnpm perf [--headed]
+import { chromium } from '@playwright/test';
+
+const POSES = {
+  spawn: '',
+  village: 'at=45.3005,6.5765,2420&heading=150&pitch=-18',
+  'mont-blanc-horizon': 'at=45.2632,6.5610,3210&heading=25&pitch=0',
+  'ski-slope': 'at=45.2830,6.5760,2600&heading=27&pitch=-10',
+};
+
+const browser = await chromium.launch({
+  headless: !process.argv.includes('--headed'),
+  args: ['--enable-gpu', '--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist'],
+});
+const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+
+for (const [name, query] of Object.entries(POSES)) {
+  const start = Date.now();
+  await page.goto(`http://localhost:5173/?${query}`);
+  await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 0, null, { timeout: 90_000 });
+  const firstFrame = Date.now() - start;
+  await page.evaluate(() => document.body.classList.add('flying'));
+  await page.waitForTimeout(2000);
+  const a = await page.evaluate(() => window.__sim.frames);
+  await page.waitForTimeout(3000);
+  const b = await page.evaluate(() => window.__sim.frames);
+  console.log(
+    `${name.padEnd(20)} first frame ${String(firstFrame).padStart(5)} ms   ${((b - a) / 3).toFixed(1)} fps`,
+  );
+}
+await browser.close();

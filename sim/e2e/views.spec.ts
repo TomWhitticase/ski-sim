@@ -28,3 +28,14 @@ for (const view of VIEWS) {
     expect(errors).toEqual([]);
   });
 }
+
+test('labels for places behind the camera stay hidden', async ({ page }) => {
+  // Facing NNE from Cime de Caron: the Orelle sector (Rocher Blanc, Télécabine d'Orelle)
+  // is directly behind.
+  await page.goto('/?at=45.2632,6.5610,3210&heading=25&pitch=0');
+  await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 30, null, { timeout: 90_000 });
+  const shown = await page.locator('#labels .label:not([hidden]) .label-name').allTextContents();
+  expect(shown).toContain('Mont Blanc / Monte Bianco');
+  expect(shown).not.toContain('Rocher Blanc');
+  expect(shown).not.toContain("Télécabine d'Orelle");
+});

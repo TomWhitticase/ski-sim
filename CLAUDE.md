@@ -31,6 +31,7 @@ uv run ruff check . && uv run ruff format --check .
 pnpm dev               # http://localhost:5173 (serves data/processed as static files)
 pnpm test              # Vitest unit tests
 pnpm screenshot        # Playwright: renders e2e view poses + runs control tests
+pnpm perf              # load time + fps at fixed poses (needs pnpm dev running)
 pnpm typecheck && pnpm lint
 pnpm build
 ```
@@ -102,6 +103,7 @@ sim/src/
   terrain/            Chunked LOD terrain, normal-map texture, TSL snow/rock material
   features/           Lifts (instanced towers/arms/cables/stations) and extruded buildings
   env/                Sky, sun position, lights, cascaded shadows, fog
+  render/             Adaptive resolution (render scale follows frame time)
   controls/           Shared input + mouse look; fly mode; ski mode (ski-physics.ts is pure and unit-tested)
   nav/                Saved pose (localStorage, per resort) and teleport destinations
   ui/                 HUD, minimap, fullscreen world map (M), world-anchored name labels
@@ -136,8 +138,15 @@ Both come from OSM through Overpass (`sources/osm.py`). The response is cached u
 - Labels are hidden when terrain occludes them. A ray-march against the heightmap runs on a rolling budget, so not every label is checked every frame.
 - Labels are also hidden beyond a per-kind distance, or when they'd overlap a higher-priority tag. Lifts and local peaks win; distant peaks are ranked by elevation.
 
+### Performance notes
+
+Measure with `pnpm perf` before and after any rendering change. In dev builds, `window.__sim` exposes `scene`, `renderer`, `camera`, `labels` and `minimap` for profiling scripts.
+- **Use reversed-Z, not a logarithmic depth buffer.** Log depth writes depth from the fragment shader, which disables early-Z. With terrain overdraw that cost ~2.5× frame time (23 → 56 fps in the village view). Reversed-Z gives the same far-range precision. Anything that projects to NDC must not assume z ∈ [-1, 1] or z > 1 = behind; cull in view space instead (see `ui/labels.ts`).
+- Avoid `Math.hypot` in per-sample hot loops; it's far slower than `Math.sqrt` in V8 (normal textures went from 750 ms to 177 ms).
+- The terrain is GPU-bound. Shadows cost ~20%, and the far terrain about a quarter of the frame. CPU submission is ~1 ms.
+
 Known limits:
-- 4 m data looks soft at ground level. Skiing will need finer tiles streamed near the camera.
+- 4 m data looks soft at ground level, though a tiling procedural snow-detail normal map (`terrain/snow-detail.ts`) adds texture within ~400 m. Skiing will need finer tiles streamed near the camera.
 - There's no texture/imagery drape yet. Snow vs rock is decided by slope.
 - Lifts are static: no chairs or cabins. Cables are straight with no sag. Building roofs are flat, and multipolygon buildings (courtyards) are skipped.
 

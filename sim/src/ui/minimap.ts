@@ -9,6 +9,7 @@ export class Minimap {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly scaleLabel: HTMLElement;
   private zoomIndex: number = MINIMAP.defaultZoom;
+  private lastKey = '';
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -32,12 +33,17 @@ export class Minimap {
     const { canvas, ctx, image, extent } = this;
     const dpr = window.devicePixelRatio || 1;
     const size = Math.round(canvas.clientWidth * dpr);
+    // Skip the redraw unless something visible changed (sub-pixel moves don't count).
+    const span = MINIMAP.zoomLevels[this.zoomIndex]!;
+    const metresPerPixel = span / size;
+    const key = `${Math.round(east / metresPerPixel)},${Math.round(north / metresPerPixel)},${Math.round(heading)},${span},${size}`;
+    if (key === this.lastKey) return;
+    this.lastKey = key;
     if (canvas.width !== size || canvas.height !== size) {
       canvas.width = size;
       canvas.height = size;
     }
 
-    const span = MINIMAP.zoomLevels[this.zoomIndex]!;
     // Image pixels per metre (the image exactly covers `extent`).
     const ix = image.naturalWidth / (extent.east - extent.west);
     const iy = image.naturalHeight / (extent.north - extent.south);
