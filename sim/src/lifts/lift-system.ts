@@ -238,6 +238,28 @@ export class LiftSystem {
     return carrierAt(this.lines[li]!.op, ci, this.time);
   }
 
+  /** Horizontal distance to the nearest station (bottom or top) of any lift (m). */
+  nearestStation(x: number, z: number): number {
+    let best = Infinity;
+    for (const line of this.lines) {
+      best = Math.min(
+        best,
+        Math.hypot(line.bottom.x - x, line.bottom.z - z),
+        Math.hypot(line.top.x - x, line.top.z - z),
+      );
+    }
+    return best;
+  }
+
+  /** Distances up the line of each tower (not stations) on a lift. */
+  towerDistances(li: number): number[] {
+    const line = this.lines[li]!;
+    const scale = line.op.length / line.cumulative.at(-1)!;
+    return line.lift.supports
+      .map((s, i) => (s.kind === 'station' ? -1 : line.cumulative[i]! * scale))
+      .filter((d) => d >= 0);
+  }
+
   /** The nearest lift you could board from (x, z), if any bottom station is close. */
   boardingNear(x: number, z: number): number | null {
     let best: number | null = null;
@@ -274,6 +296,7 @@ export class LiftSystem {
     const wheels: Matrix4[] = [];
     const cables: Matrix4[] = [];
     const stations: Matrix4[] = [];
+    const boxSites: Vector3[] = [];
     const cableMaterial = new MeshStandardNodeMaterial({ color: 0x1d1f22, roughness: 0.6 });
     const stationMaterial = new MeshStandardNodeMaterial({ color: 0x8a8d93, roughness: 0.8 });
 
@@ -289,7 +312,11 @@ export class LiftSystem {
         if (s.kind === 'station') {
           // Bullwheel at cable height, the loop the carriers turn around.
           wheels.push(m.compose(top, q, scale.set(lift.gauge / 2, 1, lift.gauge / 2)).clone());
-          if (!s.stationBuilding) {
+          // Lifts often share a station; one placeholder box per site, or the
+          // coincident roofs and walls z-fight.
+          const shared = boxSites.some((p) => Math.hypot(p.x - top.x, p.z - top.z) < 20);
+          if (!s.stationBuilding && !shared) {
+            boxSites.push(top.clone());
             const size = heavy ? [lift.gauge + 8, 10, 16] : [lift.gauge + 4, 6, 10];
             const base = s.ground - BURY;
             const roof = Math.max(top.y + 1.5, s.ground + size[1]!);

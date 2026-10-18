@@ -17,6 +17,7 @@ export class Sound {
   private glide!: { gain: GainNode; filter: BiquadFilterNode };
   private skid!: { gain: GainNode; filter: BiquadFilterNode };
   private noise!: AudioBuffer;
+  private hum!: GainNode;
   private muted: boolean;
 
   constructor(muted = false) {
@@ -75,6 +76,53 @@ export class Sound {
     flutter.connect(depth).connect(grit.gain);
     flutter.start();
     source.start();
+
+    // Lift drive: low motor harmonics, a little noisy, through a low-pass.
+    this.hum = ctx.createGain();
+    this.hum.gain.value = 0;
+    const humFilter = ctx.createBiquadFilter();
+    humFilter.type = 'lowpass';
+    humFilter.frequency.value = 260;
+    humFilter.connect(this.hum).connect(this.master);
+    for (const [freq, level] of [
+      [49, 0.6],
+      [98, 0.35],
+      [147, 0.15],
+    ] as const) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.value = freq;
+      const g = ctx.createGain();
+      g.gain.value = level;
+      osc.connect(g).connect(humFilter);
+      osc.start();
+    }
+  }
+
+  setLiftHum(level: number): void {
+    if (this.ctx) this.hum.gain.setTargetAtTime(level, this.ctx.currentTime, 0.15);
+  }
+
+  /** A carrier's grip rolling over a tower's sheave train: a quick run of clacks. */
+  clack(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+    for (let i = 0; i < 4; i++) {
+      const t = t0 + i * 0.075;
+      const source = ctx.createBufferSource();
+      source.buffer = this.noise;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 650 + i * 40;
+      filter.Q.value = 3;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.5, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+      source.connect(filter).connect(gain).connect(this.master);
+      source.start(t, Math.random());
+      source.stop(t + 0.06);
+    }
   }
 
   setMuted(muted: boolean): void {

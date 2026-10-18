@@ -9,7 +9,7 @@ import {
 
 import { CAMERA, DEFAULT_RESORT, SIM_TIME, TERRAIN } from './config';
 import { Sound } from './audio/sound';
-import { soundLevels } from './audio/levels';
+import { liftHumLevel, soundLevels } from './audio/levels';
 import { FlyControls } from './controls/fly-controls';
 import { surfaceNormal } from './controls/ski-physics';
 import { skidAmount, sprayRate, trailWidth } from './fx/intensity';
@@ -31,6 +31,7 @@ import { createTerrainMaterial } from './terrain/terrain-material';
 import { buildPlaces, liftTypeName } from './nav/places';
 import { LiftSystem } from './lifts/lift-system';
 import { RideControls } from './lifts/ride';
+import { createLiftSigns } from './lifts/signs';
 import { createPisteMarkers } from './pistes/markers';
 import {
   DIFFICULTY,
@@ -171,7 +172,17 @@ async function main(): Promise<void> {
   const fxNormal = new Vector3();
   const fxSlide = new Vector3();
   const lifts = new LiftSystem(features.lifts, groundHeight);
-  scene.add(lifts.root);
+  // Tallest building roof within ~25 m of a point (for mounting station signs).
+  const roofNear = (x: number, z: number): number | null => {
+    let best: number | null = null;
+    for (const b of features.buildings) {
+      if (!b.footprint.some(([e, n]) => Math.hypot(e - x, -n - z) < 25)) continue;
+      const top = b.top + (b.roof?.rise ?? 0);
+      if (best === null || top > best) best = top;
+    }
+    return best;
+  };
+  scene.add(lifts.root, createLiftSigns(lifts.lines, groundHeight, roofNear));
   const ride = new RideControls(camera, lifts, ski);
   let mode: Mode = loadMode();
   const controls = () =>
@@ -348,9 +359,12 @@ async function main(): Promise<void> {
   };
   hud.setMode(mode);
   document.body.classList.toggle('skiing', mode !== 'fly');
+  let lastRideDistance = 0;
   const boardLift = (line: number) => {
     setMode('ride');
     ride.board(line, controls().look.yaw);
+    lastRideDistance = 0;
+    sound.thump(3); // grip clamping on
   };
   /** Off at the top: on your skis just past the station, gliding away from it. */
   const unload = () => {
@@ -359,6 +373,7 @@ async function main(): Promise<void> {
     const out = line.top.clone().addScaledVector(ahead, 12);
     const heading = (Math.atan2(ahead.x, -ahead.z) * 180) / Math.PI;
     ride.release();
+    sound.thump(2.5);
     mode = 'ski';
     ski.place(
       { east: out.x, north: -out.z, altitude: -1e4, heading, pitch: -5 },
@@ -454,6 +469,19 @@ async function main(): Promise<void> {
   let fps = 60;
 
   let lastPersist = 0;
+  /** Motor hum near stations; sheave clacks as your carrier rolls over each tower. */
+  const updateLiftSound = () => {
+    const p = whereAmI();
+    sound.setLiftHum(liftHumLevel(lifts.nearestStation(p.x, p.z), mode === 'ride'));
+    if (mode !== 'ride') return;
+    const d = ride.distance;
+    for (const tower of lifts.towerDistances(ride.line)) {
+      if ((lastRideDistance < tower && d >= tower) || (lastRideDistance > tower && d <= tower)) {
+        sound.clack();
+      }
+    }
+    lastRideDistance = d;
+  };
   const prompt = $('#prompt');
   let promptText = '';
   const updatePrompt = () => {
@@ -462,8 +490,8 @@ async function main(): Promise<void> {
       const wait = ride.waiting ? ride.departsIn : 0;
       text =
         wait > 0
-          ? `Waiting for the ${ride.name} cabin · departs in ${formatWait(wait)} · hold W to fast-forward · E to step away`
-          : `${ride.name} · hold W to fast-forward · E to jump off`;
+          ? `Waiting for the ${ride.name} cabin · departs in ${formatWait(wait)} · hold W to fast-forward · S to skip to the top · E to step away`
+          : `${ride.name} · hold W to fast-forward · S to skip to the top · E to jump off`;
     } else if (mode !== 'glide') {
       const p = whereAmI();
       const line = lifts.boardingNear(p.x, p.z);
@@ -516,6 +544,7 @@ async function main(): Promise<void> {
     const landed = controls().update(dt, input);
     if (mode === 'glide' && landed) setMode('ski');
     if (mode === 'ride' && landed) unload();
+    updateLiftSound();
     if (mode === 'fly') {
       // Third-person flying shows your skier hovering where you are.
       if (view === 'chase') ski.showFlying(fly.position, fly.look.yaw);

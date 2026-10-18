@@ -42,6 +42,13 @@ export interface Building {
   base: number;
   top: number;
   heightSource: 'osm-height' | 'osm-levels' | 'estimate';
+  /** Gable roof (null = flat). Faces are the footprint split along the ridge. */
+  roof?: {
+    ridge: [[number, number], [number, number]];
+    halfWidth: number;
+    rise: number;
+    faces: [number, number][][];
+  } | null;
 }
 
 export interface Peak {

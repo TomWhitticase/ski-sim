@@ -40,3 +40,12 @@ describe('soundLevels', () => {
     expect(soundLevels(12, gentleTurn).glide).toBeGreaterThan(0.1);
   });
 });
+
+describe('liftHumLevel', () => {
+  it('is loud beside a station, silent far away, with a little rope noise when riding', async () => {
+    const { liftHumLevel } = await import('../audio/levels');
+    expect(liftHumLevel(5, false)).toBeGreaterThan(0.25);
+    expect(liftHumLevel(500, false)).toBe(0);
+    expect(liftHumLevel(500, true)).toBeGreaterThan(0);
+  });
+});

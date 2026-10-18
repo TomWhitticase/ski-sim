@@ -119,3 +119,51 @@ def test_lift_specs():
     )
     assert specs == {"occupancy": 6, "capacity": 4000.0, "duration": 285.0, "bubble": False}
     assert lift_specs({})["occupancy"] is None
+
+
+def test_gable_roof_ridge_runs_along_the_long_side():
+    from shapely.geometry import Polygon
+
+    from mountain_pipeline.features import gable_roof
+
+    roof = gable_roof(Polygon([(0, 0), (20, 0), (20, 8), (0, 8)]), "yes", None)
+    (ax, ay), (bx, by) = roof["ridge"]
+    assert ay == pytest.approx(4) and by == pytest.approx(4)  # ridge along x, mid-depth
+    assert roof["halfWidth"] == pytest.approx(4)
+    assert len(roof["faces"]) == 2
+    assert roof["rise"] == pytest.approx(4 * np.tan(np.radians(24)), abs=0.01)
+
+
+def test_l_shaped_footprints_split_into_planar_faces():
+    from shapely.geometry import Polygon
+
+    from mountain_pipeline.features import gable_roof
+
+    roof = gable_roof(
+        Polygon([(0, 0), (30, 0), (30, 10), (10, 10), (10, 25), (0, 25)]), "yes", None
+    )
+    assert roof is not None
+    assert sum(Polygon(f).area for f in roof["faces"]) == pytest.approx(30 * 10 + 10 * 15, rel=1e-3)
+
+
+def test_large_industrial_buildings_keep_flat_roofs():
+    from shapely.geometry import Polygon
+
+    from mountain_pipeline.features import gable_roof
+
+    assert gable_roof(Polygon([(0, 0), (40, 0), (40, 30), (0, 30)]), "industrial", None) is None
+
+
+def test_duplicate_footprints_are_merged():
+    from mountain_pipeline.features import dedupe_buildings
+
+    square = [[0, 0], [10, 0], [10, 10], [0, 10]]
+    nearly = [[0.2, 0], [10, 0], [10, 10], [0.2, 10]]
+    apart = [[50, 0], [60, 0], [60, 10], [50, 10]]
+    b = lambda fp, t, top: {"footprint": fp, "type": t, "top": top, "base": 0}  # noqa: E731
+    out = dedupe_buildings(
+        [b(square, "yes", 10), b(nearly, "lift_station", 14), b(apart, "yes", 5)]
+    )
+    assert len(out) == 2
+    merged = next(x for x in out if x["footprint"] == square)
+    assert merged["top"] == 14 and merged["type"] == "lift_station"

@@ -8,6 +8,8 @@ const VIEWS = [
   { name: 'orelle-valley', query: 'at=45.2500,6.5650,3200&heading=200&pitch=-20' },
   { name: 'mont-blanc-horizon', query: 'at=45.2632,6.5610,3210&heading=25&pitch=0' },
   { name: 'pistes-overview', query: 'at=45.3010,6.5800,2850&heading=190&pitch=-22' },
+  { name: 'station-sign', query: 'at=45.295314,6.576639,2290&heading=108&pitch=-10' },
+  { name: 'village-close', query: 'at=45.29700,6.58050,2335&heading=200&pitch=-6' },
   { name: 'village', query: 'at=45.3005,6.5765,2420&heading=150&pitch=-18' },
   { name: 'lifts-moraine', query: 'at=45.2770,6.5880,2750&heading=55&pitch=-12' },
   { name: 'cime-caron-cable-car', query: 'at=45.2760,6.5680,2900&heading=215&pitch=-5' },

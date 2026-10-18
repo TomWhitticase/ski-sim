@@ -18,7 +18,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
-from shapely.geometry import Point, Polygon
+from shapely.geometry import LineString, Point, Polygon
+from shapely.ops import split
 
 from .config import Extent
 from .frame import LocalFrame
@@ -264,17 +265,96 @@ def extract_buildings(
         height, source = estimate_height(tags, polygon.area)
         g = ground(ring[:, 0], ring[:, 1])
         top = max(float(g.mean()) + height, float(g.max()) + 2.0)
+        kind = "lift_station" if is_station else tags.get("building")
         buildings.append(
             {
                 "id": el["id"],
-                "type": "lift_station" if is_station else tags.get("building"),
+                "type": kind,
                 "footprint": np.round(ring, 2).tolist(),
                 "base": round(float(g.min()) - 1.0, 2),
                 "top": round(top, 2),
                 "heightSource": source,
+                "roof": gable_roof(polygon, kind, tags.get("roof:shape")),
             }
         )
-    return buildings, station_footprints
+    return dedupe_buildings(buildings), station_footprints
+
+
+DUPLICATE_OVERLAP = 0.5
+
+
+def dedupe_buildings(buildings: list[dict]) -> list[dict]:
+    """Drop footprints mapped twice in OSM (e.g. a station area and a building with the
+    same outline). Coincident walls and roofs would z-fight. Of each duplicate pair the
+    larger footprint is kept, taking the taller top and the lift-station type if either
+    had it."""
+    from shapely.strtree import STRtree
+
+    polygons = [Polygon(b["footprint"]) for b in buildings]
+    order = sorted(range(len(buildings)), key=lambda i: -polygons[i].area)
+    tree = STRtree(polygons)
+    dropped: set[int] = set()
+    for i in order:
+        if i in dropped:
+            continue
+        for j in tree.query(polygons[i]):
+            j = int(j)
+            if j == i or j in dropped:
+                continue
+            small = min(polygons[i].area, polygons[j].area)
+            if polygons[i].intersection(polygons[j]).area > DUPLICATE_OVERLAP * small:
+                keep, other = buildings[i], buildings[j]
+                keep["top"] = max(keep["top"], other["top"])
+                keep["base"] = min(keep["base"], other["base"])
+                if other["type"] == "lift_station":
+                    keep["type"] = "lift_station"
+                dropped.add(j)
+    if dropped:
+        log.info("Merged %d duplicate building footprints", len(dropped))
+    return [b for k, b in enumerate(buildings) if k not in dropped]
+
+
+FLAT_ROOF_TYPES = {"industrial", "warehouse", "garage", "garages", "service", "commercial"}
+ROOF_PITCH = {"church": 40.0, "chapel": 40.0, "lift_station": 14.0}
+DEFAULT_PITCH = 24.0
+MAX_RIDGE_RISE = 7.0
+
+
+def gable_roof(polygon: Polygon, kind: str | None, shape: str | None) -> dict | None:
+    """A gable roof over the footprint: ridge along the long axis of its oriented
+    bounding box, one planar face each side. Returns None for flat roofs.
+
+    The footprint is split along the ridge so each piece is a single plane, which keeps
+    irregular (e.g. L-shaped) footprints watertight. Height above the eaves at a point is
+    rise * (1 - |distance to ridge| / halfWidth).
+    """
+    if shape == "flat" or (kind in FLAT_ROOF_TYPES and polygon.area > 600):
+        return None
+    if polygon.area > 5000:
+        return None
+    corners = np.asarray(polygon.minimum_rotated_rectangle.exterior.coords)[:4]
+    e1 = corners[1] - corners[0]
+    e2 = corners[2] - corners[1]
+    long_axis, short_axis = (e1, e2) if np.hypot(*e1) >= np.hypot(*e2) else (e2, e1)
+    half_width = float(np.hypot(*short_axis)) / 2
+    if half_width < 1.5 or half_width > 25:
+        return None
+    centre = corners.mean(axis=0)
+    direction = long_axis / np.hypot(*long_axis)
+    reach = float(np.hypot(*long_axis)) + 10
+    a = centre - direction * reach
+    b = centre + direction * reach
+    pitch = ROOF_PITCH.get(kind or "", DEFAULT_PITCH)
+    rise = min(half_width * math.tan(math.radians(pitch)), MAX_RIDGE_RISE)
+
+    pieces = [g for g in split(polygon, LineString([a, b])).geoms if g.area > 0.05]
+    halves = [np.round(np.asarray(g.exterior.coords)[:-1], 2).tolist() for g in pieces]
+    return {
+        "ridge": [np.round(a, 2).tolist(), np.round(b, 2).tolist()],
+        "halfWidth": round(half_width, 2),
+        "rise": round(rise, 2),
+        "faces": halves,
+    }
 
 
 def _round(support: dict) -> dict:

@@ -24,3 +24,9 @@ export function soundLevels(airSpeed: number, contact: SnowContact | null): Soun
     skid: 0.75 * skidAmount(contact),
   };
 }
+
+/** Drive hum near a lift station: loud beside it, gone ~150 m away. */
+export function liftHumLevel(distanceToStation: number, riding: boolean): number {
+  const near = Math.max(0, 1 - distanceToStation / 150) ** 2;
+  return 0.3 * near + (riding ? 0.06 : 0);
+}

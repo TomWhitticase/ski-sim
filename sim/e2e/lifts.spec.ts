@@ -88,3 +88,17 @@ test('cable car: wait for the cabin, then ride it up', async ({ page }) => {
   await page.keyboard.up('KeyW');
   expect(await altitude(page)).toBeGreaterThan(3100); // Cime de Caron ~3170 m
 });
+
+test('S on a lift skips straight to the top', async ({ page }) => {
+  await start(page, 'at=45.287695,6.583316,2354&heading=133&pitch=-5'); // Moraine base
+  await page.keyboard.press('KeyF');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('KeyE');
+  await page.waitForTimeout(500);
+  expect(await mode(page)).toBe('LIFT');
+  await expect(page.locator('#prompt')).toContainText('S to skip');
+  await page.keyboard.press('KeyS');
+  await page.waitForTimeout(500);
+  expect(await mode(page)).toBe('SKI');
+  expect(await altitude(page)).toBeGreaterThan(2780); // Moraine top ~2814 m
+});

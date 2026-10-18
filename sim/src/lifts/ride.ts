@@ -11,7 +11,7 @@ const CHASE_DISTANCE = 6;
 
 /**
  * Riding a lift. You're attached to one carrier and move with it; at the top you're
- * handed back to ski mode. Hold W to fast-forward the lift clock.
+ * handed back to ski mode. Hold W to fast-forward the lift clock; S skips to the top.
  */
 export class RideControls {
   readonly look = new Look(FLY.mouseSensitivity);
@@ -51,6 +51,11 @@ export class RideControls {
     return this.lifts.lines[this.line]!.name;
   }
 
+  /** How far up the line you are (m); 0 while waiting. */
+  get distance(): number {
+    return this.waiting ? 0 : this.lifts.carrierState(this.line, this.carrier).distance;
+  }
+
   /** Seconds until departure while waiting for a cable car, else 0. */
   get departsIn(): number {
     const op = this.lifts.lines[this.line]!.op;
@@ -77,6 +82,8 @@ export class RideControls {
   update(dt: number, input: Input): boolean {
     this.look.apply(input);
     this.lifts.rate = input.down('KeyW') ? FAST_FORWARD : 1;
+    // S skips the rest of the ride: straight off at the top.
+    if (input.wasPressed('KeyS')) return true;
     const op = this.lifts.lines[this.line]!.op;
 
     if (this.waiting) {

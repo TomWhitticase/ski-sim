@@ -162,13 +162,16 @@ P deploys a paraglider from fly or ski mode, keeping your velocity; P again drop
 
 - `lifts/operation.ts` (pure, unit-tested) gives speed, carrier spacing and count from OSM specs (`aerialway:duration/occupancy/capacity`, parsed by the pipeline) with typical fallbacks. Loop lifts run continuously; cable cars run as jig-backs (two cabins, 45 s dwell).
 - `lifts/lift-system.ts`: towers, crossarms, sheave trains, bullwheels, ropes and stations are static instances. Carriers are one InstancedMesh per type and seat count, all updated each frame (~3.6k carriers at 60 fps).
-- `lifts/ride.ts`: press E within 35 m of a bottom station to board the next carrier (cable cars: wait for the cabin). Hold W to fast-forward the lift clock (×8). You're unloaded at the top in ski mode, moving; E mid-ride jumps off.
+- `lifts/signs.ts`: a name board on a gantry at each end of every lift, raised above any station roof. One canvas atlas, one instanced mesh.
+- Lift sounds: drive hum near stations, sheave clacks as your carrier passes each tower, a clunk on boarding and unloading.
+- Avoid coplanar geometry (z-fighting): lifts sharing a station get one placeholder box; back-to-back sign faces sit 4 cm apart.
+- `lifts/ride.ts`: press E within 35 m of a bottom station to board the next carrier (cable cars: wait for the cabin). Hold W to fast-forward the lift clock (×8); S skips straight to the top. You're unloaded at the top in ski mode, moving; E mid-ride jumps off.
 
 ### Lifts and buildings
 
 Both come from OSM through Overpass (`sources/osm.py`). The response is cached under `data/raw/osm/`; delete the cache to refresh.
 - **Lifts:** stations sit at the way's ends and intermediate nodes become towers. `features.place_supports` adds `synthetic-tower`s wherever the straight cable would drop below the type's minimum clearance or a span is too long. Per-type dimensions live in `LIFT_PROFILES`.
-- **Buildings:** OSM height tags are used when present; otherwise height is estimated from footprint area (`heightSource: "estimate"`, about 98% of Val Thorens). Ruins and roofs are skipped. Lift-station footprints replace the sim's placeholder station boxes.
+- **Buildings:** gable roofs are computed in the pipeline (`gable_roof`): the ridge runs along the long axis of the footprint's oriented bounding box, and the footprint is split along the ridge into planar faces. Large industrial buildings keep flat roofs. Facades (windows, floors, balconies, stone plinth; timber, render, stone or metal) are procedural in `createBuildingMaterial` from a per-vertex `facade` attribute, so it stays one mesh and one draw call, fading to an average colour beyond ~150 m to avoid aliasing. Near-duplicate OSM footprints are merged (`dedupe_buildings`) because coincident walls z-fight. OSM height tags are used when present; otherwise height is estimated from footprint area (`heightSource: "estimate"`, about 98% of Val Thorens). Ruins and roofs are skipped. Lift-station footprints replace the sim's placeholder station boxes.
 - Lifts that leave the near terrain extent are skipped (logged), e.g. links into neighbouring valleys.
 - **Peaks:** named `natural=peak` nodes, snapped to the highest DEM sample within 30 m. Every peak in the near extent is kept. Beyond it, only peaks of at least 3500 m (`FAR_PEAK_MIN_ELE`), so the horizon shows the big names.
 

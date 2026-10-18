@@ -27,7 +27,7 @@ Open http://localhost:5173 and click **Click to fly**. Your position is remember
 | Mouse | Look |
 | L / N | Toggle lift / peak names |
 | P | Paraglider: deploy / release (A/D bank, W speed bar, S brakes) |
-| E | Ride a lift from its bottom station (hold W to fast-forward) |
+| E | Ride a lift from its bottom station (hold W to fast-forward, S to skip to the top) |
 | M | Map: search pistes/lifts/peaks, click to teleport |
 | O | Piste colours on the snow |
 | K | Sound on / off |
