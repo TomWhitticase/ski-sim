@@ -35,6 +35,7 @@ export class Hud {
       <div class="hud-toggles">
         <div class="hud-toggle" data-toggle="lift"><kbd>L</kbd> Lift names <b></b></div>
         <div class="hud-toggle" data-toggle="peak"><kbd>P</kbd> Peak names <b></b></div>
+        <div class="hud-toggle"><kbd>M</kbd> Map &amp; teleport</div>
       </div>
     `;
     const field = (name: keyof HudState) =>

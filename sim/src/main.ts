@@ -12,9 +12,12 @@ import { type HeightmapMeta, loadManifest, resortUrl } from './resort/manifest';
 import { createNormalTexture } from './terrain/normals';
 import { Terrain } from './terrain/terrain';
 import { createTerrainMaterial } from './terrain/terrain-material';
+import { buildPlaces } from './nav/places';
+import { loadPose, type Pose, savePose } from './nav/pose';
 import { Hud } from './ui/hud';
 import { type LabelKind, type LabelSpec, Labels, liftLabel, peakLabel } from './ui/labels';
 import { Minimap } from './ui/minimap';
+import { WorldMap } from './ui/world-map';
 
 declare global {
   interface Window {
@@ -104,7 +107,40 @@ async function main(): Promise<void> {
     minZ: -farExtent.north + 500,
     maxZ: -farExtent.south - 500,
   });
-  placeCamera(camera, controls, frame, manifest.spawn, params);
+  const spawn: Pose = { ...manifest.spawn, pitch: -8 };
+  const inBounds = (p: Pose) =>
+    p.east > farExtent.west + 500 &&
+    p.east < farExtent.east - 500 &&
+    p.north > farExtent.south + 500 &&
+    p.north < farExtent.north - 500;
+  const saved = loadPose(localStorage, resortId);
+  let lastSaved: Pose | null = null;
+  const currentPose = (): Pose => {
+    const { east, north } = worldToEnu(camera.position.x, camera.position.z);
+    return {
+      east,
+      north,
+      altitude: camera.position.y,
+      heading: controls.heading,
+      pitch: controls.pitchDegrees,
+    };
+  };
+  const persistPose = () => {
+    const pose = currentPose();
+    const moved =
+      !lastSaved ||
+      Math.hypot(pose.east - lastSaved.east, pose.north - lastSaved.north) > 1 ||
+      Math.abs(pose.altitude - lastSaved.altitude) > 1 ||
+      Math.abs(pose.heading - lastSaved.heading) > 1 ||
+      Math.abs(pose.pitch - lastSaved.pitch) > 1;
+    if (moved) {
+      savePose(localStorage, resortId, pose);
+      lastSaved = pose;
+    }
+  };
+  // Explicit ?at= link > where you left off > the resort's spawn point.
+  const startPose = poseFromUrl(params, frame, spawn) ?? (saved && inBounds(saved) ? saved : spawn);
+  applyPose(camera, controls, startPose);
 
   nearTerrain.update(camera.position, Infinity);
   farTerrain.update(camera.position, Infinity);
@@ -133,6 +169,40 @@ async function main(): Promise<void> {
   hud.setToggle('peak', labels.isVisible('peak'));
   const debug = $('#debug');
 
+  // Teleports reset the speed readout so the jump doesn't register as motion.
+  let speedReset = true;
+  const worldMap = new WorldMap(
+    $('#world-map'),
+    {
+      resortName: manifest.resort.name,
+      image: minimap.image,
+      imageExtent: manifest.minimap.extent,
+      lifts: features.lifts,
+      peaks: features.peaks,
+      places: buildPlaces(manifest.resort.name, spawn, features.lifts, features.peaks, near.extent),
+      groundHeight: (east, north) => groundHeight(east, -north),
+      toLatLon: (east, north) => frame.toLatLon(east, north),
+    },
+    (pose) => {
+      applyPose(camera, controls, pose);
+      speedReset = true;
+      persistPose();
+      closeMap(true);
+    },
+    () => closeMap(false),
+  );
+  const openMap = () => {
+    if (document.pointerLockElement) document.exitPointerLock();
+    worldMap.open(currentPose());
+    document.body.classList.add('map-open');
+  };
+  const closeMap = (resumeFlying: boolean) => {
+    worldMap.close();
+    document.body.classList.remove('map-open');
+    // Closing from a click or key press counts as a user gesture, so pointer lock is allowed.
+    if (resumeFlying) void controls.lock();
+  };
+
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
@@ -148,8 +218,16 @@ async function main(): Promise<void> {
       if (controls.locked) e.preventDefault();
     });
   }
+  window.addEventListener('pagehide', persistPose);
+  document.addEventListener('visibilitychange', persistPose);
   document.addEventListener('keydown', (e) => {
-    if (e.code === 'F3') {
+    if (e.target instanceof HTMLInputElement) return; // typing in the map search box
+    if (e.code === 'KeyM' && !e.repeat) {
+      if (worldMap.isOpen) closeMap(true);
+      else openMap();
+    } else if (e.code === 'Escape' && worldMap.isOpen) {
+      closeMap(false);
+    } else if (e.code === 'F3') {
       e.preventDefault();
       debug.hidden = !debug.hidden;
     } else if (e.code === 'KeyL' && !e.repeat) {
@@ -173,14 +251,21 @@ async function main(): Promise<void> {
   let speed = 0;
   let fps = 60;
 
+  let lastPersist = 0;
+
   renderer.setAnimationLoop(() => {
     const now = performance.now();
     const dt = Math.min((now - last) / 1000, 0.1);
     last = now;
+    // The fullscreen map covers everything; skip 3D work while it's open.
+    if (worldMap.isOpen) return;
 
     controls.update(dt);
     const pos = camera.position;
-    if (dt > 0) {
+    if (speedReset) {
+      speed = 0;
+      speedReset = false;
+    } else if (dt > 0) {
       const moved = Math.hypot(pos.x - lastX, pos.y - lastY, pos.z - lastZ) / dt;
       speed += (moved - speed) * Math.min(1, dt * 8);
       fps += (1 / dt - fps) * Math.min(1, dt * 2);
@@ -214,28 +299,35 @@ async function main(): Promise<void> {
       ].join('\n');
     }
 
+    if (now - lastPersist > 1000) {
+      persistPose();
+      lastPersist = now;
+    }
+
     sim.frames++;
     sim.ready = true;
   });
 }
 
-/** Spawn from the manifest, overridable with ?at=lat,lon,alt&heading=deg&pitch=deg. */
-function placeCamera(
-  camera: PerspectiveCamera,
-  controls: FlyControls,
-  frame: LocalFrame,
-  spawn: { east: number; north: number; altitude: number; heading: number },
-  params: URLSearchParams,
-): void {
-  let { east, north, altitude } = spawn;
+/** A pose from ?at=lat,lon,alt&heading=deg&pitch=deg, if the link has one. */
+function poseFromUrl(params: URLSearchParams, frame: LocalFrame, spawn: Pose): Pose | null {
   const at = params.get('at')?.split(',').map(Number);
-  if (at && at.length === 3 && at.every(Number.isFinite)) {
-    ({ east, north } = frame.toLocal(at[0]!, at[1]!));
-    altitude = at[2]!;
-  }
-  camera.position.set(east, altitude, -north);
-  controls.setHeading(Number(params.get('heading') ?? spawn.heading));
-  controls.setPitch(Number(params.get('pitch') ?? -8));
+  if (!at || at.length !== 3 || !at.every(Number.isFinite)) return null;
+  const { east, north } = frame.toLocal(at[0]!, at[1]!);
+  return {
+    east,
+    north,
+    altitude: at[2]!,
+    heading: Number(params.get('heading') ?? spawn.heading),
+    pitch: Number(params.get('pitch') ?? spawn.pitch),
+  };
+}
+
+function applyPose(camera: PerspectiveCamera, controls: FlyControls, pose: Pose): void {
+  camera.position.set(pose.east, pose.altitude, -pose.north);
+  controls.setHeading(pose.heading);
+  controls.setPitch(pose.pitch);
+  controls.stop();
 }
 
 const LABEL_PREFS_KEY = 'mountain-map.labels';

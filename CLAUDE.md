@@ -37,7 +37,7 @@ pnpm build
 
 The sim needs pipeline output. Run the pipeline build first on a fresh checkout.
 
-Useful URL params: `?resort=<id>`, `?at=lat,lon,altitude&heading=deg&pitch=deg` (jump the camera to a pose). F3 in the sim shows fps, draw calls, triangles, position and sun angle.
+Useful URL params: `?resort=<id>`, `?at=lat,lon,altitude&heading=deg&pitch=deg` (jump the camera to a pose). Start pose priority: `?at=` > saved pose (written ~1/s and on page hide) > manifest spawn. Playwright gets a fresh browser context per test, so no saved pose leaks between tests. F3 in the sim shows fps, draw calls, triangles, position and sun angle.
 
 ## Verifying work
 
@@ -103,7 +103,8 @@ sim/src/
   features/           Lifts (instanced towers/arms/cables/stations) and extruded buildings
   env/                Sky, sun position, lights, cascaded shadows, fog
   controls/           Minecraft-style fly controls
-  ui/                 HUD, minimap, and world-anchored name labels (lifts, peaks)
+  nav/                Saved pose (localStorage, per resort) and teleport destinations
+  ui/                 HUD, minimap, fullscreen world map (M), world-anchored name labels
 sim/e2e/              Playwright view screenshots and control tests
 ```
 

@@ -51,7 +51,11 @@ export class FlyControls {
       // Raw mouse input (no OS acceleration) feels closest to a game.
       await this.element.requestPointerLock({ unadjustedMovement: true });
     } catch {
-      await this.element.requestPointerLock();
+      try {
+        await this.element.requestPointerLock();
+      } catch {
+        // Refused (e.g. no user gesture); the "Click to fly" overlay stays up instead.
+      }
     }
   }
 
@@ -63,6 +67,17 @@ export class FlyControls {
   setHeading(degrees: number): void {
     this.yaw = (-degrees * Math.PI) / 180;
     this.applyRotation();
+  }
+
+  /** Degrees; negative looks down. */
+  get pitchDegrees(): number {
+    return (this.pitch * 180) / Math.PI;
+  }
+
+  /** Kill any momentum, e.g. after a teleport. */
+  stop(): void {
+    this.velocity.set(0, 0, 0);
+    this.sprinting = false;
   }
 
   setPitch(degrees: number): void {

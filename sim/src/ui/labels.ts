@@ -2,6 +2,7 @@ import { type PerspectiveCamera, Vector3 } from 'three/webgpu';
 
 import type { Extent } from '../resort/manifest';
 import type { Lift, Peak } from '../features/types';
+import { liftTypeName } from '../nav/places';
 
 export type LabelKind = 'lift' | 'peak';
 
@@ -16,18 +17,6 @@ export interface LabelSpec {
   /** Labels with a lower tier win overlaps first; ties go to the nearer label. */
   tier: number;
 }
-
-const LIFT_TYPES: Record<string, string> = {
-  cable_car: 'Cable car',
-  gondola: 'Gondola',
-  mixed_lift: 'Gondola / chair',
-  chair_lift: 'Chairlift',
-  drag_lift: 'Drag lift',
-  't-bar': 'T-bar',
-  'j-bar': 'J-bar',
-  platter: 'Platter',
-  rope_tow: 'Rope tow',
-};
 
 /** Lift label sits above the middle of the line, half way along its length. */
 export function liftLabel(lift: Lift): LabelSpec | null {
@@ -52,7 +41,7 @@ export function liftLabel(lift: Lift): LabelSpec | null {
   return {
     kind: 'lift',
     name: lift.name,
-    detail: LIFT_TYPES[lift.type] ?? lift.type,
+    detail: liftTypeName(lift.type),
     position: new Vector3(east, top + 12, -north),
     maxDistance: 7000,
     tier: 0,

@@ -12,7 +12,7 @@ export class Minimap {
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly image: HTMLImageElement,
+    readonly image: HTMLImageElement,
     private readonly extent: Extent,
   ) {
     this.ctx = canvas.getContext('2d')!;

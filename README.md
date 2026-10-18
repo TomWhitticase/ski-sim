@@ -16,7 +16,7 @@ cd pipeline && uv run mountain-pipeline build val-thorens
 cd ../sim && pnpm install && pnpm dev
 ```
 
-Open http://localhost:5173 and click **Click to fly**.
+Open http://localhost:5173 and click **Click to fly**. Your position is remembered across reloads.
 
 | Control | Action |
 |---|---|
@@ -25,6 +25,7 @@ Open http://localhost:5173 and click **Click to fly**.
 | Space / Shift | Up / down |
 | Mouse | Look |
 | L / P | Toggle lift / peak names |
+| M | Map: search, click to teleport |
 | Scroll | Fly speed |
 | - / = | Minimap zoom |
 | F3 | Debug info |

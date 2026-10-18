@@ -22,6 +22,28 @@
 
     <div id="debug" class="panel" hidden></div>
 
+    <div id="world-map" hidden>
+      <canvas></canvas>
+      <div class="map-cursor" hidden></div>
+      <div class="map-scale"></div>
+      <aside class="map-panel">
+        <header>
+          <h2 class="map-title"></h2>
+          <button class="map-close" title="Close (M)">✕</button>
+        </header>
+        <p class="map-here"></p>
+        <input class="map-search" type="search" placeholder="Search lifts and peaks…" />
+        <div class="map-filters">
+          <label><input type="checkbox" data-show="lift" checked /> Lifts</label>
+          <label><input type="checkbox" data-show="peak" checked /> Peaks</label>
+        </div>
+        <ul class="map-places"></ul>
+        <p class="map-hint">
+          Scroll to zoom · drag to pan · click the map or a place to teleport · M / Esc to close
+        </p>
+      </aside>
+    </div>
+
     <div id="overlay">
       <div class="overlay-card">
         <h1 id="resort-name">mountain-map</h1>

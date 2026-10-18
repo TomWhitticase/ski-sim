@@ -216,8 +216,160 @@ body.flying #crosshair {
   background: rgba(8, 12, 20, 0.35);
 }
 
-body.flying #overlay {
+body.flying #overlay,
+body.map-open #overlay {
   display: none;
+}
+
+#world-map {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: #1b222d;
+}
+
+#world-map[hidden] {
+  display: none;
+}
+
+#world-map > canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.map-cursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: rgba(14, 20, 30, 0.85);
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  white-space: pre;
+  pointer-events: none;
+}
+
+.map-cursor[hidden] {
+  display: none;
+}
+
+.map-scale {
+  position: absolute;
+  left: 20px;
+  bottom: 20px;
+  height: 18px;
+  border: 2px solid #fff;
+  border-top: none;
+  font-size: 11px;
+  text-align: center;
+  text-shadow: 0 0 3px #000;
+  pointer-events: none;
+}
+
+.map-panel {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: rgba(14, 20, 30, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+}
+
+.map-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.map-panel h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.map-close {
+  font: inherit;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.map-close:hover {
+  color: #fff;
+}
+
+.map-here,
+.map-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.map-search {
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.map-filters {
+  display: flex;
+  gap: 14px;
+  font-size: 13px;
+}
+
+.map-places {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.map-place {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.map-place:hover {
+  background: rgba(61, 139, 253, 0.25);
+}
+
+.map-place[hidden] {
+  display: none;
+}
+
+.map-place-icon {
+  text-align: center;
+  color: var(--muted);
+}
+
+.map-place-lift .map-place-icon {
+  color: #ff922b;
+}
+
+.map-place-detail {
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .overlay-card {
