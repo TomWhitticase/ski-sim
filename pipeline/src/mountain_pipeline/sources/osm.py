@@ -31,19 +31,33 @@ PROVENANCE = {
 }
 
 
+def _bbox(lonlat_bounds: tuple[float, ...]) -> str:
+    min_lon, min_lat, max_lon, max_lat = lonlat_bounds
+    return f"{min_lat:.5f},{min_lon:.5f},{max_lat:.5f},{max_lon:.5f}"
+
+
 def fetch_features(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict]:
     """Aerialways and buildings (ways, with geometry) intersecting the bounds."""
-    min_lon, min_lat, max_lon, max_lat = lonlat_bounds
-    bbox = f"{min_lat:.5f},{min_lon:.5f},{max_lat:.5f},{max_lon:.5f}"
+    bbox = _bbox(lonlat_bounds)
     query = (
         "[out:json][timeout:180];"
         f'(way["aerialway"]({bbox});way["building"]({bbox}););'
         "out tags geom;"
     )
+    return _query(query, cache_dir, "lifts and buildings")
+
+
+def fetch_peaks(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict]:
+    """Named peak nodes within the bounds."""
+    query = f'[out:json][timeout:180];node["natural"="peak"]["name"]({_bbox(lonlat_bounds)});out;'
+    return _query(query, cache_dir, "peaks")
+
+
+def _query(query: str, cache_dir: Path, description: str) -> list[dict]:
     key = hashlib.sha256(query.encode()).hexdigest()[:16]
     dest = cache_dir / "osm" / f"overpass-{key}.json"
     if not dest.exists():
-        log.info("Fetching OSM lifts and buildings from Overpass")
+        log.info("Fetching OSM %s from Overpass", description)
     body = urllib.parse.urlencode({"data": query}).encode()
 
     last_error: Exception | None = None

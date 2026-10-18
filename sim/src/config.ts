@@ -17,8 +17,6 @@ export const FLY = {
   minSpeed: 2,
   maxSpeed: 500,
   sprintMultiplier: 3,
-  /** Max gap between W presses that counts as a double-tap (ms). */
-  doubleTapMs: 300,
   mouseSensitivity: 0.0022,
   /** Velocity smoothing rate (1/s); higher is snappier. */
   responsiveness: 6,

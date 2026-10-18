@@ -59,6 +59,100 @@ body {
   color: var(--muted);
 }
 
+.hud-toggles {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.hud-toggle b {
+  float: right;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.hud-toggle.on b {
+  color: #7fd6a0;
+}
+
+.hud-toggle kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 4px;
+  margin-right: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  text-align: center;
+  font-family: inherit;
+  color: var(--panel-text);
+}
+
+#labels {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  white-space: nowrap;
+  padding: 2px 8px 3px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.25;
+  color: #fff;
+  will-change: transform;
+}
+
+.label[hidden] {
+  display: none;
+}
+
+/* Pointer from the tag down to its anchor. */
+.label::after {
+  content: '';
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  margin-left: -5px;
+  border: 5px solid transparent;
+  border-bottom: 0;
+}
+
+.label-name {
+  font-weight: 600;
+}
+
+.label-detail {
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+.label-peak {
+  background: rgba(30, 30, 36, 0.72);
+}
+
+.label-peak::after {
+  border-top-color: rgba(30, 30, 36, 0.72);
+}
+
+.label-lift {
+  background: rgba(23, 92, 196, 0.82);
+}
+
+.label-lift::after {
+  border-top-color: rgba(23, 92, 196, 0.82);
+}
+
 #minimap {
   top: 16px;
   right: 16px;

@@ -12,7 +12,8 @@ export interface FlyBounds {
 /**
  * Minecraft-style creative flight: WASD moves horizontally relative to where you face
  * (pitch doesn't affect it), Space rises, Shift descends, mouse looks around.
- * Double-tap W to sprint; the mouse wheel changes fly speed.
+ * Ctrl sprints (and keeps sprinting until you stop flying forward, as in Minecraft);
+ * the mouse wheel changes fly speed.
  */
 export class FlyControls {
   /** Radians; 0 faces north, positive turns left (counter-clockwise from above). */
@@ -25,7 +26,7 @@ export class FlyControls {
   private readonly target = new Vector3();
   private readonly keys = new Set<string>();
   private readonly euler = new Euler(0, 0, 0, 'YXZ');
-  private lastForwardPress = 0;
+  private ctrlTapped = false;
 
   constructor(
     private readonly camera: PerspectiveCamera,
@@ -74,6 +75,8 @@ export class FlyControls {
     const strafe = (this.key('KeyD') ? 1 : 0) - (this.key('KeyA') ? 1 : 0);
     const lift = (this.key('Space') ? 1 : 0) - (this.shiftDown() ? 1 : 0);
     if (forward <= 0) this.sprinting = false;
+    else if (this.ctrlDown() || this.ctrlTapped) this.sprinting = true;
+    this.ctrlTapped = false;
 
     const sin = Math.sin(this.yaw);
     const cos = Math.cos(this.yaw);
@@ -109,6 +112,10 @@ export class FlyControls {
     return this.keys.has(code);
   }
 
+  private ctrlDown(): boolean {
+    return this.keys.has('ControlLeft') || this.keys.has('ControlRight');
+  }
+
   private shiftDown(): boolean {
     return this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
   }
@@ -129,12 +136,11 @@ export class FlyControls {
 
   private readonly onKeyDown = (e: KeyboardEvent) => {
     if (!this.locked) return;
-    if (e.code === 'Space') e.preventDefault();
-    if (e.code === 'KeyW' && !e.repeat) {
-      const now = performance.now();
-      if (now - this.lastForwardPress < FLY.doubleTapMs) this.sprinting = true;
-      this.lastForwardPress = now;
-    }
+    // Stop Space scrolling and Ctrl+S/D/A etc. triggering browser shortcuts mid-flight.
+    // (Ctrl+W can't be intercepted on Windows/Linux; main.ts guards against closing.)
+    if (e.code === 'Space' || e.ctrlKey) e.preventDefault();
+    // Latch so a tap shorter than a frame still counts.
+    if (e.code === 'ControlLeft' || e.code === 'ControlRight') this.ctrlTapped = true;
     this.keys.add(e.code);
   };
 

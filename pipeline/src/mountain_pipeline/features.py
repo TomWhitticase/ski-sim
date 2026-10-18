@@ -242,3 +242,61 @@ def extract_buildings(
 
 def _round(support: dict) -> dict:
     return {k: round(v, 2) if isinstance(v, float) else v for k, v in support.items()}
+
+
+# --- Peaks -------------------------------------------------------------------------------
+
+PEAK_SNAP_RADIUS = 30.0  # OSM summit nodes are often a few metres off the true top
+FAR_PEAK_MIN_ELE = 3500.0  # outside the near extent, only label major summits
+
+
+def extract_peaks(
+    elements: list[dict],
+    frame: LocalFrame,
+    near: np.ndarray,
+    near_grid,
+    far: np.ndarray,
+    far_grid,
+) -> list[dict]:
+    """Named peaks, snapped to the DEM summit. Near-extent peaks are all kept; beyond it only
+    those of at least FAR_PEAK_MIN_ELE, so the horizon shows the big names."""
+    peaks = []
+    for el in elements:
+        tags = el.get("tags", {})
+        name = tags.get("name")
+        if el["type"] != "node" or not name:
+            continue
+        ele = _parse_metres(tags.get("ele"))
+        east, north = frame.to_local(el["lon"], el["lat"])
+        if near_grid.extent.contains(east, north):
+            east, north, ground = _snap_to_summit(near, near_grid, east, north)
+        elif far_grid.extent.contains(east, north) and ele is not None and ele >= FAR_PEAK_MIN_ELE:
+            east, north, ground = _snap_to_summit(far, far_grid, east, north)
+        else:
+            continue
+        peaks.append(
+            {
+                "id": el["id"],
+                "name": name,
+                "ele": ele,
+                "east": round(east, 2),
+                "north": round(north, 2),
+                "ground": round(ground, 2),
+            }
+        )
+    return peaks
+
+
+def _snap_to_summit(heights: np.ndarray, grid, east: float, north: float):
+    """Highest grid sample within PEAK_SNAP_RADIUS of a point."""
+    r = max(1, int(np.ceil(PEAK_SNAP_RADIUS / grid.cell_size)))
+    col = round((east - grid.extent.west) / grid.cell_size)
+    row = round((grid.extent.north - north) / grid.cell_size)
+    r0, c0 = max(row - r, 0), max(col - r, 0)
+    window = heights[r0 : row + r + 1, c0 : col + r + 1]
+    i, j = np.unravel_index(int(np.argmax(window)), window.shape)
+    return (
+        grid.extent.west + (c0 + j) * grid.cell_size,
+        grid.extent.north - (r0 + i) * grid.cell_size,
+        float(window[i, j]),
+    )

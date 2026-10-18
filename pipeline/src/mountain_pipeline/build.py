@@ -19,7 +19,7 @@ from .sources import copernicus, ign, osm
 
 log = logging.getLogger(__name__)
 
-MANIFEST_VERSION = 2
+MANIFEST_VERSION = 3
 LANDMARK_SEARCH_RADIUS = 30.0  # OSM summit nodes are often a few metres off the true top
 LANDMARK_TOLERANCE = 15.0
 
@@ -81,9 +81,15 @@ def build_near(
 
 
 def build_features(
-    cfg: ResortConfig, frame: LocalFrame, raw_dir: Path, near: np.ndarray, near_grid: Grid
+    cfg: ResortConfig,
+    frame: LocalFrame,
+    raw_dir: Path,
+    near: np.ndarray,
+    near_grid: Grid,
+    far: np.ndarray,
+    far_grid: Grid,
 ) -> dict:
-    """Lifts and buildings from OSM, placed on the near terrain."""
+    """Lifts, buildings and peaks from OSM, placed on the terrain."""
     bounds = frame.bounds_in("EPSG:4326", near_grid.extent)
     elements = osm.fetch_features(bounds, raw_dir)
 
@@ -104,11 +110,15 @@ def build_features(
             kinds.count("tower"),
             kinds.count("synthetic-tower"),
         )
+    peak_elements = osm.fetch_peaks(frame.bounds_in("EPSG:4326", far_grid.extent), raw_dir)
+    peaks = features.extract_peaks(peak_elements, frame, near, near_grid, far, far_grid)
+    log.info("%d named peaks", len(peaks))
+
     estimated = sum(b["heightSource"] == "estimate" for b in buildings)
     log.info(
         "%d lifts, %d buildings (%d with estimated height)", len(lifts), len(buildings), estimated
     )
-    return {"lifts": lifts, "buildings": buildings}
+    return {"lifts": lifts, "buildings": buildings, "peaks": peaks}
 
 
 def validate_landmarks(
@@ -157,7 +167,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     validation = validate_landmarks(cfg, frame, near, near_grid)
 
     log.info("Building lifts and buildings (OpenStreetMap)")
-    feature_data = build_features(cfg, frame, raw_root, near, near_grid)
+    feature_data = build_features(cfg, frame, raw_root, near, near_grid, far, far_grid)
 
     log.info("Writing outputs to %s", out_dir)
     (out_dir / "features.json").write_text(json.dumps(feature_data, separators=(",", ":")))
@@ -203,6 +213,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
             "file": "features.json",
             "lifts": len(feature_data["lifts"]),
             "buildings": len(feature_data["buildings"]),
+            "peaks": len(feature_data["peaks"]),
         },
         "validation": {"landmarks": validation, "nearCoverage": coverage},
         "provenance": [

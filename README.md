@@ -20,9 +20,11 @@ Open http://localhost:5173 and click **Click to fly**.
 
 | Control | Action |
 |---|---|
-| WASD | Fly (double-tap W to sprint) |
+| WASD | Fly |
+| Ctrl | Sprint |
 | Space / Shift | Up / down |
 | Mouse | Look |
+| L / P | Toggle lift / peak names |
 | Scroll | Fly speed |
 | - / = | Minimap zoom |
 | F3 | Debug info |

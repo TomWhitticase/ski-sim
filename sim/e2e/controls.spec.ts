@@ -43,6 +43,27 @@ test('W flies forward (north when facing north) and the HUD reports speed', asyn
   expect(moving.altitude).toBeCloseTo(before.altitude, -1);
 });
 
+test('Ctrl sprints while flying forward and stops when forward is released', async ({ page }) => {
+  await startFlying(page, 'at=45.2981,6.5803,2800&heading=0&pitch=0');
+  await page.keyboard.down('KeyW');
+  await page.waitForTimeout(1200);
+  const cruising = (await hud(page)).speed;
+  await page.keyboard.down('Control');
+  await page.keyboard.up('Control'); // a tap is enough; sprint sticks while W is held
+  await page.waitForTimeout(1200);
+  const sprinting = (await hud(page)).speed;
+  expect(cruising).toBeGreaterThan(80);
+  expect(cruising).toBeLessThan(100); // 25 m/s = 90 km/h
+  expect(sprinting).toBeGreaterThan(cruising * 2.5); // x3
+
+  await page.keyboard.up('KeyW');
+  await page.waitForTimeout(300);
+  await page.keyboard.down('KeyW');
+  await page.waitForTimeout(1500);
+  expect((await hud(page)).speed).toBeLessThan(100); // sprint ended with the stop
+  await page.keyboard.up('KeyW');
+});
+
 test('D strafes east when facing north', async ({ page }) => {
   await startFlying(page, 'at=45.2981,6.5803,2800&heading=0&pitch=0');
   const before = await hud(page);
@@ -80,4 +101,31 @@ test('mouse turns the view', async ({ page }) => {
   const after = await hud(page);
   expect(after.lon).toBeGreaterThan(before.lon); // now flying east
   expect(Math.abs(after.lat - before.lat)).toBeLessThan(0.0002);
+});
+
+test('L and P toggle lift and peak names, and the choice persists', async ({ page }) => {
+  await startFlying(page, 'at=45.2981,6.5803,2700&heading=200&pitch=-8');
+  const shown = (kind: string) => page.locator(`#labels .label-${kind}:not([hidden])`).count();
+  const toggle = (kind: string) => page.locator(`#hud [data-toggle="${kind}"] b`);
+
+  await page.waitForTimeout(500);
+  expect(await shown('lift')).toBeGreaterThan(3);
+  expect(await shown('peak')).toBeGreaterThan(3);
+  await expect(toggle('lift')).toHaveText('ON');
+
+  await page.keyboard.press('KeyL');
+  await page.waitForTimeout(200);
+  expect(await shown('lift')).toBe(0);
+  expect(await shown('peak')).toBeGreaterThan(3);
+  await expect(toggle('lift')).toHaveText('OFF');
+
+  await page.keyboard.press('KeyP');
+  await page.waitForTimeout(200);
+  expect(await shown('peak')).toBe(0);
+
+  await page.reload();
+  await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10);
+  await expect(toggle('lift')).toHaveText('OFF');
+  await expect(toggle('peak')).toHaveText('OFF');
+  expect(await shown('lift')).toBe(0);
 });

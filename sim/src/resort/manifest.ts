@@ -37,11 +37,11 @@ export interface ResortManifest {
   spawn: { east: number; north: number; altitude: number; heading: number };
   terrain: { near: HeightmapMeta; far: HeightmapMeta };
   minimap: { file: string; extent: Extent };
-  features: { file: string; lifts: number; buildings: number };
+  features: { file: string; lifts: number; buildings: number; peaks: number };
   provenance: Provenance[];
 }
 
-const SUPPORTED_VERSION = 2;
+const SUPPORTED_VERSION = 3;
 
 export function resortUrl(resortId: string, file: string): string {
   return `/${resortId}/${file}`;

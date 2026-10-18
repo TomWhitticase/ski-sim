@@ -26,12 +26,16 @@ export function formatSpeed(metresPerSecond: number): string {
 export class Hud {
   private readonly fields: Record<keyof HudState, HTMLElement>;
 
-  constructor(root: HTMLElement) {
+  constructor(private readonly root: HTMLElement) {
     root.innerHTML = `
       <div class="hud-row"><span class="hud-label">ALT</span><span data-field="altitude"></span></div>
       <div class="hud-row"><span class="hud-label">LAT</span><span data-field="lat"></span></div>
       <div class="hud-row"><span class="hud-label">LON</span><span data-field="lon"></span></div>
       <div class="hud-row"><span class="hud-label">SPD</span><span data-field="speed"></span></div>
+      <div class="hud-toggles">
+        <div class="hud-toggle" data-toggle="lift"><kbd>L</kbd> Lift names <b></b></div>
+        <div class="hud-toggle" data-toggle="peak"><kbd>P</kbd> Peak names <b></b></div>
+      </div>
     `;
     const field = (name: keyof HudState) =>
       root.querySelector<HTMLElement>(`[data-field="${name}"]`)!;
@@ -41,6 +45,14 @@ export class Hud {
       lon: field('lon'),
       speed: field('speed'),
     };
+  }
+
+  /** Reflect an overlay toggle (e.g. "lift", "peak") in the HUD. */
+  setToggle(name: string, on: boolean): void {
+    const row = this.root.querySelector<HTMLElement>(`[data-toggle="${name}"]`);
+    if (!row) return;
+    row.classList.toggle('on', on);
+    row.querySelector('b')!.textContent = on ? 'ON' : 'OFF';
   }
 
   update(state: HudState): void {

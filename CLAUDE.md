@@ -103,7 +103,7 @@ sim/src/
   features/           Lifts (instanced towers/arms/cables/stations) and extruded buildings
   env/                Sky, sun position, lights, cascaded shadows, fog
   controls/           Minecraft-style fly controls
-  ui/                 HUD and minimap
+  ui/                 HUD, minimap, and world-anchored name labels (lifts, peaks)
 sim/e2e/              Playwright view screenshots and control tests
 ```
 
@@ -120,6 +120,13 @@ Both come from OSM through Overpass (`sources/osm.py`). The response is cached u
 - **Lifts:** stations sit at the way's ends and intermediate nodes become towers. `features.place_supports` adds `synthetic-tower`s wherever the straight cable would drop below the type's minimum clearance or a span is too long. Per-type dimensions live in `LIFT_PROFILES`.
 - **Buildings:** OSM height tags are used when present; otherwise height is estimated from footprint area (`heightSource: "estimate"`, about 98% of Val Thorens). Ruins and roofs are skipped. Lift-station footprints replace the sim's placeholder station boxes.
 - Lifts that leave the near terrain extent are skipped (logged), e.g. links into neighbouring valleys.
+- **Peaks:** named `natural=peak` nodes, snapped to the highest DEM sample within 30 m. Every peak in the near extent is kept. Beyond it, only peaks of at least 3500 m (`FAR_PEAK_MIN_ELE`), so the horizon shows the big names.
+
+### Labels
+
+`sim/src/ui/labels.ts` draws HTML tags projected from world anchors (L / P toggle them; the choice persists in localStorage).
+- Labels are hidden when terrain occludes them. A ray-march against the heightmap runs on a rolling budget, so not every label is checked every frame.
+- Labels are also hidden beyond a per-kind distance, or when they'd overlap a higher-priority tag. Lifts and local peaks win; distant peaks are ranked by elevation.
 
 Known limits:
 - 4 m data looks soft at ground level. Skiing will need finer tiles streamed near the camera.

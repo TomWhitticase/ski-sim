@@ -58,3 +58,39 @@ def test_towers_keep_cable_clear_of_a_ridge():
 )
 def test_estimate_height(tags, area, expected):
     assert estimate_height(tags, area) == expected
+
+
+def test_peaks_snap_to_summit_and_filter_far_minor_peaks():
+    from mountain_pipeline.config import Extent, GeoPoint
+    from mountain_pipeline.features import extract_peaks
+    from mountain_pipeline.frame import LocalFrame
+    from mountain_pipeline.grid import Grid
+
+    frame = LocalFrame(GeoPoint(45.0, 6.0))
+    near_grid = Grid(Extent(-500, 500, -500, 500), 10)
+    far_grid = Grid(Extent(-20000, 20000, -20000, 20000), 100)
+    near = np.full((near_grid.height, near_grid.width), 2000.0)
+    near[50, 52] = 2500.0  # true summit 20 m east of the origin
+    far = np.full((far_grid.height, far_grid.width), 1000.0)
+
+    def node(i, name, east, north, ele):
+        lon, lat = frame.to_lonlat(east, north)
+        return {"type": "node", "id": i, "lat": lat, "lon": lon, "tags": {"name": name, "ele": ele}}
+
+    peaks = extract_peaks(
+        [
+            node(1, "Near", 0, 0, "2501"),
+            node(2, "Far big", 10000, 0, "3900"),
+            node(3, "Far small", -10000, 0, "2900"),
+        ],
+        frame,
+        near,
+        near_grid,
+        far,
+        far_grid,
+    )
+    by_name = {p["name"]: p for p in peaks}
+    assert set(by_name) == {"Near", "Far big"}
+    assert by_name["Near"]["east"] == pytest.approx(20)
+    assert by_name["Near"]["ground"] == 2500
+    assert by_name["Near"]["ele"] == 2501

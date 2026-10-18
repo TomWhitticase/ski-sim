@@ -37,7 +37,19 @@ export interface Building {
   heightSource: 'osm-height' | 'osm-levels' | 'estimate';
 }
 
+export interface Peak {
+  id: number;
+  name: string;
+  /** Published elevation from OSM, if tagged. */
+  ele: number | null;
+  /** Position snapped to the DEM summit. */
+  east: number;
+  north: number;
+  ground: number;
+}
+
 export interface ResortFeatures {
   lifts: Lift[];
   buildings: Building[];
+  peaks: Peak[];
 }

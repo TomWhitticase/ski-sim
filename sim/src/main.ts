@@ -13,6 +13,7 @@ import { createNormalTexture } from './terrain/normals';
 import { Terrain } from './terrain/terrain';
 import { createTerrainMaterial } from './terrain/terrain-material';
 import { Hud } from './ui/hud';
+import { type LabelKind, type LabelSpec, Labels, liftLabel, peakLabel } from './ui/labels';
 import { Minimap } from './ui/minimap';
 
 declare global {
@@ -114,6 +115,22 @@ async function main(): Promise<void> {
     resortUrl(resortId, manifest.minimap.file),
     manifest.minimap.extent,
   );
+  const labels = new Labels(
+    $('#labels'),
+    [
+      ...features.lifts.map(liftLabel).filter((l): l is LabelSpec => l !== null),
+      ...features.peaks.map((p) => peakLabel(p, near.extent)),
+    ],
+    groundHeight,
+    loadLabelPrefs(),
+  );
+  const toggleLabels = (kind: LabelKind) => {
+    labels.setVisible(kind, !labels.isVisible(kind));
+    hud.setToggle(kind, labels.isVisible(kind));
+    saveLabelPrefs({ lift: labels.isVisible('lift'), peak: labels.isVisible('peak') });
+  };
+  hud.setToggle('lift', labels.isVisible('lift'));
+  hud.setToggle('peak', labels.isVisible('peak'));
   const debug = $('#debug');
 
   window.addEventListener('resize', () => {
@@ -124,10 +141,21 @@ async function main(): Promise<void> {
   document.addEventListener('pointerlockchange', () => {
     document.body.classList.toggle('flying', controls.locked);
   });
+  // Ctrl sprints, but Ctrl+W closes the tab on Windows/Linux and can't be intercepted.
+  // Ask before leaving instead. (On macOS Ctrl+W does nothing, so skip the prompt.)
+  if (!/Mac|iPhone|iPad/.test(navigator.userAgent)) {
+    window.addEventListener('beforeunload', (e) => {
+      if (controls.locked) e.preventDefault();
+    });
+  }
   document.addEventListener('keydown', (e) => {
     if (e.code === 'F3') {
       e.preventDefault();
       debug.hidden = !debug.hidden;
+    } else if (e.code === 'KeyL' && !e.repeat) {
+      toggleLabels('lift');
+    } else if (e.code === 'KeyP' && !e.repeat) {
+      toggleLabels('peak');
     }
   });
   const start = $<HTMLButtonElement>('#start');
@@ -170,6 +198,7 @@ async function main(): Promise<void> {
     const { lat, lon } = frame.toLatLon(east, north);
     hud.update({ altitude: pos.y, lat, lon, speed });
     minimap.draw(east, north, controls.heading);
+    labels.update(camera);
 
     if (!debug.hidden) {
       const info = renderer.info.render;
@@ -207,6 +236,21 @@ function placeCamera(
   camera.position.set(east, altitude, -north);
   controls.setHeading(Number(params.get('heading') ?? spawn.heading));
   controls.setPitch(Number(params.get('pitch') ?? -8));
+}
+
+const LABEL_PREFS_KEY = 'mountain-map.labels';
+
+function loadLabelPrefs(): Record<LabelKind, boolean> {
+  const defaults = { lift: true, peak: true };
+  try {
+    return { ...defaults, ...JSON.parse(localStorage.getItem(LABEL_PREFS_KEY) ?? '{}') };
+  } catch {
+    return defaults;
+  }
+}
+
+function saveLabelPrefs(prefs: Record<LabelKind, boolean>): void {
+  localStorage.setItem(LABEL_PREFS_KEY, JSON.stringify(prefs));
 }
 
 function nextFrame(): Promise<void> {
