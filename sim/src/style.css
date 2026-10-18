@@ -198,6 +198,11 @@ body.flying #crosshair {
   display: block;
 }
 
+body.skiing #crosshair,
+body:not(.skiing) .hud-ski-only {
+  display: none;
+}
+
 #debug {
   left: 16px;
   bottom: 40px;

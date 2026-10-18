@@ -2,6 +2,8 @@ import { ACESFilmicToneMapping, PerspectiveCamera, Scene, WebGPURenderer } from 
 
 import { CAMERA, DEFAULT_RESORT, SIM_TIME, TERRAIN } from './config';
 import { FlyControls } from './controls/fly-controls';
+import { Input } from './controls/input';
+import { SkiControls } from './controls/ski-controls';
 import { Environment } from './env/environment';
 import { createBuildings } from './features/buildings';
 import { createLifts } from './features/lifts';
@@ -101,12 +103,18 @@ async function main(): Promise<void> {
   );
 
   const farExtent = far.extent;
-  const controls = new FlyControls(camera, canvas, groundHeight, {
+  const bounds = {
     minX: farExtent.west + 500,
     maxX: farExtent.east - 500,
     minZ: -farExtent.north + 500,
     maxZ: -farExtent.south - 500,
-  });
+  };
+  const input = new Input(canvas);
+  const fly = new FlyControls(camera, groundHeight, bounds);
+  const ski = new SkiControls(camera, { height: groundHeight }, bounds);
+  scene.add(ski.skier);
+  let mode: Mode = loadMode();
+  const controls = () => (mode === 'ski' ? ski : fly);
   const spawn: Pose = { ...manifest.spawn, pitch: -8 };
   const inBounds = (p: Pose) =>
     p.east > farExtent.west + 500 &&
@@ -116,13 +124,15 @@ async function main(): Promise<void> {
   const saved = loadPose(localStorage, resortId);
   let lastSaved: Pose | null = null;
   const currentPose = (): Pose => {
-    const { east, north } = worldToEnu(camera.position.x, camera.position.z);
+    // In ski mode, track the skier rather than a chase camera behind them.
+    const at = mode === 'ski' ? ski.feet : camera.position;
+    const { east, north } = worldToEnu(at.x, at.z);
     return {
       east,
       north,
-      altitude: camera.position.y,
-      heading: controls.heading,
-      pitch: controls.pitchDegrees,
+      altitude: at.y,
+      heading: controls().heading,
+      pitch: controls().pitchDegrees,
     };
   };
   const persistPose = () => {
@@ -140,7 +150,8 @@ async function main(): Promise<void> {
   };
   // Explicit ?at= link > where you left off > the resort's spawn point.
   const startPose = poseFromUrl(params, frame, spawn) ?? (saved && inBounds(saved) ? saved : spawn);
-  applyPose(camera, controls, startPose);
+  controls().place(startPose);
+  ski.setActive(mode === 'ski');
 
   nearTerrain.update(camera.position, Infinity);
   farTerrain.update(camera.position, Infinity);
@@ -184,13 +195,26 @@ async function main(): Promise<void> {
       toLatLon: (east, north) => frame.toLatLon(east, north),
     },
     (pose) => {
-      applyPose(camera, controls, pose);
+      controls().place(pose);
       speedReset = true;
       persistPose();
       closeMap(true);
     },
     () => closeMap(false),
   );
+  const setMode = (next: Mode) => {
+    const pose = currentPose();
+    mode = next;
+    // Fly mode picks up from the eye position; ski mode drops onto the snow below.
+    controls().place(pose);
+    ski.setActive(mode === 'ski');
+    hud.setMode(mode);
+    document.body.classList.toggle('skiing', mode === 'ski');
+    speedReset = true;
+    localStorage.setItem(MODE_KEY, mode);
+  };
+  hud.setMode(mode);
+  document.body.classList.toggle('skiing', mode === 'ski');
   const openMap = () => {
     if (document.pointerLockElement) document.exitPointerLock();
     worldMap.open(currentPose());
@@ -200,7 +224,7 @@ async function main(): Promise<void> {
     worldMap.close();
     document.body.classList.remove('map-open');
     // Closing from a click or key press counts as a user gesture, so pointer lock is allowed.
-    if (resumeFlying) void controls.lock();
+    if (resumeFlying) void input.lock();
   };
 
   window.addEventListener('resize', () => {
@@ -209,13 +233,13 @@ async function main(): Promise<void> {
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
   document.addEventListener('pointerlockchange', () => {
-    document.body.classList.toggle('flying', controls.locked);
+    document.body.classList.toggle('flying', input.locked);
   });
   // Ctrl sprints, but Ctrl+W closes the tab on Windows/Linux and can't be intercepted.
   // Ask before leaving instead. (On macOS Ctrl+W does nothing, so skip the prompt.)
   if (!/Mac|iPhone|iPad/.test(navigator.userAgent)) {
     window.addEventListener('beforeunload', (e) => {
-      if (controls.locked) e.preventDefault();
+      if (input.locked) e.preventDefault();
     });
   }
   window.addEventListener('pagehide', persistPose);
@@ -227,6 +251,10 @@ async function main(): Promise<void> {
       else openMap();
     } else if (e.code === 'Escape' && worldMap.isOpen) {
       closeMap(false);
+    } else if (e.code === 'KeyF' && !e.repeat && !worldMap.isOpen) {
+      setMode(mode === 'ski' ? 'fly' : 'ski');
+    } else if (e.code === 'KeyV' && !e.repeat && mode === 'ski') {
+      ski.toggleView();
     } else if (e.code === 'F3') {
       e.preventDefault();
       debug.hidden = !debug.hidden;
@@ -237,7 +265,7 @@ async function main(): Promise<void> {
     }
   });
   const start = $<HTMLButtonElement>('#start');
-  start.addEventListener('click', () => void controls.lock());
+  start.addEventListener('click', () => void input.lock());
   status.textContent =
     manifest.resort.country === 'FR' ? 'Savoie, France' : manifest.resort.country;
   start.hidden = false;
@@ -260,7 +288,8 @@ async function main(): Promise<void> {
     // The fullscreen map covers everything; skip 3D work while it's open.
     if (worldMap.isOpen) return;
 
-    controls.update(dt);
+    controls().update(dt, input);
+    input.endFrame();
     const pos = camera.position;
     if (speedReset) {
       speed = 0;
@@ -279,10 +308,11 @@ async function main(): Promise<void> {
     environment.update(camera);
     renderer.render(scene, camera);
 
-    const { east, north } = worldToEnu(pos.x, pos.z);
+    const here = mode === 'ski' ? ski.feet : pos;
+    const { east, north } = worldToEnu(here.x, here.z);
     const { lat, lon } = frame.toLatLon(east, north);
-    hud.update({ altitude: pos.y, lat, lon, speed });
-    minimap.draw(east, north, controls.heading);
+    hud.update({ altitude: here.y, lat, lon, speed: mode === 'ski' ? ski.speed : speed });
+    minimap.draw(east, north, controls().heading);
     labels.update(camera);
 
     if (!debug.hidden) {
@@ -294,7 +324,9 @@ async function main(): Promise<void> {
         `${fps.toFixed(0)} fps · ${backend}`,
         `draw calls ${info.drawCalls} · triangles ${(info.triangles / 1e6).toFixed(2)}M`,
         `E ${east.toFixed(1)}  N ${north.toFixed(1)}  ground ${groundHeight(pos.x, pos.z).toFixed(1)} m`,
-        `heading ${controls.heading.toFixed(1)}° · fly speed ${controls.speed.toFixed(0)} m/s${controls.sprinting ? ' (sprint)' : ''}`,
+        mode === 'ski'
+          ? `heading ${ski.heading.toFixed(1)}° · ski ${(ski.speed * 3.6).toFixed(0)} km/h${ski.airborne ? ' (air)' : ''} · ${ski.view}`
+          : `heading ${fly.heading.toFixed(1)}° · fly speed ${fly.speed.toFixed(0)} m/s${fly.sprinting ? ' (sprint)' : ''}`,
         `sun az ${environment.sun.azimuth.toFixed(1)}° el ${environment.sun.elevation.toFixed(1)}°`,
       ].join('\n');
     }
@@ -323,11 +355,11 @@ function poseFromUrl(params: URLSearchParams, frame: LocalFrame, spawn: Pose): P
   };
 }
 
-function applyPose(camera: PerspectiveCamera, controls: FlyControls, pose: Pose): void {
-  camera.position.set(pose.east, pose.altitude, -pose.north);
-  controls.setHeading(pose.heading);
-  controls.setPitch(pose.pitch);
-  controls.stop();
+type Mode = 'fly' | 'ski';
+const MODE_KEY = 'mountain-map.mode';
+
+function loadMode(): Mode {
+  return localStorage.getItem(MODE_KEY) === 'ski' ? 'ski' : 'fly';
 }
 
 const LABEL_PREFS_KEY = 'mountain-map.labels';

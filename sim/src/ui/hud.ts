@@ -28,6 +28,7 @@ export class Hud {
 
   constructor(private readonly root: HTMLElement) {
     root.innerHTML = `
+      <div class="hud-row"><span class="hud-label">MODE</span><span data-mode></span></div>
       <div class="hud-row"><span class="hud-label">ALT</span><span data-field="altitude"></span></div>
       <div class="hud-row"><span class="hud-label">LAT</span><span data-field="lat"></span></div>
       <div class="hud-row"><span class="hud-label">LON</span><span data-field="lon"></span></div>
@@ -36,6 +37,8 @@ export class Hud {
         <div class="hud-toggle" data-toggle="lift"><kbd>L</kbd> Lift names <b></b></div>
         <div class="hud-toggle" data-toggle="peak"><kbd>P</kbd> Peak names <b></b></div>
         <div class="hud-toggle"><kbd>M</kbd> Map &amp; teleport</div>
+        <div class="hud-toggle"><kbd>F</kbd> Fly / ski</div>
+        <div class="hud-toggle hud-ski-only"><kbd>V</kbd> Camera</div>
       </div>
     `;
     const field = (name: keyof HudState) =>
@@ -54,6 +57,10 @@ export class Hud {
     if (!row) return;
     row.classList.toggle('on', on);
     row.querySelector('b')!.textContent = on ? 'ON' : 'OFF';
+  }
+
+  setMode(mode: 'fly' | 'ski'): void {
+    this.root.querySelector('[data-mode]')!.textContent = mode === 'ski' ? 'SKI' : 'FLY';
   }
 
   update(state: HudState): void {

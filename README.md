@@ -20,12 +20,14 @@ Open http://localhost:5173 and click **Click to fly**. Your position is remember
 
 | Control | Action |
 |---|---|
+| F | Switch fly / ski mode |
 | WASD | Fly |
 | Ctrl | Sprint |
 | Space / Shift | Up / down |
 | Mouse | Look |
 | L / P | Toggle lift / peak names |
 | M | Map: search, click to teleport |
+| **Ski mode** | Mouse or A/D steer · W tuck (skate when slow) · S snowplough · Space jump · V camera |
 | Scroll | Fly speed |
 | - / = | Minimap zoom |
 | F3 | Debug info |

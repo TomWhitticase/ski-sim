@@ -102,7 +102,7 @@ sim/src/
   terrain/            Chunked LOD terrain, normal-map texture, TSL snow/rock material
   features/           Lifts (instanced towers/arms/cables/stations) and extruded buildings
   env/                Sky, sun position, lights, cascaded shadows, fog
-  controls/           Minecraft-style fly controls
+  controls/           Shared input + mouse look; fly mode; ski mode (ski-physics.ts is pure and unit-tested)
   nav/                Saved pose (localStorage, per resort) and teleport destinations
   ui/                 HUD, minimap, fullscreen world map (M), world-anchored name labels
 sim/e2e/              Playwright view screenshots and control tests
@@ -114,6 +114,13 @@ There are two layers. **Near** is lidar at 4 m covering the ski area. **Far** is
 - Far terrain discards fragments inside the near extent, and dips its vertices along that boundary so the near layer's skirts cover the join.
 - The pipeline overwrites far samples inside the near extent with near data so the two surfaces agree.
 - Each layer is split into chunks whose LOD is chosen by camera distance. Lighting comes from a full-resolution normal texture, so coarse LODs still shade with 4 m detail.
+
+### Ski mode
+
+`controls/ski-physics.ts` treats the skier as a point mass on the heightmap surface: gravity along the slope, snow friction, v² drag (lower when tucked), carving toward the ski direction, skid deceleration proportional to sideways slip, and airborne when the ground falls away.
+- It's intentionally forgiving: no falls, a speed cap (`SKI.maxSpeed`), and no collisions with buildings or towers.
+- Tune feel in the `SKI` constants and add unit tests against synthetic slopes; `e2e/ski.spec.ts` runs it on a real 21° slope above the village.
+- The mode (fly/ski) is remembered in localStorage.
 
 ### Lifts and buildings
 
