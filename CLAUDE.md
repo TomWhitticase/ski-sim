@@ -6,7 +6,21 @@ Guidance for Claude Code when working in this repository.
 
 **mountain-map** is a 3D immersive simulation of real ski resorts. The goal is fidelity: a resort in the sim should match its real-world counterpart as closely as public geospatial data allows. Terrain, pistes, lifts, buildings and tree lines all come from real data, not hand-authored approximations.
 
-Status: **pre-code.** No engine, language or build system has been chosen yet. Don't scaffold an app, add dependencies or pick a stack without the user agreeing to it first.
+Status: **pre-code.** The tech stack is decided (see below). Nothing is scaffolded yet.
+
+## Tech stack
+
+Full rationale: `docs/decisions/0001-tech-stack.md`.
+
+The project is built by Claude Code, so **everything must be operable from text files and the CLI**: no GUI editors, binary scene formats or menu-driven config. Keep it that way when picking any new tool.
+
+- **Sim (`sim/`):** TypeScript (strict), Three.js (`WebGPURenderer` with WebGL 2 fallback, TSL shaders), Vite, Rapier (WASM) physics, Web Workers for heavy compute, Vitest, Playwright, ESLint + Prettier, pnpm.
+- **Pipeline (`pipeline/`):** Python 3.12+, uv, rasterio, numpy, geopandas, shapely, pyproj, pyosmium, pytest, ruff.
+- **Asset contract (pipeline → sim):** tiled LOD heightmaps + JSON manifest, KTX2/WebP textures, GLB (meshopt) models, GeoJSON pre-projected into the resort's local ENU frame, and a per-resort manifest with origin, CRS and provenance.
+
+## Verifying work
+
+Don't consider visual work done until you've looked at it. Run the dev server and capture Playwright screenshots of the affected view, then inspect them. Where a view is deterministic, add a screenshot test. Accuracy checks (elevations, lift lengths) belong in automated tests, not eyeballing.
 
 ## Core principles
 
@@ -55,10 +69,8 @@ Large binaries (DEMs, imagery, meshes) are never committed directly. Generate th
 
 ## Open decisions
 
-These need to be settled with the user before implementation starts. Record each one in `docs/decisions/` once made.
+These need to be settled with the user before implementation starts. Record each one in `docs/decisions/` (numbered ADRs) once made.
 
-- Engine/runtime (e.g. Unreal Engine 5 + Cesium, Unity, Godot, or web-based Three.js/CesiumJS)
-- Pipeline language/tooling (e.g. Python with GDAL/rasterio/geopandas, or Rust/TS)
 - Pilot resort for the first vertical slice
 - Scope of simulation (free-roam skiing physics, lift operations, snow/weather, crowds)
 

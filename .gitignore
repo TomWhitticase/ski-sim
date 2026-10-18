@@ -25,3 +25,17 @@ data/cache/
 *.mbtiles
 *.pmtiles
 *.osm.pbf
+
+# Node / sim
+node_modules/
+dist/
+test-results/
+playwright-report/
+*.tsbuildinfo
+
+# Python / pipeline
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
