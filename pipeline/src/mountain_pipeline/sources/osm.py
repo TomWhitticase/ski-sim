@@ -53,6 +53,12 @@ def fetch_peaks(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict]
     return _query(query, cache_dir, "peaks")
 
 
+def fetch_pistes(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict]:
+    """Piste ways (lines and areas) with geometry."""
+    query = f'[out:json][timeout:180];way["piste:type"]({_bbox(lonlat_bounds)});out tags geom;'
+    return _query(query, cache_dir, "pistes")
+
+
 def _query(query: str, cache_dir: Path, description: str) -> list[dict]:
     key = hashlib.sha256(query.encode()).hexdigest()[:16]
     dest = cache_dir / "osm" / f"overpass-{key}.json"

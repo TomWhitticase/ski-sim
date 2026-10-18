@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 from rasterio.warp import Resampling
 
-from . import features, minimap
+from . import features, minimap, pistes
 from .config import ResortConfig, load_resort
 from .export import write_heightmap
 from .frame import LocalFrame
@@ -19,7 +19,7 @@ from .sources import copernicus, ign, osm
 
 log = logging.getLogger(__name__)
 
-MANIFEST_VERSION = 3
+MANIFEST_VERSION = 4
 LANDMARK_SEARCH_RADIUS = 30.0  # OSM summit nodes are often a few metres off the true top
 LANDMARK_TOLERANCE = 15.0
 
@@ -121,6 +121,54 @@ def build_features(
     return {"lifts": lifts, "buildings": buildings, "peaks": peaks}
 
 
+def build_pistes(
+    frame: LocalFrame, raw_dir: Path, near: np.ndarray, near_grid: Grid, out_dir: Path
+) -> dict:
+    """Piste overlay texture, lookup grid, edge markers and run records."""
+    extent = near_grid.extent
+    elements = osm.fetch_pistes(frame.bounds_in("EPSG:4326", extent), raw_dir)
+    runs, shapes = pistes.collect(elements, frame, extent)
+
+    def ground(east: np.ndarray, north: np.ndarray) -> np.ndarray:
+        return sample_bilinear(near, near_grid, east, north)
+
+    fine_grid = Grid(extent, pistes.RASTER_CELL)
+    fine = pistes.rasterise(shapes, fine_grid)
+    overlay_factor = round(near_grid.cell_size / pistes.RASTER_CELL)
+    lookup_factor = round(pistes.LOOKUP_CELL / pistes.RASTER_CELL)
+    pistes.overlay_image(fine, runs, overlay_factor).save(
+        out_dir / "pistes-overlay.png", optimize=True
+    )
+    pistes.lookup_image(fine, runs, lookup_factor).save(
+        out_dir / "pistes-lookup.png", optimize=True
+    )
+    markers = pistes.edge_markers(shapes, runs, fine, fine_grid, ground)
+    records = pistes.summarise(runs, ground)
+
+    named = [r for r in records if r["name"]]
+    groomed_km = sum(r["length"] for r in records if r["groomed"]) / 1000
+    log.info(
+        "%d pistes (%d named), %.0f km of mapped centreline, %d edge markers",
+        len(records),
+        len(named),
+        groomed_km,
+        len(markers),
+    )
+    (out_dir / "pistes.json").write_text(
+        json.dumps(
+            {"pistes": records, "markers": markers}, separators=(",", ":"), ensure_ascii=False
+        )
+    )
+    return {
+        "file": "pistes.json",
+        "overlay": {"file": "pistes-overlay.png", "cellSize": near_grid.cell_size},
+        "lookup": {"file": "pistes-lookup.png", "cellSize": pistes.LOOKUP_CELL},
+        "extent": extent.to_json(),
+        "count": len(records),
+        "markers": len(markers),
+    }
+
+
 def validate_landmarks(
     cfg: ResortConfig, frame: LocalFrame, heights: np.ndarray, grid: Grid
 ) -> list[dict]:
@@ -169,6 +217,10 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     log.info("Building lifts and buildings (OpenStreetMap)")
     feature_data = build_features(cfg, frame, raw_root, near, near_grid, far, far_grid)
 
+    log.info("Building pistes (OpenStreetMap)")
+    pistes_meta = build_pistes(frame, raw_root, near, near_grid, out_dir)
+    piste_records = json.loads((out_dir / "pistes.json").read_text())["pistes"]
+
     log.info("Writing outputs to %s", out_dir)
     (out_dir / "features.json").write_text(json.dumps(feature_data, separators=(",", ":")))
     near_meta = write_heightmap(out_dir / "terrain-near.bin", near, near_grid)
@@ -181,6 +233,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     # Each minimap pixel covers a block of grid samples; its edges are half a sample out.
     half = near_grid.cell_size / 2
     image = minimap.render(mm_heights, mm_cell, cfg.minimap.contour_interval)
+    minimap.draw_pistes(image, piste_records, ext.west - half, ext.north + half, mm_cell)
     minimap.draw_features(image, feature_data, ext.west - half, ext.north + half, mm_cell)
     image.save(out_dir / "minimap.png", optimize=True)
     minimap_meta = {
@@ -209,6 +262,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         },
         "terrain": {"near": near_meta, "far": far_meta},
         "minimap": minimap_meta,
+        "pistes": pistes_meta,
         "features": {
             "file": "features.json",
             "lifts": len(feature_data["lifts"]),

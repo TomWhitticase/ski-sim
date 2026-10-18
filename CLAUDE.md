@@ -123,6 +123,19 @@ There are two layers. **Near** is lidar at 4 m covering the ski area. **Far** is
 - It's intentionally forgiving: no falls, a speed cap (`SKI.maxSpeed`), and no collisions with buildings or towers.
 - Tune feel in the `SKI` constants and add unit tests against synthetic slopes; `e2e/ski.spec.ts` runs it on a real 21° slope above the village.
 - The mode (fly/ski) is remembered in localStorage.
+- Switching fly → ski keeps your position and flying velocity: if you're in the air you fall and land. Ski poses track the feet (`EYE_HEIGHT` below the camera).
+- First person hides the skier's body but keeps skis and boots (`kit`) visible below the camera.
+- Off-piste (per the piste lookup grid) uses higher friction and drag than groomed runs.
+
+### Pistes
+
+`pipeline/pistes.py` turns OSM `piste:type=downhill` ways into:
+- centrelines buffered to a default width per difficulty (OSM has no widths here), plus area polygons where mapped;
+- `pistes-overlay.png`: RGBA on the near terrain grid, premultiplied piste colour plus coverage, sampled by the terrain shader;
+- `pistes-lookup.png`: an 8 m grid where R,G = piste index and B = difficulty, used for the HUD "RUN" row and groomed-vs-powder physics;
+- `pistes.json`: run records (top, start heading, length, lines/areas) and edge-marker poles.
+
+Difficulty codes are 1 green (novice), 2 blue (easy), 3 red (intermediate), 4/5 black, 6 freeride. Freeride itineraries (and `piste:grooming=backcountry`) count as off-piste: no overlay and no markers.
 
 ### Lifts and buildings
 
@@ -148,6 +161,7 @@ Measure with `pnpm perf` before and after any rendering change. In dev builds, `
 Known limits:
 - 4 m data looks soft at ground level, though a tiling procedural snow-detail normal map (`terrain/snow-detail.ts`) adds texture within ~400 m. Skiing will need finer tiles streamed near the camera.
 - There's no texture/imagery drape yet. Snow vs rock is decided by slope.
+- Pistes use default widths, so edges are approximate where OSM has no area polygon.
 - Lifts are static: no chairs or cabins. Cables are straight with no sag. Building roofs are flat, and multipolygon buildings (courtyards) are skipped.
 
 Large binaries (DEMs, imagery, meshes) are never committed directly. Generate them through the pipeline. If shared assets ever have to live in the repo, use Git LFS.

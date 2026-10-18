@@ -25,6 +25,7 @@ export function formatSpeed(metresPerSecond: number): string {
 /** Always-visible readout of position and speed. */
 export class Hud {
   private readonly fields: Record<keyof HudState, HTMLElement>;
+  private pisteKey: string | null = null;
 
   constructor(private readonly root: HTMLElement) {
     root.innerHTML = `
@@ -33,9 +34,11 @@ export class Hud {
       <div class="hud-row"><span class="hud-label">LAT</span><span data-field="lat"></span></div>
       <div class="hud-row"><span class="hud-label">LON</span><span data-field="lon"></span></div>
       <div class="hud-row"><span class="hud-label">SPD</span><span data-field="speed"></span></div>
+      <div class="hud-row hud-piste"><span class="hud-label">RUN</span><span data-piste><i></i><span></span></span></div>
       <div class="hud-toggles">
         <div class="hud-toggle" data-toggle="lift"><kbd>L</kbd> Lift names <b></b></div>
         <div class="hud-toggle" data-toggle="peak"><kbd>P</kbd> Peak names <b></b></div>
+        <div class="hud-toggle" data-toggle="pistes"><kbd>O</kbd> Piste colours <b></b></div>
         <div class="hud-toggle"><kbd>M</kbd> Map &amp; teleport</div>
         <div class="hud-toggle"><kbd>F</kbd> Fly / ski</div>
         <div class="hud-toggle hud-ski-only"><kbd>V</kbd> Camera</div>
@@ -57,6 +60,20 @@ export class Hud {
     if (!row) return;
     row.classList.toggle('on', on);
     row.querySelector('b')!.textContent = on ? 'ON' : 'OFF';
+  }
+
+  /** The run underfoot; null hides the row (e.g. flying high above the snow). */
+  setPiste(piste: { name: string; colour: string | null } | null): void {
+    const key = piste ? `${piste.name}|${piste.colour}` : '';
+    if (key === this.pisteKey) return;
+    this.pisteKey = key;
+    const row = this.root.querySelector<HTMLElement>('.hud-piste')!;
+    row.hidden = !piste;
+    if (!piste) return;
+    const dot = row.querySelector<HTMLElement>('i')!;
+    dot.hidden = !piste.colour;
+    if (piste.colour) dot.style.background = piste.colour;
+    row.querySelector('[data-piste] span')!.textContent = piste.name;
   }
 
   setMode(mode: 'fly' | 'ski'): void {

@@ -107,4 +107,13 @@ describe('stepSki', () => {
     expect(state.airborne).toBe(true);
     expect(state.position.y).toBeGreaterThan(t.height(0, 0));
   });
+
+  it('is slower off-piste than on a groomed run', () => {
+    const groomed = slope(20);
+    const powder: SkiTerrain = { ...slope(20), groomed: () => false };
+    const onPiste = run(skier(groomed, DOWNHILL), groomed, 30).velocity.length();
+    const offPiste = run(skier(powder, DOWNHILL), powder, 30).velocity.length();
+    expect(offPiste).toBeLessThan(onPiste * 0.85);
+    expect(offPiste).toBeGreaterThan(5); // still skiable
+  });
 });

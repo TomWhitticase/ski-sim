@@ -15,13 +15,14 @@ import { FLY } from '../config';
 import type { Pose } from '../nav/pose';
 import type { Bounds } from './fly-controls';
 import { type Input, Look } from './input';
-import { type SkiState, type SkiTerrain, stepSki, surfaceNormal } from './ski-physics';
+import { SKI, type SkiState, type SkiTerrain, stepSki, surfaceNormal } from './ski-physics';
 
-const EYE_HEIGHT = 1.7;
+export const EYE_HEIGHT = 1.7;
 const EYE_HEIGHT_TUCK = 1.15;
 const TURN_RATE = 1.8; // rad/s with A/D
 const CHASE_DISTANCE = 7;
 const UP = new Vector3(0, 1, 0);
+const ZERO = new Vector3();
 
 export type SkiCamera = 'first-person' | 'chase';
 
@@ -77,13 +78,23 @@ export class SkiControls {
     return this.state.airborne;
   }
 
-  /** Stand on the snow below the pose, at rest, facing its heading. */
-  place(pose: Pose): void {
+  /**
+   * Put the skier at a pose whose altitude is eye height. If that's above the snow you
+   * start in the air and fall (keeping `velocity`, e.g. momentum carried over from flying);
+   * below it, you're placed on the surface.
+   */
+  place(pose: Pose, velocity?: Vector3): void {
     const p = this.state.position;
     p.set(pose.east, 0, -pose.north);
-    p.y = this.terrain.height(p.x, p.z);
-    this.state.velocity.set(0, 0, 0);
-    this.state.airborne = false;
+    const ground = this.terrain.height(p.x, p.z);
+    p.y = Math.max(ground, pose.altitude - EYE_HEIGHT);
+    this.state.airborne = p.y > ground + SKI.airThreshold;
+    this.state.velocity.copy(velocity ?? ZERO);
+    if (!this.state.airborne) {
+      // On the snow: keep only the motion along the slope.
+      surfaceNormal(this.terrain, p.x, p.z, this.normal);
+      this.state.velocity.addScaledVector(this.normal, -this.state.velocity.dot(this.normal));
+    }
     this.look.heading = pose.heading;
     this.look.pitchDegrees = Math.min(pose.pitch, 10);
     this.state.yaw = this.look.yaw;
@@ -91,12 +102,18 @@ export class SkiControls {
   }
 
   setActive(active: boolean): void {
-    this.skier.visible = active && this.view === 'chase';
+    this.skier.visible = active;
+    this.applyView();
   }
 
   toggleView(): void {
     this.view = this.view === 'first-person' ? 'chase' : 'first-person';
-    this.skier.visible = this.view === 'chase';
+    this.applyView();
+  }
+
+  /** First person shows only your skis and boots below you; chase shows the whole skier. */
+  private applyView(): void {
+    this.skier.getObjectByName('body')!.visible = this.view === 'chase';
   }
 
   update(dt: number, input: Input): void {
@@ -160,39 +177,65 @@ export class SkiControls {
     this.qYaw.setFromAxisAngle(UP, this.look.yaw);
     this.skier.position.copy(p);
     this.skier.quaternion.copy(this.q).multiply(this.qYaw);
-    this.skier.children[0]!.scale.y = this.eye / EYE_HEIGHT;
+    this.skier.getObjectByName('body')!.scale.y = this.eye / EYE_HEIGHT;
   }
 }
 
-/** A simple skier: jacket, helmet and two skis. Faces -z like the camera. */
+/**
+ * A simple skier facing -z like the camera: a body (hidden in first person, where the
+ * camera sits inside it) and the kit you see when you look down: skis and boots.
+ */
 function createSkier(): Group {
   const jacket = new MeshStandardNodeMaterial({ color: 0xd6336c, roughness: 0.7 });
   const helmet = new MeshStandardNodeMaterial({ color: 0x212529, roughness: 0.4 });
-  const skiMat = new MeshStandardNodeMaterial({ color: 0x1c7ed6, roughness: 0.5 });
-
   const trousers = new MeshStandardNodeMaterial({ color: 0x343a40, roughness: 0.8 });
+  const skiBase = new MeshStandardNodeMaterial({ color: 0x1c7ed6, roughness: 0.35 });
+  const skiTip = new MeshStandardNodeMaterial({ color: 0xf1f3f5, roughness: 0.35 });
+  const bootMat = new MeshStandardNodeMaterial({ color: 0x212529, roughness: 0.5 });
+  const bindingMat = new MeshStandardNodeMaterial({
+    color: 0xadb5bd,
+    metalness: 0.6,
+    roughness: 0.4,
+  });
 
   const body = new Group();
+  body.name = 'body';
   const torso = new Mesh(new CapsuleGeometry(0.22, 0.5, 4, 8), jacket);
   torso.position.y = 1.15;
   const head = new Mesh(new SphereGeometry(0.15, 12, 8), helmet);
   head.position.y = 1.62;
-  const legGeometry = new CapsuleGeometry(0.09, 0.7, 4, 8);
+  const legGeometry = new CapsuleGeometry(0.09, 0.55, 4, 8);
   const legs = [-0.13, 0.13].map((x) => {
     const leg = new Mesh(legGeometry, trousers);
-    leg.position.set(x, 0.45, 0);
+    leg.position.set(x, 0.62, 0);
     return leg;
   });
   body.add(torso, head, ...legs);
 
-  const skiGeometry = new BoxGeometry(0.09, 0.03, 1.7);
-  const left = new Mesh(skiGeometry, skiMat);
-  const right = new Mesh(skiGeometry, skiMat);
-  left.position.set(-0.13, 0.02, -0.1);
-  right.position.set(0.13, 0.02, -0.1);
+  // Skis 1.7 m long, mounted slightly behind centre, with upturned white tips.
+  const kit = new Group();
+  kit.name = 'kit';
+  const skiGeometry = new BoxGeometry(0.1, 0.025, 1.45);
+  const tipGeometry = new BoxGeometry(0.1, 0.02, 0.28);
+  const bootGeometry = new BoxGeometry(0.13, 0.26, 0.32);
+  const bindingGeometry = new BoxGeometry(0.11, 0.04, 0.42);
+  const meshes: Mesh[] = [...legs, torso, head];
+  for (const x of [-0.13, 0.13]) {
+    const ski = new Mesh(skiGeometry, skiBase);
+    ski.position.set(x, 0.015, 0.05);
+    const tip = new Mesh(tipGeometry, skiTip);
+    tip.position.set(x, 0.05, -0.79);
+    tip.rotation.x = 0.35; // turned up at the front (-z)
+    const binding = new Mesh(bindingGeometry, bindingMat);
+    binding.position.set(x, 0.045, 0.02);
+    const boot = new Mesh(bootGeometry, bootMat);
+    boot.position.set(x, 0.19, 0.02);
+    kit.add(ski, tip, binding, boot);
+    meshes.push(ski, tip, binding, boot);
+  }
 
   const skier = new Group();
-  skier.add(body, left, right);
-  for (const mesh of [torso, head, ...legs, left, right]) mesh.castShadow = true;
+  skier.add(body, kit);
+  for (const mesh of meshes) mesh.castShadow = true;
   return skier;
 }

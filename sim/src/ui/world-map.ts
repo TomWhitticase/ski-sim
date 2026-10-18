@@ -1,5 +1,6 @@
 import type { Lift, Peak } from '../features/types';
 import type { Place } from '../nav/places';
+import { DIFFICULTY, type PisteRecord, pisteTitle } from '../pistes/pistes';
 import type { Pose } from '../nav/pose';
 import type { Extent } from '../resort/manifest';
 
@@ -10,6 +11,7 @@ export interface WorldMapData {
   imageExtent: Extent;
   lifts: Lift[];
   peaks: Peak[];
+  pistes: PisteRecord[];
   places: Place[];
   groundHeight: (east: number, north: number) => number;
   toLatLon: (east: number, north: number) => { lat: number; lon: number };
@@ -44,7 +46,7 @@ export class WorldMap {
   private readonly search: HTMLInputElement;
   private readonly here: HTMLElement;
   private readonly scaleBar: HTMLElement;
-  private readonly show = { lift: true, peak: true };
+  private readonly show = { lift: true, peak: true, piste: true };
 
   private centerEast = 0;
   private centerNorth = 0;
@@ -74,7 +76,7 @@ export class WorldMap {
     root.querySelector('.map-close')!.addEventListener('click', () => this.onClose());
     for (const box of root.querySelectorAll<HTMLInputElement>('[data-show]')) {
       box.addEventListener('change', () => {
-        this.show[box.dataset.show as 'lift' | 'peak'] = box.checked;
+        this.show[box.dataset.show as 'lift' | 'peak' | 'piste'] = box.checked;
         this.requestDraw();
       });
     }
@@ -186,6 +188,7 @@ export class WorldMap {
 
     this.drawPlayer();
     if (this.show.lift) this.drawLifts(tryPlace);
+    if (this.show.piste && this.mpp < 6) this.drawPisteNames(tryPlace);
     if (this.show.peak) this.drawPeaks(tryPlace);
     if (this.hoverPlace) this.drawHighlight(this.hoverPlace.pose);
     this.updateScaleBar();
@@ -228,6 +231,28 @@ export class WorldMap {
       this.pill(x - width / 2, y - 9, width, 18);
       ctx.fillStyle = '#fff';
       ctx.fillText(lift.name, x, y);
+    }
+  }
+
+  private drawPisteNames(
+    tryPlace: (cx: number, top: number, w: number, h: number) => boolean,
+  ): void {
+    const { ctx } = this;
+    ctx.font = '600 11px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const piste of this.data.pistes) {
+      if (!piste.name) continue;
+      const [x, y] = this.toScreen(piste.label.east, piste.label.north);
+      const name = pisteTitle(piste);
+      const width = ctx.measureText(name).width + 10;
+      if (!tryPlace(x, y - 8, width, 16)) continue;
+      ctx.fillStyle = DIFFICULTY[piste.difficulty].colour;
+      ctx.globalAlpha = 0.9;
+      this.pill(x - width / 2, y - 8, width, 16);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#fff';
+      ctx.fillText(name, x, y);
     }
   }
 
@@ -331,14 +356,16 @@ export class WorldMap {
   // --- place list ---
 
   private buildList(): void {
-    const icons = { start: '⌂', lift: '⇡', peak: '▲' };
+    const icons = { start: '⌂', lift: '⇡', peak: '▲', piste: '●' };
     for (const place of this.data.places) {
       const li = document.createElement('li');
       li.className = `map-place map-place-${place.kind}`;
       li.dataset.search = fold(`${place.name} ${place.detail}`);
       li.innerHTML =
         '<span class="map-place-icon"></span><span class="map-place-name"></span><span class="map-place-detail"></span>';
-      li.querySelector('.map-place-icon')!.textContent = icons[place.kind];
+      const icon = li.querySelector<HTMLElement>('.map-place-icon')!;
+      icon.textContent = icons[place.kind];
+      if (place.colour) icon.style.color = place.colour;
       li.querySelector('.map-place-name')!.textContent = place.name;
       li.querySelector('.map-place-detail')!.textContent = place.detail;
       li.addEventListener('click', () => this.onTeleport(place.pose));

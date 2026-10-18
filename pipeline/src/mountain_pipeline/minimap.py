@@ -73,3 +73,32 @@ def draw_features(
         draw.line(points, fill=LIFT, width=2)
         for x, y in (points[0], points[-1]):
             draw.ellipse((x - 3, y - 3, x + 3, y + 3), fill=LIFT)
+
+
+def draw_pistes(
+    image: Image.Image, records: list[dict], west: float, north: float, cell_size: float
+) -> None:
+    """Translucent piste areas and centrelines in piste colours (drawn under lifts)."""
+    from .pistes import DIFFICULTY_COLOURS, FREERIDE
+
+    overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    def px(points: list) -> list[tuple[float, float]]:
+        return [((e - west) / cell_size, (north - n) / cell_size) for e, n in points]
+
+    for r in records:
+        colour = DIFFICULTY_COLOURS[r["difficulty"]]
+        for area in r["areas"]:
+            draw.polygon(px(area), fill=(*colour, 70))
+    for r in records:
+        colour = DIFFICULTY_COLOURS[r["difficulty"]]
+        for line in r["lines"]:
+            points = px(line)
+            if r["difficulty"] == FREERIDE:
+                # Dashed: itinerary, not a groomed run.
+                for a, b in zip(points[::2], points[1::2], strict=False):
+                    draw.line([a, b], fill=(*colour, 230), width=2)
+            else:
+                draw.line(points, fill=(*colour, 230), width=3)
+    image.paste(Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB"))

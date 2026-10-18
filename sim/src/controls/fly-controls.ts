@@ -32,6 +32,11 @@ export class FlyControls {
     private readonly bounds: Bounds,
   ) {}
 
+  /** Current flight velocity (m/s, world axes). */
+  get currentVelocity(): Vector3 {
+    return this.velocity;
+  }
+
   get heading(): number {
     return this.look.heading;
   }

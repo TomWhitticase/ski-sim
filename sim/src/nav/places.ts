@@ -1,8 +1,9 @@
 import type { Lift, Peak } from '../features/types';
+import { DIFFICULTY, type PisteRecord, pisteTitle } from '../pistes/pistes';
 import type { Extent } from '../resort/manifest';
 import type { Pose } from './pose';
 
-export type PlaceKind = 'start' | 'peak' | 'lift';
+export type PlaceKind = 'start' | 'peak' | 'lift' | 'piste';
 
 export interface Place {
   kind: PlaceKind;
@@ -10,6 +11,8 @@ export interface Place {
   detail: string;
   /** Where to put the camera when teleporting here. */
   pose: Pose;
+  /** Swatch colour for the list (piste difficulty). */
+  colour?: string;
 }
 
 const RAD = Math.PI / 180;
@@ -56,6 +59,22 @@ export function liftViewpoint(lift: Lift): Pose {
   };
 }
 
+/**
+ * Just below the top of the run, facing down it (ski mode drops you onto it). The very
+ * top is often a flat crest, so start a few metres in where the slope has begun.
+ */
+export function pisteViewpoint(piste: PisteRecord): Pose {
+  const { top } = piste;
+  const ahead = 15;
+  return {
+    east: top.east + Math.sin(top.heading * RAD) * ahead,
+    north: top.north + Math.cos(top.heading * RAD) * ahead,
+    altitude: top.ground + 3,
+    heading: top.heading,
+    pitch: -10,
+  };
+}
+
 const LIFT_TYPES: Record<string, string> = {
   cable_car: 'Cable car',
   gondola: 'Gondola',
@@ -78,13 +97,14 @@ function inside(extent: Extent, east: number, north: number): boolean {
   );
 }
 
-/** Teleport destinations: the start, every named lift, and every peak in the resort area. */
+/** Teleport destinations: the start, named lifts and pistes, and peaks in the resort area. */
 export function buildPlaces(
   resortName: string,
   spawn: Pose,
   lifts: Lift[],
   peaks: Peak[],
   extent: Extent,
+  pistes: PisteRecord[] = [],
 ): Place[] {
   const centre = { east: spawn.east, north: spawn.north };
   const places: Place[] = [{ kind: 'start', name: resortName, detail: 'Start', pose: spawn }];
@@ -95,6 +115,21 @@ export function buildPlaces(
       name: lift.name,
       detail: `${liftTypeName(lift.type)} · ${Math.round(lift.length).toLocaleString('en-GB')} m`,
       pose: liftViewpoint(lift),
+    });
+  }
+  for (const piste of pistes) {
+    if (!piste.name) continue;
+    const d = DIFFICULTY[piste.difficulty];
+    const size =
+      piste.length > 0
+        ? `${(piste.length / 1000).toFixed(1)} km`
+        : `${Math.round(piste.vertical)} m vertical`;
+    places.push({
+      kind: 'piste',
+      name: pisteTitle(piste),
+      detail: `${d.name} · ${size}`,
+      pose: pisteViewpoint(piste),
+      colour: d.colour,
     });
   }
   for (const peak of peaks) {

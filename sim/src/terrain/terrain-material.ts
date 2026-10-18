@@ -16,7 +16,7 @@ import {
   vec3,
   vec4,
 } from 'three/tsl';
-import { DoubleSide, MeshStandardNodeMaterial, type Texture } from 'three/webgpu';
+import { DoubleSide, MeshStandardNodeMaterial, type Texture, type UniformNode } from 'three/webgpu';
 
 import type { Heightmap } from '../geo/heightmap';
 import type { Extent } from '../resort/manifest';
@@ -42,11 +42,21 @@ let snowDetailTexture: Texture | null = null;
  * Lighting uses the full-resolution normal texture, not the (possibly coarse) geometry.
  * Fragments inside `hole` are discarded so a finer terrain layer can show through.
  */
+export interface PisteShading {
+  /** Same grid as the heightmap: RGB = premultiplied piste colour, A = coverage. */
+  overlay: Texture;
+  /** 0..1: how strongly to tint pistes in their difficulty colour. */
+  tint: UniformNode<'float', number>;
+}
+
 export function createTerrainMaterial(
   hm: Heightmap,
   normalTexture: Texture,
   hole?: Extent,
-  { snowDetail: withSnowDetail = false }: { snowDetail?: boolean } = {},
+  {
+    snowDetail: withSnowDetail = false,
+    pistes,
+  }: { snowDetail?: boolean; pistes?: PisteShading } = {},
 ): MeshStandardNodeMaterial {
   // Double-sided so chunk skirts hide LOD cracks whichever side they're seen from.
   const material = new MeshStandardNodeMaterial({ side: DoubleSide });
@@ -57,6 +67,9 @@ export function createTerrainMaterial(
     positionWorld.z.add(north).div(hm.cellSize).add(0.5).div(hm.height),
   );
   const normal = texture(normalTexture, uv).xyz.mul(2).sub(1).normalize();
+  const piste = pistes ? texture(pistes.overlay, uv) : null;
+  /** Groomed-piste coverage, 0 off-piste. */
+  const groomed = piste ? piste.a : float(0);
   let shadingNormal = normal;
   if (withSnowDetail) {
     // Below-lidar-resolution snow texture near the camera, faded out with distance.
@@ -70,7 +83,9 @@ export function createTerrainMaterial(
     const [coarse, fine] = DETAIL_TILES.map((tile, i) =>
       texture(tex, positionWorld.xz.div(tile)).xy.mul(2).sub(1).mul(DETAIL_STRENGTH[i]!),
     );
-    const slope = coarse!.add(fine!).mul(fade);
+    // Groomed corduroy is smooth; untracked off-piste snow is lumpier.
+    const roughness = mix(float(1.25), float(0.3), groomed);
+    const slope = coarse!.add(fine!).mul(fade).mul(roughness);
     shadingNormal = normal.add(vec3(slope.x.negate(), 0, slope.y.negate())).normalize();
   }
   material.normalNode = transformNormalToView(shadingNormal);
@@ -98,7 +113,12 @@ export function createTerrainMaterial(
           .and(n.lessThan(hole.north)),
       );
     }
-    return mix(snow, stone, rock);
+    const base = mix(snow, stone, rock);
+    if (!piste || !pistes) return base;
+    // Freshly groomed snow reads a touch brighter; optional difficulty-colour tint.
+    const brightened = base.mul(groomed.mul(rock.oneMinus()).mul(0.05).add(1));
+    const k = pistes.tint.mul(0.55);
+    return brightened.mul(groomed.mul(k).oneMinus()).add(piste.rgb.mul(k));
   })();
   if (hole) {
     const world = modelWorldMatrix.mul(vec4(positionGeometry, 1)).xyz;

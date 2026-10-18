@@ -4,7 +4,7 @@ import { Vector3 } from 'three/webgpu';
  * Skier as a point mass on the terrain surface. Deliberately forgiving: no falls or
  * crashes, a speed cap, and skis that grip well. Forces per unit mass:
  * - gravity, resolved along the slope
- * - snow friction (μ · normal load)
+ * - snow friction (μ · normal load), higher off-piste than on groomed runs
  * - air drag (k · v²; lower in a tuck)
  * - skidding: when velocity and skis disagree, velocity swings toward the skis
  *   (carving) and the sideways component scrubs speed; a 90° turn is a hockey stop
@@ -12,7 +12,11 @@ import { Vector3 } from 'three/webgpu';
  */
 export const SKI = {
   gravity: 9.81,
+  /** Groomed piste. */
   snowFriction: 0.045,
+  /** Ungroomed off-piste snow: more resistance, plus extra drag ploughing through it. */
+  powderFriction: 0.08,
+  powderDrag: 0.0015,
   /** Drag coefficient (1/m): 0.5·ρ·CdA/m for ~0.6 m² upright, ~0.25 m² tucked, 80 kg. */
   dragUpright: 0.0045,
   dragTuck: 0.0018,
@@ -34,6 +38,8 @@ export const SKI = {
 
 export interface SkiTerrain {
   height(x: number, z: number): number;
+  /** Whether the snow at (x, z) is a groomed piste. Treated as groomed if omitted. */
+  groomed?(x: number, z: number): boolean;
 }
 
 export interface SkiState {
@@ -118,9 +124,11 @@ function substep(state: SkiState, intent: SkiIntent, h: number, terrain: SkiTerr
     const sideways = Math.sqrt(1 - cos * cos);
     dir.lerp(target, 1 - Math.exp(-SKI.carveRate * h)).normalize();
 
-    const drag = intent.tuck ? SKI.dragTuck : SKI.dragUpright;
+    const groomed = terrain.groomed?.(p.x, p.z) ?? true;
+    const friction = groomed ? SKI.snowFriction : SKI.powderFriction;
+    const drag = (intent.tuck ? SKI.dragTuck : SKI.dragUpright) + (groomed ? 0 : SKI.powderDrag);
     const decel =
-      SKI.snowFriction * SKI.gravity * n.y +
+      friction * SKI.gravity * n.y +
       SKI.skidDecel * sideways +
       (intent.brake ? SKI.brakeDecel : 0) +
       drag * speed * speed;

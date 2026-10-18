@@ -59,6 +59,31 @@ body {
   color: var(--muted);
 }
 
+.hud-piste[hidden] {
+  display: none;
+}
+
+.hud-piste [data-piste] {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hud-piste i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  vertical-align: 0;
+}
+
+.hud-piste i[hidden] {
+  display: none;
+}
+
 .hud-toggles {
   margin-top: 6px;
   padding-top: 6px;

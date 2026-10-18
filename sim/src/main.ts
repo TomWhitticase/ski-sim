@@ -1,9 +1,10 @@
+import { uniform } from 'three/tsl';
 import { ACESFilmicToneMapping, PerspectiveCamera, Scene, WebGPURenderer } from 'three/webgpu';
 
 import { CAMERA, DEFAULT_RESORT, SIM_TIME, TERRAIN } from './config';
 import { FlyControls } from './controls/fly-controls';
 import { Input } from './controls/input';
-import { SkiControls } from './controls/ski-controls';
+import { EYE_HEIGHT, SkiControls } from './controls/ski-controls';
 import { Environment } from './env/environment';
 import { createBuildings } from './features/buildings';
 import { createLifts } from './features/lifts';
@@ -16,6 +17,15 @@ import { AdaptiveResolution } from './render/adaptive-resolution';
 import { Terrain } from './terrain/terrain';
 import { createTerrainMaterial } from './terrain/terrain-material';
 import { buildPlaces } from './nav/places';
+import { createPisteMarkers } from './pistes/markers';
+import {
+  DIFFICULTY,
+  loadPixels,
+  overlayTexture,
+  type PisteData,
+  PisteLookup,
+  pisteTitle,
+} from './pistes/pistes';
 import { loadPose, type Pose, savePose } from './nav/pose';
 import { Hud } from './ui/hud';
 import { type LabelKind, type LabelSpec, Labels, liftLabel, peakLabel } from './ui/labels';
@@ -54,11 +64,22 @@ async function main(): Promise<void> {
   $('#attribution').textContent =
     'Terrain: ' + manifest.provenance.map((p) => p.attribution).join(' · ');
   status.textContent = 'Loading terrain…';
-  const [near, far, features] = await Promise.all([
+  const [near, far, features, pisteData, pisteOverlay, pisteLookupPixels] = await Promise.all([
     loadHeightmap(resortId, manifest.terrain.near),
     loadHeightmap(resortId, manifest.terrain.far),
     loadFeatures(resortId, manifest.features.file),
+    fetchJson<PisteData>(resortUrl(resortId, manifest.pistes.file)),
+    loadPixels(resortUrl(resortId, manifest.pistes.overlay.file)),
+    loadPixels(resortUrl(resortId, manifest.pistes.lookup.file)),
   ]);
+  const pisteLookup = new PisteLookup(
+    pisteLookupPixels,
+    manifest.pistes.lookup.cellSize,
+    manifest.pistes.extent,
+    pisteData.pistes,
+  );
+  const prefs = loadPrefs();
+  const pisteTint = uniform(prefs.pistes ? 1 : 0);
   const frame = new LocalFrame(manifest.projection);
   const groundHeight = (x: number, z: number) => {
     const { east, north } = worldToEnu(x, z);
@@ -88,7 +109,10 @@ async function main(): Promise<void> {
   await nextFrame();
   const nearTerrain = new Terrain(
     near,
-    createTerrainMaterial(near, createNormalTexture(near), undefined, { snowDetail: true }),
+    createTerrainMaterial(near, createNormalTexture(near), undefined, {
+      snowDetail: true,
+      pistes: { overlay: overlayTexture(pisteOverlay), tint: pisteTint },
+    }),
     TERRAIN.near,
   );
   const farTerrain = new Terrain(
@@ -101,6 +125,7 @@ async function main(): Promise<void> {
     farTerrain.object,
     createLifts(features.lifts),
     createBuildings(features.buildings),
+    createPisteMarkers(pisteData),
   );
 
   const farExtent = far.extent;
@@ -112,7 +137,15 @@ async function main(): Promise<void> {
   };
   const input = new Input(canvas);
   const fly = new FlyControls(camera, groundHeight, bounds);
-  const ski = new SkiControls(camera, { height: groundHeight }, bounds);
+  const ski = new SkiControls(
+    camera,
+    {
+      height: groundHeight,
+      // World z is -north.
+      groomed: (x, z) => pisteLookup.at(x, -z)?.groomed ?? false,
+    },
+    bounds,
+  );
   scene.add(ski.skier);
   let mode: Mode = loadMode();
   const controls = () => (mode === 'ski' ? ski : fly);
@@ -169,15 +202,30 @@ async function main(): Promise<void> {
       ...features.peaks.map((p) => peakLabel(p, near.extent)),
     ],
     groundHeight,
-    loadLabelPrefs(),
+    { lift: prefs.lift, peak: prefs.peak },
   );
+  const savePrefs = () =>
+    localStorage.setItem(
+      PREFS_KEY,
+      JSON.stringify({
+        lift: labels.isVisible('lift'),
+        peak: labels.isVisible('peak'),
+        pistes: pisteTint.value > 0,
+      }),
+    );
   const toggleLabels = (kind: LabelKind) => {
     labels.setVisible(kind, !labels.isVisible(kind));
     hud.setToggle(kind, labels.isVisible(kind));
-    saveLabelPrefs({ lift: labels.isVisible('lift'), peak: labels.isVisible('peak') });
+    savePrefs();
+  };
+  const togglePisteColours = () => {
+    pisteTint.value = pisteTint.value > 0 ? 0 : 1;
+    hud.setToggle('pistes', pisteTint.value > 0);
+    savePrefs();
   };
   hud.setToggle('lift', labels.isVisible('lift'));
   hud.setToggle('peak', labels.isVisible('peak'));
+  hud.setToggle('pistes', pisteTint.value > 0);
   const debug = $('#debug');
 
   // Teleports reset the speed readout so the jump doesn't register as motion.
@@ -190,7 +238,15 @@ async function main(): Promise<void> {
       imageExtent: manifest.minimap.extent,
       lifts: features.lifts,
       peaks: features.peaks,
-      places: buildPlaces(manifest.resort.name, spawn, features.lifts, features.peaks, near.extent),
+      places: buildPlaces(
+        manifest.resort.name,
+        spawn,
+        features.lifts,
+        features.peaks,
+        near.extent,
+        pisteData.pistes,
+      ),
+      pistes: pisteData.pistes,
       groundHeight: (east, north) => groundHeight(east, -north),
       toLatLon: (east, north) => frame.toLatLon(east, north),
     },
@@ -205,8 +261,13 @@ async function main(): Promise<void> {
   const setMode = (next: Mode) => {
     const pose = currentPose();
     mode = next;
-    // Fly mode picks up from the eye position; ski mode drops onto the snow below.
-    controls().place(pose);
+    if (mode === 'ski') {
+      // Start right where you are, carrying your flying momentum; gravity does the rest.
+      ski.place(pose, fly.currentVelocity);
+    } else {
+      // Ski poses track the feet; fly mode's camera is at eye height.
+      fly.place({ ...pose, altitude: pose.altitude + EYE_HEIGHT });
+    }
     ski.setActive(mode === 'ski');
     hud.setMode(mode);
     document.body.classList.toggle('skiing', mode === 'ski');
@@ -260,6 +321,8 @@ async function main(): Promise<void> {
       debug.hidden = !debug.hidden;
     } else if (e.code === 'KeyL' && !e.repeat) {
       toggleLabels('lift');
+    } else if (e.code === 'KeyO' && !e.repeat) {
+      togglePisteColours();
     } else if (e.code === 'KeyP' && !e.repeat) {
       toggleLabels('peak');
     }
@@ -323,6 +386,16 @@ async function main(): Promise<void> {
     const { east, north } = worldToEnu(here.x, here.z);
     const { lat, lon } = frame.toLatLon(east, north);
     hud.update({ altitude: here.y, lat, lon, speed: mode === 'ski' ? ski.speed : speed });
+    // Which run is underfoot (only meaningful near the snow).
+    const nearSnow = here.y - groundHeight(here.x, here.z) < 60;
+    const piste = nearSnow ? pisteLookup.at(east, north) : null;
+    hud.setPiste(
+      !nearSnow
+        ? null
+        : piste
+          ? { name: pisteTitle(piste), colour: DIFFICULTY[piste.difficulty].colour }
+          : { name: 'Off-piste', colour: null },
+    );
     minimap.draw(east, north, controls().heading);
     labels.update(camera);
 
@@ -373,19 +446,27 @@ function loadMode(): Mode {
   return localStorage.getItem(MODE_KEY) === 'ski' ? 'ski' : 'fly';
 }
 
-const LABEL_PREFS_KEY = 'mountain-map.labels';
+const PREFS_KEY = 'mountain-map.labels';
 
-function loadLabelPrefs(): Record<LabelKind, boolean> {
-  const defaults = { lift: true, peak: true };
+interface Prefs {
+  lift: boolean;
+  peak: boolean;
+  pistes: boolean;
+}
+
+function loadPrefs(): Prefs {
+  const defaults = { lift: true, peak: true, pistes: true };
   try {
-    return { ...defaults, ...JSON.parse(localStorage.getItem(LABEL_PREFS_KEY) ?? '{}') };
+    return { ...defaults, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') };
   } catch {
     return defaults;
   }
 }
 
-function saveLabelPrefs(prefs: Record<LabelKind, boolean>): void {
-  localStorage.setItem(LABEL_PREFS_KEY, JSON.stringify(prefs));
+async function fetchJson<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to load ${url} (HTTP ${res.status})`);
+  return (await res.json()) as T;
 }
 
 function nextFrame(): Promise<void> {

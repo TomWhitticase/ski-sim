@@ -38,10 +38,18 @@ export interface ResortManifest {
   terrain: { near: HeightmapMeta; far: HeightmapMeta };
   minimap: { file: string; extent: Extent };
   features: { file: string; lifts: number; buildings: number; peaks: number };
+  pistes: {
+    file: string;
+    overlay: { file: string; cellSize: number };
+    lookup: { file: string; cellSize: number };
+    extent: Extent;
+    count: number;
+    markers: number;
+  };
   provenance: Provenance[];
 }
 
-const SUPPORTED_VERSION = 3;
+const SUPPORTED_VERSION = 4;
 
 export function resortUrl(resortId: string, file: string): string {
   return `/${resortId}/${file}`;
