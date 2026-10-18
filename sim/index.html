@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mountain-map</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+
+    <div id="hud" class="panel"></div>
+
+    <div id="minimap" class="panel">
+      <canvas></canvas>
+      <span class="minimap-scale"></span>
+    </div>
+
+    <div id="crosshair"></div>
+
+    <div id="debug" class="panel" hidden></div>
+
+    <div id="overlay">
+      <div class="overlay-card">
+        <h1 id="resort-name">mountain-map</h1>
+        <p id="status">Loading…</p>
+        <button id="start" hidden>Click to fly</button>
+        <dl class="controls">
+          <dt>WASD</dt>
+          <dd>Fly (double-tap W to sprint)</dd>
+          <dt>Space / Shift</dt>
+          <dd>Up / down</dd>
+          <dt>Mouse</dt>
+          <dd>Look around</dd>
+          <dt>Scroll</dt>
+          <dd>Fly speed</dd>
+          <dt>- / =</dt>
+          <dd>Minimap zoom</dd>
+          <dt>F3</dt>
+          <dd>Debug info</dd>
+          <dt>Esc</dt>
+          <dd>Release mouse</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div id="attribution"></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

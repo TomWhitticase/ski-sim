@@ -1,0 +1,43 @@
+{
+  "id": "val-thorens",
+  "name": "Val Thorens",
+  "country": "FR",
+  "origin": {
+    "lat": 45.2981,
+    "lon": 6.5803,
+    "description": "Val Thorens village centre; local ENU frame origin"
+  },
+  "spawn": {
+    "lat": 45.2981,
+    "lon": 6.5803,
+    "altitude": 2700,
+    "heading": 200
+  },
+  "terrain": {
+    "near": {
+      "sources": ["ign-lidar-hd", "ign-rge-alti"],
+      "description": "Val Thorens + Orelle ski area with surrounding summits",
+      "extent": { "west": -5000, "east": 5500, "south": -11500, "north": 3500 },
+      "cellSize": 4,
+      "fetchCellSize": 2
+    },
+    "far": {
+      "sources": ["copernicus-glo30"],
+      "description": "Horizon terrain out to Mont Blanc",
+      "extent": { "west": -60000, "east": 60000, "south": -60000, "north": 65000 },
+      "cellSize": 50
+    }
+  },
+  "minimap": {
+    "cellSize": 8,
+    "contourInterval": 100
+  },
+  "landmarks": [
+    { "name": "Aiguille de Péclet", "osmNode": 26862460, "lat": 45.2813645, "lon": 6.6240193, "ele": 3561 },
+    { "name": "Pointe du Bouchet", "osmNode": 1789614074, "lat": 45.253888, "lon": 6.6042942, "ele": 3416 },
+    { "name": "Pointe de Thorens", "osmNode": 11407532879, "lat": 45.2649809, "lon": 6.6095527, "ele": 3262 },
+    { "name": "Cime de Caron", "osmNode": 324232145, "lat": 45.2632226, "lon": 6.5609518, "ele": 3195 },
+    { "name": "Mont du Borgne", "osmNode": 5481310903, "lat": 45.3041651, "lon": 6.6134691, "ele": 3153 },
+    { "name": "Pointe de Rosaël", "osmNode": 11405931187, "lat": 45.2651298, "lon": 6.5777598, "ele": 3069 }
+  ]
+}

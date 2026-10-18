@@ -1,0 +1,83 @@
+import { expect, type Page, test } from '@playwright/test';
+
+// Headless Chromium can't grant real pointer lock, so fake it before the controls check.
+async function startFlying(page: Page, query: string) {
+  await page.addInitScript(() => {
+    Object.defineProperty(Document.prototype, 'pointerLockElement', {
+      get: () => document.querySelector('#scene'),
+    });
+  });
+  await page.goto(`/?${query}`);
+  await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10, null, { timeout: 90_000 });
+  await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
+}
+
+async function hud(page: Page) {
+  const text = async (field: string) =>
+    (await page.locator(`#hud [data-field="${field}"]`).textContent()) ?? '';
+  return {
+    altitude: parseFloat((await text('altitude')).replace(/,/g, '')),
+    lat: parseFloat(await text('lat')),
+    lon: parseFloat(await text('lon')),
+    speed: parseFloat(await text('speed')),
+  };
+}
+
+async function hold(page: Page, key: string, ms: number) {
+  await page.keyboard.down(key);
+  await page.waitForTimeout(ms);
+  await page.keyboard.up(key);
+}
+
+test('W flies forward (north when facing north) and the HUD reports speed', async ({ page }) => {
+  await startFlying(page, 'at=45.2981,6.5803,2800&heading=0&pitch=0');
+  const before = await hud(page);
+  await page.keyboard.down('KeyW');
+  await page.waitForTimeout(1500);
+  const moving = await hud(page);
+  await page.keyboard.up('KeyW');
+
+  expect(moving.lat).toBeGreaterThan(before.lat);
+  expect(Math.abs(moving.lon - before.lon)).toBeLessThan(0.0002);
+  expect(moving.speed).toBeGreaterThan(50); // default 25 m/s = 90 km/h
+  expect(moving.altitude).toBeCloseTo(before.altitude, -1);
+});
+
+test('D strafes east when facing north', async ({ page }) => {
+  await startFlying(page, 'at=45.2981,6.5803,2800&heading=0&pitch=0');
+  const before = await hud(page);
+  await hold(page, 'KeyD', 1000);
+  expect((await hud(page)).lon).toBeGreaterThan(before.lon);
+});
+
+test('Space rises and Shift descends', async ({ page }) => {
+  await startFlying(page, 'at=45.2981,6.5803,2800&heading=0&pitch=0');
+  const start = await hud(page);
+  await hold(page, 'Space', 1000);
+  const up = await hud(page);
+  expect(up.altitude).toBeGreaterThan(start.altitude + 10);
+  await hold(page, 'Shift', 1500);
+  expect((await hud(page)).altitude).toBeLessThan(up.altitude - 10);
+});
+
+test('cannot fly below the ground', async ({ page }) => {
+  // Start just above the village (ground ~2300 m) and dive.
+  await startFlying(page, 'at=45.2981,6.5803,2320&heading=0&pitch=0');
+  await hold(page, 'Shift', 2500);
+  const { altitude } = await hud(page);
+  expect(altitude).toBeGreaterThan(2250);
+  expect(altitude).toBeLessThan(2330);
+});
+
+test('mouse turns the view', async ({ page }) => {
+  await startFlying(page, 'at=45.2981,6.5803,2800&heading=0&pitch=0');
+  // Turn right ~90° (movementX is ignored by mouse.move in headless; dispatch directly).
+  await page.evaluate(() => {
+    document.dispatchEvent(new MouseEvent('mousemove', { movementX: 714 } as MouseEventInit));
+  });
+  const before = await hud(page);
+  await hold(page, 'KeyW', 1000);
+  const after = await hud(page);
+  expect(after.lon).toBeGreaterThan(before.lon); // now flying east
+  expect(Math.abs(after.lat - before.lat)).toBeLessThan(0.0002);
+});
