@@ -1,7 +1,7 @@
 [project]
-name = "mountain-pipeline"
+name = "ski-sim-pipeline"
 version = "0.1.0"
-description = "Builds mountain-map resort assets from real geospatial data"
+description = "Builds ski-sim resort assets from real geospatial data"
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.1",
@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.scripts]
-mountain-pipeline = "mountain_pipeline.cli:main"
+ski-sim = "ski_sim_pipeline.cli:main"
 
 [dependency-groups]
 dev = [

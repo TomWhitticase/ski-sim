@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from mountain_pipeline.features import LIFT_PROFILES, estimate_height, place_supports
+from ski_sim_pipeline.features import LIFT_PROFILES, estimate_height, place_supports
 
 
 def flat(height: float):
@@ -61,10 +61,10 @@ def test_estimate_height(tags, area, expected):
 
 
 def test_peaks_snap_to_summit_and_filter_far_minor_peaks():
-    from mountain_pipeline.config import Extent, GeoPoint
-    from mountain_pipeline.features import extract_peaks
-    from mountain_pipeline.frame import LocalFrame
-    from mountain_pipeline.grid import Grid
+    from ski_sim_pipeline.config import Extent, GeoPoint
+    from ski_sim_pipeline.features import extract_peaks
+    from ski_sim_pipeline.frame import LocalFrame
+    from ski_sim_pipeline.grid import Grid
 
     frame = LocalFrame(GeoPoint(45.0, 6.0))
     near_grid = Grid(Extent(-500, 500, -500, 500), 10)
@@ -101,13 +101,13 @@ def test_peaks_snap_to_summit_and_filter_far_minor_peaks():
     [("04:45", 285), ("3", 180), ("12", 720), ("1:02:00", 3720), ("abc", None), (None, None)],
 )
 def test_parse_duration(value, seconds):
-    from mountain_pipeline.features import parse_duration
+    from ski_sim_pipeline.features import parse_duration
 
     assert parse_duration(value) == seconds
 
 
 def test_lift_specs():
-    from mountain_pipeline.features import lift_specs
+    from ski_sim_pipeline.features import lift_specs
 
     specs = lift_specs(
         {
@@ -124,7 +124,7 @@ def test_lift_specs():
 def test_gable_roof_ridge_runs_along_the_long_side():
     from shapely.geometry import Polygon
 
-    from mountain_pipeline.features import gable_roof
+    from ski_sim_pipeline.features import gable_roof
 
     roof = gable_roof(Polygon([(0, 0), (20, 0), (20, 8), (0, 8)]), "yes", None)
     (ax, ay), (bx, by) = roof["ridge"]
@@ -137,7 +137,7 @@ def test_gable_roof_ridge_runs_along_the_long_side():
 def test_l_shaped_footprints_split_into_planar_faces():
     from shapely.geometry import Polygon
 
-    from mountain_pipeline.features import gable_roof
+    from ski_sim_pipeline.features import gable_roof
 
     roof = gable_roof(
         Polygon([(0, 0), (30, 0), (30, 10), (10, 10), (10, 25), (0, 25)]), "yes", None
@@ -149,13 +149,13 @@ def test_l_shaped_footprints_split_into_planar_faces():
 def test_large_industrial_buildings_keep_flat_roofs():
     from shapely.geometry import Polygon
 
-    from mountain_pipeline.features import gable_roof
+    from ski_sim_pipeline.features import gable_roof
 
     assert gable_roof(Polygon([(0, 0), (40, 0), (40, 30), (0, 30)]), "industrial", None) is None
 
 
 def test_duplicate_footprints_are_merged():
-    from mountain_pipeline.features import dedupe_buildings
+    from ski_sim_pipeline.features import dedupe_buildings
 
     square = [[0, 0], [10, 0], [10, 10], [0, 10]]
     nearly = [[0.2, 0], [10, 0], [10, 10], [0.2, 10]]

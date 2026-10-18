@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>mountain-map</title>
+    <title>ski-sim</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
@@ -48,68 +48,81 @@
     </div>
 
     <div id="overlay">
-      <div class="overlay-card">
-        <h1 id="resort-name">mountain-map</h1>
+      <div class="overlay-card menu">
+        <h1>ski-sim</h1>
+        <div class="menu-columns">
+          <section>
+            <h2>Ski area</h2>
+            <div id="menu-resorts" class="menu-list"></div>
+          </section>
+          <section>
+            <h2>Start at</h2>
+            <div id="menu-starts" class="menu-list"></div>
+          </section>
+        </div>
         <p id="status">Loading…</p>
-        <button id="start" hidden>Click to play</button>
-        <dl class="controls">
-          <dt>F</dt>
-          <dd>Switch fly / ski mode</dd>
-          <dt class="controls-heading"><b>Fly</b></dt>
-          <dd></dd>
-          <dt>WASD</dt>
-          <dd>Fly</dd>
-          <dt>Ctrl</dt>
-          <dd>Sprint</dd>
-          <dt>Space / Shift</dt>
-          <dd>Up / down</dd>
-          <dt>Scroll</dt>
-          <dd>Fly speed</dd>
-          <dt class="controls-heading"><b>Ski</b></dt>
-          <dd></dd>
-          <dt>Mouse / A D</dt>
-          <dd>Steer</dd>
-          <dt>W</dt>
-          <dd>Skate</dd>
-          <dt>Ctrl</dt>
-          <dd>Tuck</dd>
-          <dt>Shift</dt>
-          <dd>Snowplough</dd>
-          <dt>S + A / D</dt>
-          <dd>Pivot skis (hockey stop)</dd>
-          <dt>Space</dt>
-          <dd>Jump</dd>
-          <dt class="controls-heading"><b>Paraglider</b></dt>
-          <dd></dd>
-          <dt>P</dt>
-          <dd>Deploy / release the wing (keeps your speed)</dd>
-          <dt>A / D</dt>
-          <dd>Bank and turn</dd>
-          <dt>W / S</dt>
-          <dd>Speed bar / brakes</dd>
-          <dt class="controls-heading"><b>Both</b></dt>
-          <dd></dd>
-          <dt>Mouse</dt>
-          <dd>Look around</dd>
-          <dt>V</dt>
-          <dd>First / third person</dd>
-          <dt>E</dt>
-          <dd>Ride a lift (at its bottom station) · hold W to fast-forward</dd>
-          <dt>M</dt>
-          <dd>Map &amp; teleport</dd>
-          <dt>L / N</dt>
-          <dd>Lift / peak names</dd>
-          <dt>K</dt>
-          <dd>Sound on / off</dd>
-          <dt>O</dt>
-          <dd>Piste colours</dd>
-          <dt>- / =</dt>
-          <dd>Minimap zoom</dd>
-          <dt>F3</dt>
-          <dd>Debug info</dd>
-          <dt>Esc</dt>
-          <dd>Release mouse</dd>
-        </dl>
+        <button id="start" disabled>Loading…</button>
+        <details class="menu-controls">
+          <summary>Controls</summary>
+          <dl class="controls">
+            <dt>F</dt>
+            <dd>Switch fly / ski mode</dd>
+            <dt class="controls-heading"><b>Fly</b></dt>
+            <dd></dd>
+            <dt>WASD</dt>
+            <dd>Fly</dd>
+            <dt>Ctrl</dt>
+            <dd>Sprint</dd>
+            <dt>Space / Shift</dt>
+            <dd>Up / down</dd>
+            <dt>Scroll</dt>
+            <dd>Fly speed</dd>
+            <dt class="controls-heading"><b>Ski</b></dt>
+            <dd></dd>
+            <dt>Mouse / A D</dt>
+            <dd>Steer</dd>
+            <dt>W</dt>
+            <dd>Skate</dd>
+            <dt>Ctrl</dt>
+            <dd>Tuck</dd>
+            <dt>Shift</dt>
+            <dd>Snowplough</dd>
+            <dt>S + A / D</dt>
+            <dd>Pivot skis (hockey stop)</dd>
+            <dt>Space</dt>
+            <dd>Jump</dd>
+            <dt class="controls-heading"><b>Paraglider</b></dt>
+            <dd></dd>
+            <dt>P</dt>
+            <dd>Deploy / release the wing (keeps your speed)</dd>
+            <dt>A / D</dt>
+            <dd>Bank and turn</dd>
+            <dt>W / S</dt>
+            <dd>Speed bar / brakes</dd>
+            <dt class="controls-heading"><b>Both</b></dt>
+            <dd></dd>
+            <dt>Mouse</dt>
+            <dd>Look around</dd>
+            <dt>V</dt>
+            <dd>First / third person</dd>
+            <dt>E</dt>
+            <dd>Ride a lift (at its bottom station) · hold W to fast-forward</dd>
+            <dt>M</dt>
+            <dd>Map &amp; teleport</dd>
+            <dt>L / N</dt>
+            <dd>Lift / peak names</dd>
+            <dt>K</dt>
+            <dd>Sound on / off</dd>
+            <dt>O</dt>
+            <dd>Piste colours</dd>
+            <dt>- / =</dt>
+            <dd>Minimap zoom</dd>
+            <dt>F3</dt>
+            <dd>Debug info</dd>
+            <dt>Esc</dt>
+            <dd>Release mouse</dd>
+          </dl>
+        </details>
       </div>
     </div>
 

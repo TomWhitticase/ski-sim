@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from mountain_pipeline.config import Extent
-from mountain_pipeline.grid import Grid, sample_bilinear, stitch_far_to_near
+from ski_sim_pipeline.config import Extent
+from ski_sim_pipeline.grid import Grid, sample_bilinear, stitch_far_to_near
 
 
 def plane(grid: Grid) -> np.ndarray:

@@ -10,7 +10,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-USER_AGENT = "mountain-map-pipeline/0.1"
+USER_AGENT = "ski-sim-pipeline/0.1"
 
 
 class NotFound(Exception):

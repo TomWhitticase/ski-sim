@@ -1,8 +1,8 @@
 """Command line entry points.
 
-uv run mountain-pipeline init <resort-id> --name "Name" --country FR --ski-area "Val Thorens"
-uv run mountain-pipeline init <resort-id> --name "Name" --country FR --bbox S,W,N,E
-uv run mountain-pipeline build <resort-id>
+uv run ski-sim init <resort-id> --name "Name" --country FR --ski-area "Val Thorens"
+uv run ski-sim init <resort-id> --name "Name" --country FR --bbox S,W,N,E
+uv run ski-sim build <resort-id>
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ def resort_config(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="mountain-pipeline")
+    parser = argparse.ArgumentParser(prog="ski-sim")
     sub = parser.add_subparsers(dest="command", required=True)
     build_cmd = sub.add_parser("build", help="Build processed assets for a resort")
     build_cmd.add_argument("resort", help="Resort id (directory name under data/resorts/)")
@@ -91,7 +91,7 @@ def main() -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         config = resort_config(resort_id, args.name, args.country.upper(), bounds, args.margin)
         path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n")
-        logging.info("Wrote %s; next: uv run mountain-pipeline build %s", path, resort_id)
+        logging.info("Wrote %s; next: uv run ski-sim build %s", path, resort_id)
 
     if args.command == "build":
         resort_dir = DATA_DIR / "resorts" / args.resort

@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 from rasterio.warp import Resampling
 
+from . import bases as base_finder
 from . import features, minimap, pistes
 from .config import ResortConfig, load_resort
 from .export import write_heightmap
@@ -19,7 +20,7 @@ from .sources import copernicus, ign, osm
 
 log = logging.getLogger(__name__)
 
-MANIFEST_VERSION = 4
+MANIFEST_VERSION = 5
 LANDMARK_SEARCH_RADIUS = 30.0  # OSM summit nodes are often a few metres off the true top
 LANDMARK_TOLERANCE = 15.0
 
@@ -240,6 +241,24 @@ def validate_landmarks(
     return results
 
 
+def write_resort_index(out_root: Path) -> Path:
+    """`resorts.json`: every built resort, for the sim's ski-area menu."""
+    resorts = []
+    for manifest_path in sorted(out_root.glob("*/manifest.json")):
+        m = json.loads(manifest_path.read_text())
+        resorts.append(
+            {
+                **m["resort"],
+                "bases": [b["name"] for b in m.get("bases", [])],
+                "lifts": m.get("features", {}).get("lifts"),
+                "pistes": m.get("pistes", {}).get("count"),
+            }
+        )
+    path = out_root / "resorts.json"
+    path.write_text(json.dumps({"resorts": resorts}, indent=2, ensure_ascii=False) + "\n")
+    return path
+
+
 def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     """Source caches under `raw_root` are shared across resorts."""
     cfg = load_resort(resort_dir / "resort.json")
@@ -255,6 +274,16 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
 
     log.info("Building lifts and buildings (OpenStreetMap)")
     feature_data = build_features(cfg, frame, raw_root, near, near_grid, far, far_grid)
+    places = osm.fetch_places(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root)
+    start_bases = base_finder.find_bases(
+        places,
+        feature_data["lifts"],
+        feature_data["buildings"],
+        frame,
+        near_grid.extent,
+        lambda e, n: sample_bilinear(near, near_grid, e, n),
+    )
+    log.info("Start locations: %s", ", ".join(b["name"] for b in start_bases) or "none")
     if cfg.landmarks:
         validation = validate_landmarks(cfg, frame, near, near_grid)
     else:
@@ -306,6 +335,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
             "heading": cfg.spawn.heading,
         },
         "terrain": {"near": near_meta, "far": far_meta},
+        "bases": start_bases,
         "minimap": minimap_meta,
         "pistes": pistes_meta,
         "features": {
@@ -336,5 +366,6 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     }
     path = out_dir / "manifest.json"
     path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
+    write_resort_index(out_root)
     log.info("Done: %s", path)
     return path

@@ -45,6 +45,7 @@ import {
 import { loadPose, type Pose, savePose } from './nav/pose';
 import { Hud } from './ui/hud';
 import { type LabelKind, type LabelSpec, Labels, liftLabel, peakLabel } from './ui/labels';
+import { LAST_RESORT_KEY, MainMenu, type ResortEntry, type StartChoice } from './ui/main-menu';
 import { Minimap } from './ui/minimap';
 import { WorldMap } from './ui/world-map';
 
@@ -70,13 +71,41 @@ async function loadFeatures(resortId: string, file: string): Promise<ResortFeatu
   return (await res.json()) as ResortFeatures;
 }
 
+/** One-time carry-over of settings and saved positions from before the ski-sim rename. */
+function migrateStorage(): void {
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)!;
+    if (!key.startsWith('mountain-map.')) continue;
+    const renamed = `ski-sim.${key.slice('mountain-map.'.length)}`;
+    if (localStorage.getItem(renamed) === null) {
+      localStorage.setItem(renamed, localStorage.getItem(key)!);
+    }
+  }
+}
+
 async function main(): Promise<void> {
+  migrateStorage();
   const params = new URLSearchParams(location.search);
-  const resortId = params.get('resort') ?? DEFAULT_RESORT;
+  // Ski areas come from the pipeline's index; pick the URL's, else the last one played.
+  const resorts = await fetchJson<{ resorts: ResortEntry[] }>('/resorts.json')
+    .then((r) => r.resorts)
+    .catch((): ResortEntry[] => []);
+  const known = (id: string | null) => !!id && resorts.some((r) => r.id === id);
+  const lastResort = localStorage.getItem(LAST_RESORT_KEY);
+  const resortId =
+    params.get('resort') ?? (known(lastResort) ? lastResort! : (resorts[0]?.id ?? DEFAULT_RESORT));
+  localStorage.setItem(LAST_RESORT_KEY, resortId);
+
+  let play: (choice: StartChoice) => void = () => {};
+  const menu = new MainMenu($('#overlay'), (choice) => play(choice));
+  menu.setResorts(resorts, resortId);
 
   const manifest = await loadManifest(resortId);
-  $('#resort-name').textContent = manifest.resort.name;
-  document.title = `${manifest.resort.name} · mountain-map`;
+  menu.setStarts(
+    manifest.bases ?? [],
+    params.has('at') || loadPose(localStorage, resortId) !== null,
+  );
+  document.title = `${manifest.resort.name} · ski-sim`;
   $('#attribution').textContent =
     'Terrain: ' + manifest.provenance.map((p) => p.attribution).join(' · ');
   status.textContent = 'Loading terrain…';
@@ -449,15 +478,31 @@ async function main(): Promise<void> {
       toggleLabels('peak');
     }
   });
-  const start = $<HTMLButtonElement>('#start');
-  start.addEventListener('click', () => {
+  /** Start (or restart) at a ski village: on your skis in front of its main lift. */
+  const startAt = (base: NonNullable<StartChoice>) => {
+    if (mode !== 'ski') setMode('ski');
+    const pose = groundedPose(
+      {
+        east: base.east,
+        north: base.north,
+        altitude: base.ground,
+        heading: base.heading,
+        pitch: -5,
+      },
+      (east, north) => groundHeight(east, -north),
+      EYE_HEIGHT + 0.1,
+    );
+    ski.place(pose);
+    speedReset = true;
+    persistPose();
+  };
+  play = (choice) => {
     sound.start(); // audio may only start from a user gesture
+    if (choice) startAt(choice);
     void input.lock();
-  });
-  status.textContent =
-    new Intl.DisplayNames(['en'], { type: 'region' }).of(manifest.resort.country) ??
-    manifest.resort.country;
-  start.hidden = false;
+  };
+  menu.setStatus(manifest.resort.name);
+  menu.ready();
 
   const sim = { ready: false, frames: 0 };
   window.__sim = sim;
@@ -652,8 +697,8 @@ function poseFromUrl(params: URLSearchParams, frame: LocalFrame, spawn: Pose): P
 }
 
 type Mode = 'fly' | 'ski' | 'glide' | 'ride';
-const MODE_KEY = 'mountain-map.mode';
-const VIEW_KEY = 'mountain-map.view';
+const MODE_KEY = 'ski-sim.mode';
+const VIEW_KEY = 'ski-sim.view';
 
 function loadMode(): Mode {
   // A reload mid-flight drops you into ski mode (you fall and land).
@@ -661,7 +706,7 @@ function loadMode(): Mode {
   return saved === 'ski' || saved === 'glide' || saved === 'ride' ? 'ski' : 'fly';
 }
 
-const PREFS_KEY = 'mountain-map.labels';
+const PREFS_KEY = 'ski-sim.labels';
 
 interface Prefs {
   lift: boolean;

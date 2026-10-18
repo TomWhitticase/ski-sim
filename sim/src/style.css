@@ -241,10 +241,12 @@ body:not(.skiing) .hud-ski-only {
 #overlay {
   position: fixed;
   inset: 0;
+  z-index: 5; /* above world labels and the HUD */
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(8, 12, 20, 0.35);
+  background: rgba(8, 12, 20, 0.55);
 }
 
 body.flying #overlay,
@@ -500,4 +502,92 @@ body.map-open #overlay {
 
 #prompt[hidden] {
   display: none;
+}
+
+.menu {
+  width: min(760px, 92vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  text-align: left;
+}
+
+.menu h1 {
+  font-size: 30px;
+  letter-spacing: 0.02em;
+  margin-bottom: 14px;
+}
+
+.menu h2 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.menu-columns {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+
+.menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.menu-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--panel-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  background: rgba(61, 139, 253, 0.18);
+}
+
+.menu-item.selected {
+  border-color: #3d8bfd;
+  background: rgba(61, 139, 253, 0.28);
+}
+
+.menu-item-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.menu-item-detail {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.menu #start {
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.menu #start:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.menu-controls summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 8px;
 }

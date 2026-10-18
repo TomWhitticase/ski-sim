@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from mountain_pipeline.cli import resort_config, slugify
-from mountain_pipeline.config import load_resort
+from ski_sim_pipeline.cli import resort_config, slugify
+from ski_sim_pipeline.config import load_resort
 
 
 def test_minimal_config_derives_everything(tmp_path):

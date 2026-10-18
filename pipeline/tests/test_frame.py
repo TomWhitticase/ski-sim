@@ -1,8 +1,8 @@
 import pytest
 from pyproj import Transformer
 
-from mountain_pipeline.config import Extent, GeoPoint
-from mountain_pipeline.frame import LocalFrame
+from ski_sim_pipeline.config import Extent, GeoPoint
+from ski_sim_pipeline.frame import LocalFrame
 
 ORIGIN = GeoPoint(lat=45.2981, lon=6.5803)
 

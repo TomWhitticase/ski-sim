@@ -2,9 +2,9 @@ import numpy as np
 import pytest
 from shapely.geometry import LineString
 
-from mountain_pipeline.config import Extent
-from mountain_pipeline.grid import Grid
-from mountain_pipeline.pistes import (
+from ski_sim_pipeline.config import Extent
+from ski_sim_pipeline.grid import Grid
+from ski_sim_pipeline.pistes import (
     DIFFICULTY_COLOURS,
     _start_heading,
     lookup_image,

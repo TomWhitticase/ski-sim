@@ -13,7 +13,7 @@ export interface Pose {
 const VERSION = 1;
 
 function key(resortId: string): string {
-  return `mountain-map.pose.${resortId}`;
+  return `ski-sim.pose.${resortId}`;
 }
 
 /** The last saved pose for a resort, or null if none (or it's unusable). */

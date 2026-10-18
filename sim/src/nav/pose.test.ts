@@ -44,9 +44,9 @@ describe('pose storage', () => {
 
   it('ignores corrupt or incomplete data', () => {
     const storage = new MemoryStorage();
-    storage.setItem('mountain-map.pose.val-thorens', '{not json');
+    storage.setItem('ski-sim.pose.val-thorens', '{not json');
     expect(loadPose(storage, 'val-thorens')).toBeNull();
-    storage.setItem('mountain-map.pose.val-thorens', JSON.stringify({ v: 1, east: 1 }));
+    storage.setItem('ski-sim.pose.val-thorens', JSON.stringify({ v: 1, east: 1 }));
     expect(loadPose(storage, 'val-thorens')).toBeNull();
   });
 });

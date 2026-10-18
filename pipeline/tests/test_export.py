@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from mountain_pipeline.export import encode_heights
-from mountain_pipeline.minimap import downsample
+from ski_sim_pipeline.export import encode_heights
+from ski_sim_pipeline.minimap import downsample
 
 
 def test_encode_round_trip_within_half_quantum():

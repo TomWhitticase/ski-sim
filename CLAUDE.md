@@ -4,7 +4,7 @@ Guidance for Claude Code when working in this repository.
 
 ## Project
 
-**mountain-map** is a 3D immersive simulation of real ski resorts. The goal is fidelity: a resort in the sim should match its real-world counterpart as closely as public geospatial data allows. Terrain, pistes, lifts, buildings and tree lines all come from real data, not hand-authored approximations.
+**ski-sim** is a 3D immersive simulation of real ski resorts. The goal is fidelity: a resort in the sim should match its real-world counterpart as closely as public geospatial data allows. Terrain, pistes, lifts, buildings and tree lines all come from real data, not hand-authored approximations.
 
 Status: **playable multi-valley map.** Val Thorens (France) renders from real lidar terrain, with basic lifts and buildings from OSM, fly mode, HUD, minimap and a bluebird sky. The long-term goal is the whole Three Valleys (Val Thorens, Les Menuires, Méribel, Courchevel). Grow extents and add resorts through config.
 
@@ -23,8 +23,8 @@ The project is built by Claude Code, so **everything must be operable from text 
 
 ```sh
 # Pipeline (run from pipeline/)
-uv run mountain-pipeline init <id> --name "Name" --country FR --bbox S,W,N,E   # or --ski-area "OSM name"
-uv run mountain-pipeline build <id>          # fetch sources (cached in data/raw), write data/processed/<id>
+uv run ski-sim init <id> --name "Name" --country FR --bbox S,W,N,E   # or --ski-area "OSM name"
+uv run ski-sim build <id>          # fetch sources (cached in data/raw), write data/processed/<id>
 uv run pytest                                # tests
 uv run ruff check . && uv run ruff format --check .
 
@@ -59,7 +59,7 @@ When something renders wrong, isolate it before guessing. Tinting each terrain l
 
 ## Adding a resort
 
-The whole pipeline is driven by `data/resorts/<id>/resort.json`, and only `id`, `name`, `country` and `bounds` (a lat/lon box) are required. `mountain-pipeline init` writes that file from a bbox, or from an OSM ski-area name (matches are clustered around the largest one, because names repeat worldwide). Everything else is derived in `config.load_resort`:
+The whole pipeline is driven by `data/resorts/<id>/resort.json`, and only `id`, `name`, `country` and `bounds` (a lat/lon box) are required. `ski-sim init` writes that file from a bbox, or from an OSM ski-area name (matches are clustered around the largest one, because names repeat worldwide). Everything else is derived in `config.load_resort`:
 - origin (bbox centre) and near extent, snapped to whole kilometres;
 - far extent (55 km margin);
 - terrain sources by country (FR: IGN LiDAR HD then RGE ALTI; elsewhere: Copernicus, so any resort builds);
@@ -69,7 +69,14 @@ The whole pipeline is driven by `data/resorts/<id>/resort.json`, and only `id`, 
 
 Lifts, stations, signs, buildings, pistes, peaks and sounds all come from OSM with no per-resort code. Optional overrides: `origin`, `spawn` (lat/lon/heading/altitude), `terrain.near/far`, `minimap`, `landmarks`. Then open `?resort=<id>`, or set `DEFAULT_RESORT` in `sim/src/config.ts`.
 
-Current resorts: `les-3-vallees` (default: Val Thorens, Orelle, Les Menuires, Saint-Martin, Méribel incl. Mont Vallon and the Olympe gondola, Courchevel; Pralognan excluded) and `val-thorens` (the original slice).
+Current resorts: `les-3-vallees` (Val Thorens, Orelle, Les Menuires, Saint-Martin, Méribel incl. Mont Vallon, Courchevel).
+
+### Main menu
+
+The overlay (`ui/main-menu.ts`) is the main menu and also the pause menu (it shows whenever the mouse is released).
+- **Ski area:** listed from `data/processed/resorts.json`, which the pipeline rewrites after every build. Choosing another area reloads with `?resort=`. The last area played is remembered.
+- **Start at:** the resort's `bases`, which the pipeline finds automatically (`bases.py`). A base is an OSM town or village with lift bottom stations within 700 m, ranked villages first. Each start point is placed 9–32 m from its main lift's bottom station, clear of buildings, facing up the lift, so the E prompt is live on arrival.
+- **"Where you left off" / "Continue where you are":** resumes the saved pose.
 
 Scaling notes for big areas (learned on the 3 Vallées):
 - Anything turned into a texture must stay under 8192 px a side. The terrain cell size auto-coarsens for this, and the lift-sign atlas is a square grid. The view tests fail on any console error, so they catch a GPU validation error.
@@ -90,7 +97,7 @@ Use the best available source for the region; fall back to global datasets.
 | Lift specs (capacity, speed, manufacturer, towers) | Lift-World (lift-world.info), remontees-mecaniques.net, resort websites | OSM `aerialway:*` tags |
 | Weather / snow | Open-Meteo, national weather services | — |
 
-**IGN gotcha:** fetch from the WMS-R service (`data.geopf.fr/wms-r`) using the native Lambert-93 layers in `pipeline/src/mountain_pipeline/sources/ign.py`. The generic `ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES` layer is nearest-neighbour resampled from a ~1.5" geographic grid. It returns runs of duplicated heights and produces visible stair-step artefacts.
+**IGN gotcha:** fetch from the WMS-R service (`data.geopf.fr/wms-r`) using the native Lambert-93 layers in `pipeline/src/ski_sim_pipeline/sources/ign.py`. The generic `ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES` layer is nearest-neighbour resampled from a ~1.5" geographic grid. It returns runs of duplicated heights and produces visible stair-step artefacts.
 
 Licensing matters. OSM is ODbL and needs attribution plus share-alike on derived databases. Check each dataset's terms before using it and record them in the provenance metadata. Never commit data whose license forbids redistribution.
 
@@ -111,7 +118,7 @@ data/
   raw/                Downloaded source data cache (git-ignored)
   processed/<resort>/ Pipeline outputs: manifest.json, terrain-*.bin, features.json, minimap.png (git-ignored)
   resorts/<resort>/   resort.json: origin, spawn, terrain extents/sources, landmarks (committed)
-pipeline/src/mountain_pipeline/
+pipeline/src/ski_sim_pipeline/
   build.py            Orchestrates a resort build
   sources/            One module per data provider (ign, copernicus, osm)
   features.py         Lifts (stations, towers, clearance-driven synthetic towers) and buildings

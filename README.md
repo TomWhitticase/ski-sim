@@ -1,4 +1,4 @@
-# mountain-map
+# ski-sim
 
 A 3D immersive simulation of real-world ski resorts, built from real geospatial data: lidar elevation models, aerial imagery, OpenStreetMap piste and lift data, buildings and vegetation. The aim is for each resort to match reality as closely as the available data allows.
 
@@ -10,13 +10,13 @@ Requires [uv](https://docs.astral.sh/uv/), Node 22+ and pnpm.
 
 ```sh
 # 1. Build the resort data (downloads ~1 GB of source data on first run)
-cd pipeline && uv run mountain-pipeline build les-3-vallees
+cd pipeline && uv run ski-sim build les-3-vallees
 
 # 2. Run the sim
 cd ../sim && pnpm install && pnpm dev
 ```
 
-Open http://localhost:5173 and click **Click to fly**. Your position is remembered across reloads.
+Open http://localhost:5173, pick a ski area and where to start, then **Start skiing**. Esc brings the menu back; your position is remembered across reloads.
 
 | Control | Action |
 |---|---|
@@ -41,11 +41,11 @@ Open http://localhost:5173 and click **Click to fly**. Your position is remember
 
 ```sh
 cd pipeline
-uv run mountain-pipeline init --name "Tignes" --country FR --ski-area "Tignes"   # or --bbox S,W,N,E
-uv run mountain-pipeline build tignes
+uv run ski-sim init --name "Tignes" --country FR --ski-area "Tignes"   # or --bbox S,W,N,E
+uv run ski-sim build tignes
 ```
 
-Then open http://localhost:5173/?resort=tignes. Terrain, lifts, signs, buildings, pistes and peaks are all generated from open data.
+It then appears in the main menu's ski-area list. Terrain, lifts, signs, buildings, pistes and peaks are all generated from open data.
 
 ## Data attribution
 
