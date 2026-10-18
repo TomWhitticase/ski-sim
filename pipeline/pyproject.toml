@@ -8,6 +8,7 @@ dependencies = [
     "pillow>=11",
     "pyproj>=3.7",
     "rasterio>=1.4",
+    "shapely>=2.2.0",
 ]
 
 [project.scripts]

@@ -10,16 +10,16 @@ from pathlib import Path
 import numpy as np
 from rasterio.warp import Resampling
 
-from . import minimap
+from . import features, minimap
 from .config import ResortConfig, load_resort
 from .export import write_heightmap
 from .frame import LocalFrame
 from .grid import Grid, reproject_into, sample_bilinear, stitch_far_to_near
-from .sources import copernicus, ign
+from .sources import copernicus, ign, osm
 
 log = logging.getLogger(__name__)
 
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
 LANDMARK_SEARCH_RADIUS = 30.0  # OSM summit nodes are often a few metres off the true top
 LANDMARK_TOLERANCE = 15.0
 
@@ -80,6 +80,37 @@ def build_near(
     return heights, grid, coverage
 
 
+def build_features(
+    cfg: ResortConfig, frame: LocalFrame, raw_dir: Path, near: np.ndarray, near_grid: Grid
+) -> dict:
+    """Lifts and buildings from OSM, placed on the near terrain."""
+    bounds = frame.bounds_in("EPSG:4326", near_grid.extent)
+    elements = osm.fetch_features(bounds, raw_dir)
+
+    def ground(east: np.ndarray, north: np.ndarray) -> np.ndarray:
+        return sample_bilinear(near, near_grid, east, north)
+
+    buildings, stations = features.extract_buildings(elements, frame, near_grid.extent, ground)
+    lifts = features.extract_lifts(elements, frame, near_grid.extent, ground, stations)
+
+    for lift in sorted(lifts, key=lambda lift: lift["name"] or ""):
+        kinds = [s["kind"] for s in lift["supports"]]
+        log.info(
+            "Lift %-28s %-11s %5.0f m long %+5.0f m  towers: %2d osm, %2d synthetic",
+            lift["name"] or f"<way {lift['id']}>",
+            lift["type"],
+            lift["length"],
+            lift["vertical"],
+            kinds.count("tower"),
+            kinds.count("synthetic-tower"),
+        )
+    estimated = sum(b["heightSource"] == "estimate" for b in buildings)
+    log.info(
+        "%d lifts, %d buildings (%d with estimated height)", len(lifts), len(buildings), estimated
+    )
+    return {"lifts": lifts, "buildings": buildings}
+
+
 def validate_landmarks(
     cfg: ResortConfig, frame: LocalFrame, heights: np.ndarray, grid: Grid
 ) -> list[dict]:
@@ -125,19 +156,23 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
 
     validation = validate_landmarks(cfg, frame, near, near_grid)
 
+    log.info("Building lifts and buildings (OpenStreetMap)")
+    feature_data = build_features(cfg, frame, raw_root, near, near_grid)
+
     log.info("Writing outputs to %s", out_dir)
+    (out_dir / "features.json").write_text(json.dumps(feature_data, separators=(",", ":")))
     near_meta = write_heightmap(out_dir / "terrain-near.bin", near, near_grid)
     far_meta = write_heightmap(out_dir / "terrain-far.bin", far, far_grid)
 
     factor = max(1, round(cfg.minimap.cell_size / near_grid.cell_size))
     mm_heights = minimap.downsample(near, factor)
-    minimap.render(mm_heights, near_grid.cell_size * factor, cfg.minimap.contour_interval).save(
-        out_dir / "minimap.png", optimize=True
-    )
     mm_cell = near_grid.cell_size * factor
     ext = near_grid.extent
     # Each minimap pixel covers a block of grid samples; its edges are half a sample out.
     half = near_grid.cell_size / 2
+    image = minimap.render(mm_heights, mm_cell, cfg.minimap.contour_interval)
+    minimap.draw_features(image, feature_data, ext.west - half, ext.north + half, mm_cell)
+    image.save(out_dir / "minimap.png", optimize=True)
     minimap_meta = {
         "file": "minimap.png",
         "extent": {
@@ -164,6 +199,11 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         },
         "terrain": {"near": near_meta, "far": far_meta},
         "minimap": minimap_meta,
+        "features": {
+            "file": "features.json",
+            "lifts": len(feature_data["lifts"]),
+            "buildings": len(feature_data["buildings"]),
+        },
         "validation": {"landmarks": validation, "nearCoverage": coverage},
         "provenance": [
             *(
@@ -181,6 +221,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
                 **copernicus.PROVENANCE,
                 "processedResolution": far_grid.cell_size,
             },
+            {"layer": "features", **osm.PROVENANCE},
         ],
     }
     path = out_dir / "manifest.json"

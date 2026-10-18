@@ -2,7 +2,7 @@
 
 A 3D immersive simulation of real-world ski resorts, built from real geospatial data: lidar elevation models, aerial imagery, OpenStreetMap piste and lift data, buildings and vegetation. The aim is for each resort to match reality as closely as the available data allows.
 
-**Status:** Val Thorens is flyable with real lidar terrain, a HUD, a minimap and a bluebird sky. See [CLAUDE.md](CLAUDE.md) for architecture, principles and data sources.
+**Status:** Val Thorens is flyable with real lidar terrain, basic lifts and buildings, a HUD, a minimap and a bluebird sky. See [CLAUDE.md](CLAUDE.md) for architecture, principles and data sources.
 
 ## Quick start
 
@@ -32,4 +32,4 @@ Open http://localhost:5173 and click **Click to fly**.
 
 - Terrain: IGN – LiDAR HD and RGE ALTI® (Licence Ouverte / Etalab 2.0)
 - © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved
-- Summit reference elevations: © OpenStreetMap contributors (ODbL)
+- Lifts, buildings and summit reference elevations: © OpenStreetMap contributors (ODbL)

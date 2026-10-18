@@ -24,8 +24,8 @@ class LocalFrame:
         self._to_local = Transformer.from_crs("EPSG:4326", self.crs, always_xy=True)
         self._to_lonlat = Transformer.from_crs(self.crs, "EPSG:4326", always_xy=True)
 
-    def to_local(self, lon: float, lat: float) -> tuple[float, float]:
-        """WGS84 lon/lat -> local (east, north) metres."""
+    def to_local(self, lon, lat):
+        """WGS84 lon/lat -> local (east, north) metres. Accepts scalars or numpy arrays."""
         return self._to_local.transform(lon, lat)
 
     def to_lonlat(self, east: float, north: float) -> tuple[float, float]:

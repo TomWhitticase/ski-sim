@@ -6,7 +6,7 @@ Guidance for Claude Code when working in this repository.
 
 **mountain-map** is a 3D immersive simulation of real ski resorts. The goal is fidelity: a resort in the sim should match its real-world counterpart as closely as public geospatial data allows. Terrain, pistes, lifts, buildings and tree lines all come from real data, not hand-authored approximations.
 
-Status: **first vertical slice.** Val Thorens (France) renders from real lidar terrain with fly mode, HUD, minimap and a bluebird sky. The long-term goal is the whole Three Valleys (Val Thorens, Les Menuires, Méribel, Courchevel). Grow extents and add resorts through config.
+Status: **first vertical slice.** Val Thorens (France) renders from real lidar terrain, with basic lifts and buildings from OSM, fly mode, HUD, minimap and a bluebird sky. The long-term goal is the whole Three Valleys (Val Thorens, Les Menuires, Méribel, Courchevel). Grow extents and add resorts through config.
 
 ## Tech stack
 
@@ -88,17 +88,19 @@ Licensing matters. OSM is ODbL and needs attribution plus share-alike on derived
 docs/decisions/       ADRs
 data/
   raw/                Downloaded source data cache (git-ignored)
-  processed/<resort>/ Pipeline outputs: manifest.json, terrain-near.bin, terrain-far.bin, minimap.png (git-ignored)
+  processed/<resort>/ Pipeline outputs: manifest.json, terrain-*.bin, features.json, minimap.png (git-ignored)
   resorts/<resort>/   resort.json: origin, spawn, terrain extents/sources, landmarks (committed)
 pipeline/src/mountain_pipeline/
   build.py            Orchestrates a resort build
-  sources/            One module per data provider (ign, copernicus)
+  sources/            One module per data provider (ign, copernicus, osm)
+  features.py         Lifts (stations, towers, clearance-driven synthetic towers) and buildings
   frame.py, grid.py   Local projection; grid resampling, sampling and near/far stitching
   export.py, minimap.py
 sim/src/
   main.ts             Bootstrap and frame loop
   config.ts           Sim-wide tunables (time of day, fly speeds, LOD, minimap zoom)
   terrain/            Chunked LOD terrain, normal-map texture, TSL snow/rock material
+  features/           Lifts (instanced towers/arms/cables/stations) and extruded buildings
   env/                Sky, sun position, lights, cascaded shadows, fog
   controls/           Minecraft-style fly controls
   ui/                 HUD and minimap
@@ -112,9 +114,17 @@ There are two layers. **Near** is lidar at 4 m covering the ski area. **Far** is
 - The pipeline overwrites far samples inside the near extent with near data so the two surfaces agree.
 - Each layer is split into chunks whose LOD is chosen by camera distance. Lighting comes from a full-resolution normal texture, so coarse LODs still shade with 4 m detail.
 
+### Lifts and buildings
+
+Both come from OSM through Overpass (`sources/osm.py`). The response is cached under `data/raw/osm/`; delete the cache to refresh.
+- **Lifts:** stations sit at the way's ends and intermediate nodes become towers. `features.place_supports` adds `synthetic-tower`s wherever the straight cable would drop below the type's minimum clearance or a span is too long. Per-type dimensions live in `LIFT_PROFILES`.
+- **Buildings:** OSM height tags are used when present; otherwise height is estimated from footprint area (`heightSource: "estimate"`, about 98% of Val Thorens). Ruins and roofs are skipped. Lift-station footprints replace the sim's placeholder station boxes.
+- Lifts that leave the near terrain extent are skipped (logged), e.g. links into neighbouring valleys.
+
 Known limits:
 - 4 m data looks soft at ground level. Skiing will need finer tiles streamed near the camera.
 - There's no texture/imagery drape yet. Snow vs rock is decided by slope.
+- Lifts are static: no chairs or cabins. Cables are straight with no sag. Building roofs are flat, and multipolygon buildings (courtyards) are skipped.
 
 Large binaries (DEMs, imagery, meshes) are never committed directly. Generate them through the pipeline. If shared assets ever have to live in the repo, use Git LFS.
 

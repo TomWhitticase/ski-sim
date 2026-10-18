@@ -37,10 +37,11 @@ export interface ResortManifest {
   spawn: { east: number; north: number; altitude: number; heading: number };
   terrain: { near: HeightmapMeta; far: HeightmapMeta };
   minimap: { file: string; extent: Extent };
+  features: { file: string; lifts: number; buildings: number };
   provenance: Provenance[];
 }
 
-const SUPPORTED_VERSION = 1;
+const SUPPORTED_VERSION = 2;
 
 export function resortUrl(resortId: string, file: string): string {
   return `/${resortId}/${file}`;
@@ -56,7 +57,10 @@ export async function loadManifest(resortId: string): Promise<ResortManifest> {
   }
   const manifest = (await res.json()) as ResortManifest;
   if (manifest.version !== SUPPORTED_VERSION) {
-    throw new Error(`Manifest version ${manifest.version} unsupported; rebuild with the pipeline`);
+    throw new Error(
+      `Manifest version ${manifest.version} unsupported (expected ${SUPPORTED_VERSION}). ` +
+        `Rebuild: cd pipeline && uv run mountain-pipeline build ${resortId}`,
+    );
   }
   return manifest;
 }

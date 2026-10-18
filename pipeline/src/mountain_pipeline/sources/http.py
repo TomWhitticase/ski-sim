@@ -18,14 +18,21 @@ class NotFound(Exception):
 
 
 def download(
-    url: str, dest: Path, expect_content_type: str | None = None, retries: int = 4
+    url: str,
+    dest: Path,
+    expect_content_type: str | None = None,
+    retries: int = 4,
+    data: bytes | None = None,
 ) -> Path:
-    """Download `url` to `dest` unless it is already cached. Raises NotFound on HTTP 404."""
+    """Download `url` to `dest` unless it is already cached. Raises NotFound on HTTP 404.
+
+    Passing `data` sends a form-encoded POST instead of a GET.
+    """
     if dest.exists():
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    request = urllib.request.Request(url, data=data, headers={"User-Agent": USER_AGENT})
 
     for attempt in range(retries):
         try:

@@ -1,9 +1,9 @@
-"""Renders the minimap base image: winter-tinted hillshade with contour lines."""
+"""Renders the minimap: winter-tinted hillshade, contour lines, buildings and lifts."""
 
 from __future__ import annotations
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 SNOW = np.array([246, 249, 252], dtype=np.float32)
 SNOW_SHADOW = np.array([150, 170, 200], dtype=np.float32)
@@ -51,3 +51,25 @@ def render(
     color = color * (1 - strength) + CONTOUR * strength
 
     return Image.fromarray(np.clip(color, 0, 255).astype(np.uint8), mode="RGB")
+
+
+BUILDING = (112, 104, 100)
+LIFT = (35, 35, 40)
+
+
+def draw_features(
+    image: Image.Image, features: dict, west: float, north: float, cell_size: float
+) -> None:
+    """Overlay building footprints and lift lines. (west, north) is the image's top-left."""
+    draw = ImageDraw.Draw(image)
+
+    def px(east: float, n: float) -> tuple[float, float]:
+        return (east - west) / cell_size, (north - n) / cell_size
+
+    for building in features["buildings"]:
+        draw.polygon([px(e, n) for e, n in building["footprint"]], fill=BUILDING)
+    for lift in features["lifts"]:
+        points = [px(s["east"], s["north"]) for s in lift["supports"]]
+        draw.line(points, fill=LIFT, width=2)
+        for x, y in (points[0], points[-1]):
+            draw.ellipse((x - 3, y - 3, x + 3, y + 3), fill=LIFT)

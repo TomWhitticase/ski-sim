@@ -3,6 +3,9 @@ import { ACESFilmicToneMapping, PerspectiveCamera, Scene, WebGPURenderer } from 
 import { CAMERA, DEFAULT_RESORT, SIM_TIME, TERRAIN } from './config';
 import { FlyControls } from './controls/fly-controls';
 import { Environment } from './env/environment';
+import { createBuildings } from './features/buildings';
+import { createLifts } from './features/lifts';
+import type { ResortFeatures } from './features/types';
 import { Heightmap } from './geo/heightmap';
 import { LocalFrame, worldToEnu } from './geo/local-frame';
 import { type HeightmapMeta, loadManifest, resortUrl } from './resort/manifest';
@@ -28,6 +31,12 @@ async function loadHeightmap(resortId: string, meta: HeightmapMeta): Promise<Hei
   return Heightmap.decode(await res.arrayBuffer(), meta);
 }
 
+async function loadFeatures(resortId: string, file: string): Promise<ResortFeatures> {
+  const res = await fetch(resortUrl(resortId, file));
+  if (!res.ok) throw new Error(`Failed to load ${file} (HTTP ${res.status})`);
+  return (await res.json()) as ResortFeatures;
+}
+
 async function main(): Promise<void> {
   const params = new URLSearchParams(location.search);
   const resortId = params.get('resort') ?? DEFAULT_RESORT;
@@ -39,9 +48,10 @@ async function main(): Promise<void> {
     'Terrain: ' + manifest.provenance.map((p) => p.attribution).join(' · ');
 
   status.textContent = 'Loading terrain…';
-  const [near, far] = await Promise.all([
+  const [near, far, features] = await Promise.all([
     loadHeightmap(resortId, manifest.terrain.near),
     loadHeightmap(resortId, manifest.terrain.far),
+    loadFeatures(resortId, manifest.features.file),
   ]);
   const frame = new LocalFrame(manifest.projection);
   const groundHeight = (x: number, z: number) => {
@@ -79,7 +89,12 @@ async function main(): Promise<void> {
     createTerrainMaterial(far, createNormalTexture(far), near.extent),
     { ...TERRAIN.far, skip: near.extent },
   );
-  scene.add(nearTerrain.object, farTerrain.object);
+  scene.add(
+    nearTerrain.object,
+    farTerrain.object,
+    createLifts(features.lifts),
+    createBuildings(features.buildings),
+  );
 
   const farExtent = far.extent;
   const controls = new FlyControls(camera, canvas, groundHeight, {
