@@ -159,7 +159,7 @@ async function main(): Promise<void> {
   let lastSaved: Pose | null = null;
   const currentPose = (): Pose => {
     // In ski mode, track the skier rather than a chase camera behind them.
-    const at = mode === 'ski' ? ski.feet : camera.position;
+    const at = mode === 'ski' ? ski.feet : fly.position;
     const { east, north } = worldToEnu(at.x, at.z);
     return {
       east,
@@ -258,6 +258,16 @@ async function main(): Promise<void> {
     },
     () => closeMap(false),
   );
+  let view: 'first-person' | 'chase' =
+    localStorage.getItem(VIEW_KEY) === 'chase' ? 'chase' : 'first-person';
+  const setView = (next: typeof view) => {
+    view = next;
+    fly.view = view;
+    ski.setView(view);
+    document.body.classList.toggle('chase', view === 'chase');
+    localStorage.setItem(VIEW_KEY, view);
+  };
+  setView(view);
   const setMode = (next: Mode) => {
     const pose = currentPose();
     mode = next;
@@ -314,8 +324,8 @@ async function main(): Promise<void> {
       closeMap(false);
     } else if (e.code === 'KeyF' && !e.repeat && !worldMap.isOpen) {
       setMode(mode === 'ski' ? 'fly' : 'ski');
-    } else if (e.code === 'KeyV' && !e.repeat && mode === 'ski') {
-      ski.toggleView();
+    } else if (e.code === 'KeyV' && !e.repeat) {
+      setView(view === 'first-person' ? 'chase' : 'first-person');
     } else if (e.code === 'F3') {
       e.preventDefault();
       debug.hidden = !debug.hidden;
@@ -338,9 +348,9 @@ async function main(): Promise<void> {
   // Dev-only handles for profiling scripts and debugging from the console.
   if (import.meta.env.DEV) Object.assign(sim, { scene, renderer, camera, labels, minimap });
   let last = performance.now();
-  let lastX = camera.position.x;
-  let lastY = camera.position.y;
-  let lastZ = camera.position.z;
+  let lastX = fly.position.x;
+  let lastY = fly.position.y;
+  let lastZ = fly.position.z;
   let speed = 0;
   let fps = 60;
 
@@ -357,8 +367,14 @@ async function main(): Promise<void> {
     if (worldMap.isOpen) return;
 
     controls().update(dt, input);
+    if (mode === 'fly') {
+      // Third-person flying shows your skier hovering where you are.
+      if (view === 'chase') ski.showFlying(fly.position, fly.look.yaw);
+      else ski.skier.visible = false;
+    }
     input.endFrame();
-    const pos = camera.position;
+    // Your position (fly eye or skier's feet), not the camera, which may be behind you.
+    const pos = mode === 'ski' ? ski.feet : fly.position;
     if (speedReset) {
       speed = 0;
       speedReset = false;
@@ -382,7 +398,7 @@ async function main(): Promise<void> {
     }
     renderer.render(scene, camera);
 
-    const here = mode === 'ski' ? ski.feet : pos;
+    const here = pos;
     const { east, north } = worldToEnu(here.x, here.z);
     const { lat, lon } = frame.toLatLon(east, north);
     hud.update({ altitude: here.y, lat, lon, speed: mode === 'ski' ? ski.speed : speed });
@@ -441,6 +457,7 @@ function poseFromUrl(params: URLSearchParams, frame: LocalFrame, spawn: Pose): P
 
 type Mode = 'fly' | 'ski';
 const MODE_KEY = 'mountain-map.mode';
+const VIEW_KEY = 'mountain-map.view';
 
 function loadMode(): Mode {
   return localStorage.getItem(MODE_KEY) === 'ski' ? 'ski' : 'fly';

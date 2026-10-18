@@ -22,7 +22,12 @@ const REALIGN_RATE = 6;
 const MAX_TWIST = (110 * Math.PI) / 180;
 const CHASE_DISTANCE = 4.5;
 const UP = new Vector3(0, 1, 0);
+/** Largest acceleration the body leans against (m/s²); filters landing spikes. */
+const MAX_BALANCE_ACCEL = 1.3 * SKI.gravity;
+/** How quickly the body's balance follows changes in acceleration (1/s). */
+const BALANCE_RATE = 6;
 const ZERO = new Vector3();
+const FLYING_STANCE = initialStance();
 
 export type SkiCamera = 'first-person' | 'chase';
 
@@ -54,6 +59,12 @@ export class SkiControls {
   private travelYaw = 0;
   /** Direction the skis point (Look.yaw convention); can differ from the view while S is held. */
   private skiYaw = 0;
+  private readonly prevVelocity = new Vector3();
+  /** Smoothed acceleration of the skier (m/s², world). */
+  private readonly accel = new Vector3();
+  /** Direction the body balances along, in the skier's slope-aligned frame. */
+  private readonly bodyUp = new Vector3(0, 1, 0);
+  private readonly inverse = new Quaternion();
 
   constructor(
     private readonly camera: PerspectiveCamera,
@@ -105,6 +116,8 @@ export class SkiControls {
     this.look.pitchDegrees = Math.min(pose.pitch, 10);
     this.skiYaw = this.look.yaw;
     this.state.yaw = this.skiYaw;
+    this.prevVelocity.copy(this.state.velocity);
+    this.accel.set(0, 0, 0);
     this.updateCamera();
   }
 
@@ -113,9 +126,18 @@ export class SkiControls {
     this.applyView();
   }
 
-  toggleView(): void {
-    this.view = this.view === 'first-person' ? 'chase' : 'first-person';
+  setView(view: SkiCamera): void {
+    this.view = view;
     this.applyView();
+  }
+
+  /** Show the skier hovering upright at a fly-mode eye position (third-person flying). */
+  showFlying(eye: Vector3, yaw: number): void {
+    this.skier.visible = true;
+    this.model.setFirstPerson(false);
+    this.skier.position.set(eye.x, eye.y - EYE_HEIGHT, eye.z);
+    this.skier.quaternion.setFromAxisAngle(UP, yaw);
+    this.model.apply(FLYING_STANCE, UP);
   }
 
   /** First person shows only your skis and boots below you; chase shows the whole skier. */
@@ -171,6 +193,30 @@ export class SkiControls {
     }
     // Sideways slide relative to the skis (m/s, > 0 = sliding toward the skis' right).
     const sideslip = v.x * Math.cos(this.skiYaw) - v.z * Math.sin(this.skiYaw);
+
+    // Balance: the body lines up with the force the snow pushes back with, which is
+    // gravity plus the acceleration. Standing on a side slope you stay vertical (so you
+    // tilt uphill relative to the snow); carving you lean into the turn; in a hockey
+    // stop you lean back against the mountain. In the air there's nothing to push on.
+    if (dt > 0) {
+      const raw = this.state.airborne
+        ? ZERO
+        : this.prevVelocity
+            .sub(v)
+            .multiplyScalar(-1 / dt)
+            .clampLength(0, MAX_BALANCE_ACCEL);
+      this.accel.lerp(raw, 1 - Math.exp(-BALANCE_RATE * dt));
+    }
+    this.prevVelocity.copy(v);
+    this.orient();
+    this.inverse.copy(this.skier.quaternion).invert();
+    this.bodyUp
+      .set(this.accel.x, this.accel.y + SKI.gravity, this.accel.z)
+      .normalize()
+      .applyQuaternion(this.inverse);
+    // Edge angle: how far the balance line tips across the skis from the slope normal.
+    const balanceEdge = Math.atan2(-this.bodyUp.x, this.bodyUp.y);
+
     updateStance(
       this.stance,
       {
@@ -178,6 +224,7 @@ export class SkiControls {
         sideslip,
         twist: wrapAngle(this.look.yaw - this.skiYaw),
         turnRate: this.turnRate,
+        balanceEdge,
         plough,
         skate: skate && speed < SKATE_ANIM_MAX,
         tuck,
@@ -212,13 +259,18 @@ export class SkiControls {
       this.camera.lookAt(p.x, p.y + 1.0, p.z);
     }
 
-    // Stand on the slope, facing the skis.
+    this.orient();
+    this.model.apply(this.stance, this.bodyUp);
+  }
+
+  /** Skis flat on the slope, pointing where the skis point. */
+  private orient(): void {
+    const p = this.state.position;
     surfaceNormal(this.terrain, p.x, p.z, this.normal);
     this.q.setFromUnitVectors(UP, this.normal);
     this.qYaw.setFromAxisAngle(UP, this.skiYaw);
     this.skier.position.copy(p);
     this.skier.quaternion.copy(this.q).multiply(this.qYaw);
-    this.model.apply(this.stance);
   }
 }
 

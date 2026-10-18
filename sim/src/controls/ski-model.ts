@@ -333,6 +333,7 @@ export class SkierModel {
       });
     }
     this.figure.name = 'body';
+    this.chest.name = 'chest';
     this.root.add(this.figure);
 
     // Poles hang from the hands (gloves on the grips); their pivot is the grip.
@@ -352,7 +353,8 @@ export class SkierModel {
     this.figure.visible = !firstPerson;
   }
 
-  apply(stance: Stance): void {
+  /** `up`: the direction the body balances along, in the skier's (slope-aligned) frame. */
+  apply(stance: Stance, up: Vector3 = Y_AXIS): void {
     const place = (rig: SkiRig, pose: SkiPose) => {
       // Rolling about the centreline would sink one edge into the snow; rest it on top.
       const edgeLift = Math.abs(Math.sin(pose.roll)) * 0.06;
@@ -369,20 +371,22 @@ export class SkierModel {
     );
     const c = stance.crouch;
     const feet = ankles[0]!.clone().add(ankles[1]!).multiplyScalar(0.5);
-    // Pelvis: drops and sits back as you crouch, and swings inside on a lean.
+    // The body stands along `up` (its balance line, which needn't be the slope normal),
+    // dropping and sitting back as you crouch.
+    const align = new Quaternion().setFromUnitVectors(Y_AXIS, up);
     const hipHeight = (THIGH + SHIN) * (0.95 - 0.36 * c);
-    const pelvis = new Vector3(
-      feet.x - Math.sin(stance.lean) * hipHeight,
-      feet.y + Math.cos(stance.lean) * hipHeight,
-      feet.z + 0.04 + 0.16 * c,
-    );
+    const pelvis = new Vector3(0, hipHeight, 0.04 + 0.16 * c).applyQuaternion(align).add(feet);
     this.chest.position.copy(pelvis);
-    this.chest.rotation.set(-(0.12 + 0.85 * c), stance.twist, stance.lean * 0.35, 'YXZ');
+    this.chest.quaternion
+      .copy(align)
+      .multiply(
+        new Quaternion().setFromEuler(new Euler(-(0.12 + 0.85 * c), stance.twist, 0, 'YXZ')),
+      );
     this.chest.updateMatrix();
 
-    const pelvisTurn = new Quaternion().setFromEuler(
-      new Euler(0, stance.twist * 0.35, stance.lean, 'YXZ'),
-    );
+    const pelvisTurn = align
+      .clone()
+      .multiply(new Quaternion().setFromEuler(new Euler(0, stance.twist * 0.35, 0)));
     this.limbs.forEach((limb, i) => {
       const side = i === 0 ? -1 : 1;
       // Legs: hip to ankle with the knee bending forward.

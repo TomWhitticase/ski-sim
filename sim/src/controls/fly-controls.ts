@@ -4,6 +4,8 @@ import { FLY } from '../config';
 import type { Pose } from '../nav/pose';
 import { type Input, Look } from './input';
 
+const CHASE_DISTANCE = 4.5;
+
 export interface Bounds {
   minX: number;
   maxX: number;
@@ -22,6 +24,9 @@ export class FlyControls {
   speed = FLY.speed;
   sprinting = false;
 
+  /** Where you are (eye position); the camera sits here in first person. */
+  readonly position = new Vector3();
+  view: 'first-person' | 'chase' = 'first-person';
   private readonly velocity = new Vector3();
   private readonly target = new Vector3();
   private readonly euler = new Euler(0, 0, 0, 'YXZ');
@@ -47,7 +52,7 @@ export class FlyControls {
 
   /** Put the camera at a pose with no momentum. */
   place(pose: Pose): void {
-    this.camera.position.set(pose.east, pose.altitude, -pose.north);
+    this.position.set(pose.east, pose.altitude, -pose.north);
     this.look.heading = pose.heading;
     this.look.pitchDegrees = pose.pitch;
     this.velocity.set(0, 0, 0);
@@ -80,7 +85,7 @@ export class FlyControls {
     this.target.multiplyScalar(this.speed * (this.sprinting ? FLY.sprintMultiplier : 1));
 
     this.velocity.lerp(this.target, 1 - Math.exp(-FLY.responsiveness * dt));
-    const pos = this.camera.position;
+    const pos = this.position;
     pos.addScaledVector(this.velocity, dt);
 
     pos.x = Math.min(Math.max(pos.x, this.bounds.minX), this.bounds.maxX);
@@ -90,10 +95,30 @@ export class FlyControls {
       pos.y = floor;
       if (this.velocity.y < 0) this.velocity.y = 0;
     }
+    this.applyRotation();
   }
 
   private applyRotation(): void {
-    this.euler.set(this.look.pitch, this.look.yaw, 0);
-    this.camera.quaternion.setFromEuler(this.euler);
+    const cam = this.camera;
+    if (this.view === 'first-person') {
+      cam.position.copy(this.position);
+      this.euler.set(this.look.pitch, this.look.yaw, 0);
+      cam.quaternion.setFromEuler(this.euler);
+      return;
+    }
+    // Orbit behind and above you; looking down raises the camera.
+    const elevation = 0.25 - this.look.pitch;
+    const back = CHASE_DISTANCE * Math.cos(elevation);
+    const p = this.position;
+    cam.position.set(
+      p.x + Math.sin(this.look.yaw) * back,
+      p.y - 0.5 + CHASE_DISTANCE * Math.sin(elevation),
+      p.z + Math.cos(this.look.yaw) * back,
+    );
+    cam.position.y = Math.max(
+      cam.position.y,
+      this.groundHeight(cam.position.x, cam.position.z) + 1,
+    );
+    cam.lookAt(p.x, p.y - 0.5, p.z);
   }
 }

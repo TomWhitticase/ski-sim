@@ -26,7 +26,7 @@ test('teleporting to a piste puts you at its top, and the HUD names the run', as
   await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
   await page.keyboard.press('KeyF');
   await page.keyboard.down('KeyW');
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(2500); // the top is nearly flat: skate over the crest
   await page.keyboard.up('KeyW');
   await page.waitForTimeout(3000);
   await expect(run(page)).not.toHaveText('Off-piste');

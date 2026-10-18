@@ -42,6 +42,12 @@ export interface StanceInput {
   sideslip?: number;
   /** Where the upper body faces relative to the skis (rad). */
   twist?: number;
+  /**
+   * Edge angle from the body's balance (rad, > 0 = on the left edges): the angle, about
+   * the skis, between the slope normal and the direction the skier balances along.
+   * When given, it replaces the estimate from turn rate and sideslip.
+   */
+  balanceEdge?: number;
   plough: boolean;
   skate: boolean;
   tuck: boolean;
@@ -85,9 +91,8 @@ export function carveEdgeAngle(speed: number, turnRate: number): number {
 export function targetStance(input: StanceInput, skatePhase: number): Omit<Stance, 'skatePhase'> {
   // Skidding sideways, the skis bite on the edge facing the slide (a hockey stop).
   const skid = Math.max(-0.75, Math.min(0.75, -(input.sideslip ?? 0) * 0.12));
-  const edge = input.airborne
-    ? 0
-    : Math.max(-MAX_EDGE, Math.min(MAX_EDGE, carveEdgeAngle(input.speed, input.turnRate) + skid));
+  const raw = input.balanceEdge ?? carveEdgeAngle(input.speed, input.turnRate) + skid;
+  const edge = input.airborne ? 0 : Math.max(-MAX_EDGE, Math.min(MAX_EDGE, raw));
   // Inside ski leads a little in a carve and the stance widens with edge angle.
   const lead = Math.abs(edge) * 0.12 * Math.sign(edge);
   const width = STANCE_WIDTH + Math.abs(edge) * 0.08;

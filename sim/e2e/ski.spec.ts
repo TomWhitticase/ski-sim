@@ -170,3 +170,31 @@ test('S + A swings the skis sideways for a hockey stop while you keep facing dow
   expect(Math.abs((await camYaw()) - facing)).toBeLessThan(0.3);
   await page.keyboard.up('KeyS');
 });
+
+test('standing across a side slope, the body stays upright against gravity', async ({ page }) => {
+  // Same 21° slope, facing across it (fall line ~27°, so 117° is a traverse).
+  await start(page, 'at=45.2830,6.5760,2575&heading=117&pitch=-10');
+  await page.keyboard.press('KeyF');
+  await page.keyboard.press('KeyV');
+  await page.keyboard.down('Shift'); // hold still
+  await page.waitForTimeout(1500);
+  const tilt = await page.evaluate(() => {
+    const scene = (window.__sim as unknown as { scene: import('three').Scene }).scene;
+    const up = (name: string) => {
+      const o = scene.getObjectByName(name)!;
+      const q = o.getWorldQuaternion(
+        new (o.quaternion.constructor as typeof import('three').Quaternion)(),
+      );
+      // Side-to-side tilt: how far the left-right axis is from horizontal.
+      const x = new (o.position.constructor as typeof import('three').Vector3)(1, 0, 0);
+      x.applyQuaternion(q);
+      return (Math.asin(Math.min(1, Math.abs(x.y))) * 180) / Math.PI;
+    };
+    // 'body' sits in the skier's slope-aligned frame.
+    return { slope: up('body'), chest: up('chest') };
+  });
+  await page.screenshot({ path: 'test-results/views/ski-traverse-balance.png' });
+  await page.keyboard.up('Shift');
+  expect(tilt.slope).toBeGreaterThan(12); // the snow tips sideways under you
+  expect(tilt.chest).toBeLessThan(5); // shoulders stay ~level: balanced on gravity
+});

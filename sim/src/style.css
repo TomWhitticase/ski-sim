@@ -224,6 +224,7 @@ body.flying #crosshair {
 }
 
 body.skiing #crosshair,
+body.chase #crosshair,
 body:not(.skiing) .hud-ski-only {
   display: none;
 }

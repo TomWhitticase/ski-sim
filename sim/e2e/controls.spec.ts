@@ -129,3 +129,37 @@ test('L and P toggle lift and peak names, and the choice persists', async ({ pag
   await expect(toggle('peak')).toHaveText('OFF');
   expect(await shown('lift')).toBe(0);
 });
+
+test('V switches fly mode to third person and back', async ({ page }) => {
+  await startFlying(page, 'at=45.2981,6.5803,2800&heading=0&pitch=0');
+  const state = () =>
+    page.evaluate(() => {
+      const sim = window.__sim as unknown as {
+        scene: import('three').Scene;
+        camera: import('three').Camera;
+      };
+      return {
+        skier: sim.scene.getObjectByName('body')!.parent!.visible,
+        cameraZ: sim.camera.position.z,
+      };
+    });
+  const firstPerson = await state();
+  expect(firstPerson.skier).toBe(false);
+
+  await page.keyboard.press('KeyV');
+  await page.waitForTimeout(200);
+  const chase = await state();
+  expect(chase.skier).toBe(true);
+  // Facing north (-z), the camera sits a few metres behind (south, +z).
+  expect(chase.cameraZ - firstPerson.cameraZ).toBeGreaterThan(2);
+  await page.screenshot({ path: 'test-results/views/fly-third-person.png' });
+
+  // Flying still moves you, with the camera following.
+  const before = await hud(page);
+  await hold(page, 'KeyW', 800);
+  expect((await hud(page)).lat).toBeGreaterThan(before.lat);
+
+  await page.keyboard.press('KeyV');
+  await page.waitForTimeout(200);
+  expect((await state()).skier).toBe(false);
+});

@@ -41,7 +41,7 @@ export class Hud {
         <div class="hud-toggle" data-toggle="pistes"><kbd>O</kbd> Piste colours <b></b></div>
         <div class="hud-toggle"><kbd>M</kbd> Map &amp; teleport</div>
         <div class="hud-toggle"><kbd>F</kbd> Fly / ski</div>
-        <div class="hud-toggle hud-ski-only"><kbd>V</kbd> Camera</div>
+        <div class="hud-toggle"><kbd>V</kbd> Camera</div>
       </div>
     `;
     const field = (name: keyof HudState) =>
