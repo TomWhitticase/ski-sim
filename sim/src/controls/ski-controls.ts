@@ -29,6 +29,8 @@ const MAX_BALANCE_ACCEL = 1.3 * SKI.gravity;
 const BALANCE_RATE = 6;
 const ZERO = new Vector3();
 const FLYING_STANCE = initialStance();
+/** In fly mode your character is shown see-through. */
+const FLYING_OPACITY = 0.45;
 
 export type SkiCamera = 'first-person' | 'chase';
 
@@ -132,7 +134,7 @@ export class SkiControls {
 
   setActive(active: boolean): void {
     this.skier.visible = active;
-    this.model.setSkisVisible(true);
+    this.model.setOpacity(1);
     this.applyView();
   }
 
@@ -152,7 +154,7 @@ export class SkiControls {
   showFlying(eye: Vector3, yaw: number): void {
     this.skier.visible = true;
     this.model.setFirstPerson(false);
-    this.model.setSkisVisible(false);
+    this.model.setOpacity(FLYING_OPACITY);
     this.skier.position.set(eye.x, eye.y - EYE_HEIGHT, eye.z);
     this.skier.quaternion.setFromAxisAngle(UP, yaw);
     this.model.apply(FLYING_STANCE, UP);

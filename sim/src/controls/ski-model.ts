@@ -145,6 +145,7 @@ interface SkiRig {
  */
 export class SkierModel {
   readonly root = new Group();
+  private opacity = 1;
   private readonly figure = new Group();
   private readonly chest = new Group();
   private readonly poles: Group[] = [];
@@ -348,7 +349,25 @@ export class SkierModel {
     }
   }
 
-  /** Skis, bindings and boots (hidden when you're just flying around). */
+  /** Whole character's opacity (1 = solid). Used to show a "ghost" skier while flying. */
+  setOpacity(opacity: number): void {
+    if (opacity === this.opacity) return;
+    this.opacity = opacity;
+    const seen = new Set<MeshStandardNodeMaterial>();
+    this.root.traverse((o) => {
+      const material = (o as Mesh).material as MeshStandardNodeMaterial | undefined;
+      if (!material || seen.has(material)) return;
+      seen.add(material);
+      material.transparent = opacity < 1;
+      material.opacity = opacity;
+      material.needsUpdate = true;
+    });
+    this.root.traverse((o) => {
+      if ((o as Mesh).isMesh) o.castShadow = opacity >= 1;
+    });
+  }
+
+  /** Skis, bindings and boots. */
   setSkisVisible(visible: boolean): void {
     this.skis.left.group.visible = visible;
     this.skis.right.group.visible = visible;
