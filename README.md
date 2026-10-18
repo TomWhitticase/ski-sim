@@ -28,7 +28,7 @@ Open http://localhost:5173 and click **Click to fly**. Your position is remember
 | L / P | Toggle lift / peak names |
 | M | Map: search pistes/lifts/peaks, click to teleport |
 | O | Piste colours on the snow |
-| **Ski mode** | Mouse or A/D steer · W tuck (skate when slow) · S snowplough · Space jump · V camera |
+| **Ski mode** | Mouse or A/D steer · W skate · Ctrl tuck · Shift snowplough · Space jump · V camera |
 | Scroll | Fly speed |
 | - / = | Minimap zoom |
 | F3 | Debug info |

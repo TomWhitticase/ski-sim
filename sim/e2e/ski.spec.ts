@@ -50,9 +50,9 @@ test('F switches to ski mode in mid-air: you fall, land and ski on', async ({ pa
   await page.screenshot({ path: 'test-results/views/ski-chase.png' });
 
   // Snowplough to a stop.
-  await page.keyboard.down('KeyS');
+  await page.keyboard.down('Shift');
   await page.waitForTimeout(6000);
-  await page.keyboard.up('KeyS');
+  await page.keyboard.up('Shift');
   // (S brakes; on a 21° slope you may not fully stop, but you slow right down)
   expect(await hudNumber(page, 'speed')).toBeLessThan(speed);
 
@@ -77,7 +77,7 @@ test('looking down in first person shows your skis', async ({ page }) => {
   await page.evaluate(() =>
     document.dispatchEvent(new MouseEvent('mousemove', { movementY: 300 } as MouseEventInit)),
   );
-  await page.keyboard.down('KeyS'); // snowplough so we stay put for the shot
+  await page.keyboard.down('Shift'); // snowplough so we stay put for the shot
   await page.waitForTimeout(600);
   const visible = await page.evaluate(() => {
     const scene = (window.__sim as unknown as { scene: import('three').Scene }).scene;
@@ -89,9 +89,51 @@ test('looking down in first person shows your skis', async ({ page }) => {
       }
       return true;
     };
-    return { kit: seen('kit'), body: seen('body') };
+    return { skis: seen('ski-left') && seen('ski-right'), body: seen('body') };
   });
-  expect(visible).toEqual({ kit: true, body: false });
+  expect(visible).toEqual({ skis: true, body: false });
   await page.screenshot({ path: 'test-results/views/ski-look-down.png' });
-  await page.keyboard.up('KeyS');
+  await page.keyboard.up('Shift');
+});
+
+// A frozen lake: under 15 cm of height change across 100 m (ground ~2415.5 m).
+const FLAT = 'at=45.28856,6.5752,2417.2&heading=90&pitch=-20';
+
+test('W skates you up to speed on the flat; Ctrl tucks; Shift ploughs', async ({ page }) => {
+  await start(page, FLAT);
+  await page.keyboard.press('KeyF');
+  await page.waitForTimeout(500);
+  expect(await hudNumber(page, 'speed')).toBeLessThan(3);
+
+  await page.keyboard.down('KeyW');
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: 'test-results/views/ski-skate-fp.png' });
+  await page.keyboard.press('KeyV');
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: 'test-results/views/ski-skate-chase.png' });
+  await page.keyboard.up('KeyW');
+  expect(await hudNumber(page, 'speed')).toBeGreaterThan(10); // skated to ~20 km/h
+
+  await page.keyboard.down('Shift');
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: 'test-results/views/ski-plough-chase.png' });
+  await page.waitForTimeout(2500);
+  expect(await hudNumber(page, 'speed')).toBeLessThan(4);
+  await page.keyboard.up('Shift');
+
+  await page.keyboard.down('Control');
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: 'test-results/views/ski-tuck-chase.png' });
+  await page.keyboard.up('Control');
+});
+
+test('carving tilts the skis onto their edges', async ({ page }) => {
+  await start(page, SLOPE);
+  await page.keyboard.press('KeyF');
+  await page.keyboard.press('KeyV');
+  await page.waitForTimeout(3500); // build up speed
+  await page.keyboard.down('KeyA');
+  await page.waitForTimeout(450);
+  await page.screenshot({ path: 'test-results/views/ski-carve-chase.png' });
+  await page.keyboard.up('KeyA');
 });

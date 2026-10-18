@@ -1,24 +1,18 @@
-import {
-  BoxGeometry,
-  CapsuleGeometry,
-  Euler,
-  Group,
-  Mesh,
-  MeshStandardNodeMaterial,
-  type PerspectiveCamera,
-  Quaternion,
-  SphereGeometry,
-  Vector3,
-} from 'three/webgpu';
+import { Euler, type PerspectiveCamera, Quaternion, Vector3 } from 'three/webgpu';
 
 import { FLY } from '../config';
 import type { Pose } from '../nav/pose';
 import type { Bounds } from './fly-controls';
 import { type Input, Look } from './input';
+import { SkierModel } from './ski-model';
 import { SKI, type SkiState, type SkiTerrain, stepSki, surfaceNormal } from './ski-physics';
+import { initialStance, updateStance } from './ski-stance';
 
 export const EYE_HEIGHT = 1.7;
-const EYE_HEIGHT_TUCK = 1.15;
+/** How far the eye drops in a full tuck (m). */
+const CROUCH_DROP = 0.6;
+/** Skating animates up to this speed; above it you're gliding, not striding. */
+const SKATE_ANIM_MAX = 8;
 const TURN_RATE = 1.8; // rad/s with A/D
 const CHASE_DISTANCE = 7;
 const UP = new Vector3(0, 1, 0);
@@ -28,11 +22,13 @@ export type SkiCamera = 'first-person' | 'chase';
 
 /**
  * Ski mode: mouse looks and steers (skis point where you look), A/D also turn,
- * W tucks (or skates when slow), S snowploughs, Space jumps, V swaps camera.
+ * W skates, Ctrl tucks, Shift (or S) snowploughs, Space jumps, V swaps camera.
  */
 export class SkiControls {
   readonly look = new Look(FLY.mouseSensitivity);
-  readonly skier = createSkier();
+  private readonly model = new SkierModel();
+  readonly skier = this.model.root;
+  private readonly stance = initialStance();
   view: SkiCamera = 'first-person';
 
   private readonly state: SkiState = {
@@ -45,9 +41,9 @@ export class SkiControls {
   private readonly normal = new Vector3();
   private readonly q = new Quaternion();
   private readonly qYaw = new Quaternion();
-  private roll = 0;
-  private eye = EYE_HEIGHT;
-  private tucking = false;
+  /** Smoothed rate the direction of travel is turning (rad/s, > 0 = left). */
+  private turnRate = 0;
+  private travelYaw = 0;
 
   constructor(
     private readonly camera: PerspectiveCamera,
@@ -98,7 +94,7 @@ export class SkiControls {
     this.look.heading = pose.heading;
     this.look.pitchDegrees = Math.min(pose.pitch, 10);
     this.state.yaw = this.look.yaw;
-    this.updateCamera(0);
+    this.updateCamera();
   }
 
   setActive(active: boolean): void {
@@ -113,24 +109,24 @@ export class SkiControls {
 
   /** First person shows only your skis and boots below you; chase shows the whole skier. */
   private applyView(): void {
-    this.skier.getObjectByName('body')!.visible = this.view === 'chase';
+    this.model.setFirstPerson(this.view === 'first-person');
   }
 
   update(dt: number, input: Input): void {
-    const yawBefore = this.look.yaw;
     this.look.apply(input, (80 * Math.PI) / 180);
     const turn = (input.down('KeyA') ? 1 : 0) - (input.down('KeyD') ? 1 : 0);
     this.look.yaw += turn * TURN_RATE * dt;
     this.state.yaw = this.look.yaw;
 
-    const slow = this.speed < 4;
-    this.tucking = input.down('KeyW') && !slow;
+    const tuck = input.down('ControlLeft', 'ControlRight');
+    const plough = input.down('ShiftLeft', 'ShiftRight', 'KeyS');
+    const skate = input.down('KeyW') && !tuck && !plough;
     stepSki(
       this.state,
       {
-        tuck: this.tucking,
-        push: input.down('KeyW') && slow,
-        brake: input.down('KeyS'),
+        tuck,
+        push: skate,
+        brake: plough,
         jump: input.wasPressed('Space') && !this.state.airborne,
       },
       dt,
@@ -141,21 +137,42 @@ export class SkiControls {
     p.x = Math.min(Math.max(p.x, this.bounds.minX), this.bounds.maxX);
     p.z = Math.min(Math.max(p.z, this.bounds.minZ), this.bounds.maxZ);
 
-    // Lean into turns, more at speed.
-    const yawRate = dt > 0 ? (this.look.yaw - yawBefore) / dt : 0;
-    const targetRoll = Math.max(-0.3, Math.min(0.3, yawRate * Math.min(this.speed / 15, 1) * 0.2));
-    this.roll += (targetRoll - this.roll) * Math.min(1, dt * 5);
-    this.updateCamera(dt);
+    // Edging follows how sharply the path is actually curving, not where you look.
+    const v = this.state.velocity;
+    const speed = Math.hypot(v.x, v.z);
+    if (speed > 0.5 && dt > 0) {
+      const yaw = Math.atan2(-v.x, -v.z);
+      let d = yaw - this.travelYaw;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      this.travelYaw = yaw;
+      this.turnRate += (d / dt - this.turnRate) * Math.min(1, dt * 6);
+    } else {
+      this.turnRate *= Math.exp(-dt * 6);
+    }
+    updateStance(
+      this.stance,
+      {
+        speed,
+        turnRate: this.turnRate,
+        plough,
+        skate: skate && speed < SKATE_ANIM_MAX,
+        tuck,
+        airborne: this.state.airborne,
+      },
+      dt,
+    );
+    this.updateCamera();
   }
 
-  private updateCamera(dt: number): void {
+  private updateCamera(): void {
     const p = this.state.position;
-    const targetEye = this.tucking ? EYE_HEIGHT_TUCK : EYE_HEIGHT;
-    this.eye += (targetEye - this.eye) * (dt > 0 ? Math.min(1, dt * 6) : 1);
+    const eye = EYE_HEIGHT - CROUCH_DROP * this.stance.crouch;
 
     if (this.view === 'first-person') {
-      this.camera.position.set(p.x, p.y + this.eye, p.z);
-      this.euler.set(this.look.pitch, this.look.yaw, this.roll);
+      // Head follows the body's lean a little, and bobs with skating strides.
+      const bob = Math.abs(Math.sin(this.stance.skatePhase)) * 0.04 * (1 - this.stance.crouch);
+      this.camera.position.set(p.x, p.y + eye - bob, p.z);
+      this.euler.set(this.look.pitch, this.look.yaw, this.stance.lean * 0.3);
       this.camera.quaternion.setFromEuler(this.euler);
     } else {
       // Orbit behind the skier; looking down raises the camera.
@@ -168,74 +185,15 @@ export class SkiControls {
         p.z + Math.cos(this.look.yaw) * back,
       );
       cam.y = Math.max(cam.y, this.terrain.height(cam.x, cam.z) + 1);
-      this.camera.lookAt(p.x, p.y + 1.2, p.z);
+      this.camera.lookAt(p.x, p.y + 1.0, p.z);
     }
 
-    // Skier model: stand on the slope, face the skis, crouch when tucking.
+    // Stand on the slope, facing the skis.
     surfaceNormal(this.terrain, p.x, p.z, this.normal);
     this.q.setFromUnitVectors(UP, this.normal);
     this.qYaw.setFromAxisAngle(UP, this.look.yaw);
     this.skier.position.copy(p);
     this.skier.quaternion.copy(this.q).multiply(this.qYaw);
-    this.skier.getObjectByName('body')!.scale.y = this.eye / EYE_HEIGHT;
+    this.model.apply(this.stance);
   }
-}
-
-/**
- * A simple skier facing -z like the camera: a body (hidden in first person, where the
- * camera sits inside it) and the kit you see when you look down: skis and boots.
- */
-function createSkier(): Group {
-  const jacket = new MeshStandardNodeMaterial({ color: 0xd6336c, roughness: 0.7 });
-  const helmet = new MeshStandardNodeMaterial({ color: 0x212529, roughness: 0.4 });
-  const trousers = new MeshStandardNodeMaterial({ color: 0x343a40, roughness: 0.8 });
-  const skiBase = new MeshStandardNodeMaterial({ color: 0x1c7ed6, roughness: 0.35 });
-  const skiTip = new MeshStandardNodeMaterial({ color: 0xf1f3f5, roughness: 0.35 });
-  const bootMat = new MeshStandardNodeMaterial({ color: 0x212529, roughness: 0.5 });
-  const bindingMat = new MeshStandardNodeMaterial({
-    color: 0xadb5bd,
-    metalness: 0.6,
-    roughness: 0.4,
-  });
-
-  const body = new Group();
-  body.name = 'body';
-  const torso = new Mesh(new CapsuleGeometry(0.22, 0.5, 4, 8), jacket);
-  torso.position.y = 1.15;
-  const head = new Mesh(new SphereGeometry(0.15, 12, 8), helmet);
-  head.position.y = 1.62;
-  const legGeometry = new CapsuleGeometry(0.09, 0.55, 4, 8);
-  const legs = [-0.13, 0.13].map((x) => {
-    const leg = new Mesh(legGeometry, trousers);
-    leg.position.set(x, 0.62, 0);
-    return leg;
-  });
-  body.add(torso, head, ...legs);
-
-  // Skis 1.7 m long, mounted slightly behind centre, with upturned white tips.
-  const kit = new Group();
-  kit.name = 'kit';
-  const skiGeometry = new BoxGeometry(0.1, 0.025, 1.45);
-  const tipGeometry = new BoxGeometry(0.1, 0.02, 0.28);
-  const bootGeometry = new BoxGeometry(0.13, 0.26, 0.32);
-  const bindingGeometry = new BoxGeometry(0.11, 0.04, 0.42);
-  const meshes: Mesh[] = [...legs, torso, head];
-  for (const x of [-0.13, 0.13]) {
-    const ski = new Mesh(skiGeometry, skiBase);
-    ski.position.set(x, 0.015, 0.05);
-    const tip = new Mesh(tipGeometry, skiTip);
-    tip.position.set(x, 0.05, -0.79);
-    tip.rotation.x = 0.35; // turned up at the front (-z)
-    const binding = new Mesh(bindingGeometry, bindingMat);
-    binding.position.set(x, 0.045, 0.02);
-    const boot = new Mesh(bootGeometry, bootMat);
-    boot.position.set(x, 0.19, 0.02);
-    kit.add(ski, tip, binding, boot);
-    meshes.push(ski, tip, binding, boot);
-  }
-
-  const skier = new Group();
-  skier.add(body, kit);
-  for (const mesh of meshes) mesh.castShadow = true;
-  return skier;
 }

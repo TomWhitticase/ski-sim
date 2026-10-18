@@ -26,9 +26,9 @@ export const SKI = {
   skidDecel: 5,
   /** Snowplough braking (m/s²). */
   brakeDecel: 4,
-  /** Skating/poling on the flat. */
-  pushAccel: 1.5,
-  pushMaxSpeed: 4,
+  /** Skating: strong enough to get moving on the flat, useless once you're quick. */
+  pushAccel: 2.5,
+  pushMaxSpeed: 6,
   maxSpeed: 38,
   jumpSpeed: 3.5,
   /** Height above the snow before we count as airborne (m). */

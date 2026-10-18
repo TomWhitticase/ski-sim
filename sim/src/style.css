@@ -473,3 +473,12 @@ body.map-open #overlay {
   text-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
   pointer-events: none;
 }
+
+.controls .controls-heading {
+  margin-top: 6px;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
