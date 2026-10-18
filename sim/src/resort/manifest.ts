@@ -63,7 +63,7 @@ export interface ResortManifest {
   provenance: Provenance[];
 }
 
-const SUPPORTED_VERSION = 5;
+const SUPPORTED_VERSION = 6;
 
 export function resortUrl(resortId: string, file: string): string {
   return `/${resortId}/${file}`;

@@ -11,7 +11,7 @@ import numpy as np
 from rasterio.warp import Resampling
 
 from . import bases as base_finder
-from . import features, minimap, pistes
+from . import features, minimap, pistes, terminals
 from .config import ResortConfig, load_resort
 from .export import write_heightmap
 from .frame import LocalFrame
@@ -20,7 +20,7 @@ from .sources import copernicus, ign, osm
 
 log = logging.getLogger(__name__)
 
-MANIFEST_VERSION = 5
+MANIFEST_VERSION = 6
 LANDMARK_SEARCH_RADIUS = 30.0  # OSM summit nodes are often a few metres off the true top
 LANDMARK_TOLERANCE = 15.0
 
@@ -102,8 +102,39 @@ def build_features(
     def ground(east: np.ndarray, north: np.ndarray) -> np.ndarray:
         return sample_bilinear(near, near_grid, east, north)
 
+    # Lift terminals first: they flatten pads into the terrain (in place), and everything
+    # else is then placed on the flattened ground.
+    first_pass = features.extract_lifts(elements, frame, near_grid.extent, ground, [])
+    terms = terminals.plan(first_pass)
+    terminals.flatten(terms, near, near_grid, ground)
+    log.info("Flattened %d lift terminal pads", len(terms))
+
     buildings, stations = features.extract_buildings(elements, frame, near_grid.extent, ground)
     lifts = features.extract_lifts(elements, frame, near_grid.extent, ground, stations)
+    # Cutting can give a piece a new, taller roof that then reaches a cable it used to
+    # clear, so repeat until nothing changes.
+    cut_stats = {"removedAsStation": 0, "cut": 0}
+    for _ in range(4):
+        buildings, stats = terminals.cut_buildings(
+            buildings, lifts, terms, lambda poly, kind: features.gable_roof(poly, kind, None)
+        )
+        cut_stats = {k: cut_stats[k] + stats[k] for k in cut_stats}
+        if not any(stats.values()):
+            break
+    log.info(
+        "Lift clearance: %d station buildings replaced, %d buildings cut",
+        cut_stats["removedAsStation"],
+        cut_stats["cut"],
+    )
+    problems = terminals.conflicts(buildings, lifts, terms)
+    for problem in problems:
+        log.error("Lift clearance check failed: %s", problem)
+    by_lift: dict[int, list[dict]] = {}
+    for t in terms:
+        by_lift.setdefault(t.pop("lift"), []).append(t)
+    for lift in lifts:
+        lift["terminals"] = by_lift.get(lift["id"], [])
+        lift["detachable"] = bool(lift["terminals"] and lift["terminals"][0]["detachable"])
 
     for lift in sorted(lifts, key=lambda lift: lift["name"] or ""):
         kinds = [s["kind"] for s in lift["supports"]]
@@ -124,7 +155,12 @@ def build_features(
     log.info(
         "%d lifts, %d buildings (%d with estimated height)", len(lifts), len(buildings), estimated
     )
-    return {"lifts": lifts, "buildings": buildings, "peaks": peaks}
+    return {
+        "lifts": lifts,
+        "buildings": buildings,
+        "peaks": peaks,
+        "_clearance": {**cut_stats, "problems": problems},
+    }
 
 
 def build_pistes(
@@ -274,6 +310,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
 
     log.info("Building lifts and buildings (OpenStreetMap)")
     feature_data = build_features(cfg, frame, raw_root, near, near_grid, far, far_grid)
+    clearance = feature_data.pop("_clearance")
     places = osm.fetch_places(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root)
     start_bases = base_finder.find_bases(
         places,
@@ -344,7 +381,11 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
             "buildings": len(feature_data["buildings"]),
             "peaks": len(feature_data["peaks"]),
         },
-        "validation": {"landmarks": validation, "nearCoverage": coverage},
+        "validation": {
+            "landmarks": validation,
+            "nearCoverage": coverage,
+            "liftClearance": clearance,
+        },
         "provenance": [
             *(
                 {

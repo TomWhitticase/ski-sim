@@ -14,6 +14,31 @@ export interface LiftSupport {
   stationBuilding?: boolean;
 }
 
+/** A generated lift terminal (station), from pipeline/terminals.py. */
+export interface Terminal {
+  end: 'bottom' | 'top';
+  kind: 'chair' | 'gondola' | 'cabin' | 'drag';
+  detachable: boolean;
+  /** Bullwheel centre (local ENU). */
+  east: number;
+  north: number;
+  /** Unit vector (east, north) from the bullwheel into the line. */
+  dir: [number, number];
+  /** Unit vector (east, north) to the uphill track's side. */
+  across: [number, number];
+  gauge: number;
+  /** Hall extent: in front of the bullwheel, behind it, and across. */
+  length: number;
+  back: number;
+  width: number;
+  /** Where loading / unloading happens, metres in front of the bullwheel. */
+  load: number;
+  unload: number;
+  /** Flattened pad height (m above sea level). */
+  pad: number;
+  ramp: { length: number; drop: number; halfWidth: number } | null;
+}
+
 export interface Lift {
   id: number;
   name: string | null;
@@ -32,6 +57,9 @@ export interface Lift {
   /** Ride time in seconds. */
   duration?: number | null;
   bubble?: boolean;
+  detachable?: boolean;
+  /** Bottom, then top. */
+  terminals: Terminal[];
 }
 
 export interface Building {

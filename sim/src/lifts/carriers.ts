@@ -182,3 +182,17 @@ export function sheaveGeometry(): BufferGeometry {
 export function bullwheelGeometry(): BufferGeometry {
   return merge([part(new TorusGeometry(1, 0.06, 4, 18), DARK, [0, 0, 0], [Math.PI / 2, 0, 0])]);
 }
+
+/**
+ * Height of a carrier's floor (or seat) below its grip, so terminals can set the rail
+ * height to bring it level with the platform: chair seat surface, cabin floor.
+ */
+export function floorBelowGrip(kind: string, seats: number, hang: number): number {
+  if (kind === 'chair') return hang - 0.05; // seat top is 5 cm above the cushion centre
+  if (kind === 'gondola') {
+    const s = Math.cbrt(Math.max(seats, 4) / 8);
+    return hang + (2.0 * Math.min(s, 1.15)) / 2;
+  }
+  if (kind === 'cabin') return hang + 1.45;
+  return 0;
+}

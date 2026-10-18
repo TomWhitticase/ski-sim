@@ -230,6 +230,7 @@ export class SkiControls {
     );
 
     const p = this.state.position;
+    this.terrain.collide?.(p, this.state.velocity);
     p.x = Math.min(Math.max(p.x, this.bounds.minX), this.bounds.maxX);
     p.z = Math.min(Math.max(p.z, this.bounds.minZ), this.bounds.maxZ);
 

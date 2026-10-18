@@ -22,16 +22,21 @@ test('teleporting to a piste puts you at its top, and the HUD names the run', as
   await page.waitForTimeout(300);
   await expect(run(page)).toHaveText("Col de l'Audzin");
 
-  // Ski it: skate off the gentle top (W), then gravity takes over on the run.
+  // Ski it: skate off the gentle top (W), then gravity takes over on the run. (Heading
+  // straight on you'd eventually meet the summit building: now solid, so track the
+  // peak speed rather than the speed at one instant.)
   await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
   await page.keyboard.press('KeyF');
   await page.keyboard.down('KeyW');
-  await page.waitForTimeout(2500); // the top is nearly flat: skate over the crest
+  let peak = 0;
+  for (let i = 0; i < 12; i++) {
+    await page.waitForTimeout(250);
+    const speed = parseFloat((await page.locator('#hud [data-field="speed"]').textContent()) ?? '');
+    peak = Math.max(peak, speed);
+  }
   await page.keyboard.up('KeyW');
-  await page.waitForTimeout(3000);
   await expect(run(page)).not.toHaveText('Off-piste');
-  const speed = parseFloat((await page.locator('#hud [data-field="speed"]').textContent()) ?? '');
-  expect(speed).toBeGreaterThan(8); // gentle 6-8° run-in: ~14 km/h after 3 s
+  expect(peak).toBeGreaterThan(15);
 });
 
 test('off the pistes the HUD says so, and flying high hides the run row', async ({ page }) => {

@@ -22,6 +22,7 @@ describe('liftLabel', () => {
       vertical: 100,
       // Uneven spans: half way (200 m) falls inside the second span.
       supports: [support(0, 2000), support(100, 2050), support(400, 2100)],
+      terminals: [],
     };
     const label = liftLabel(lift)!;
     expect(label.detail).toBe('Gondola');

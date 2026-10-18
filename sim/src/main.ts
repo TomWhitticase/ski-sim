@@ -20,8 +20,9 @@ import { Input } from './controls/input';
 import { EYE_HEIGHT, SkiControls } from './controls/ski-controls';
 import { Environment } from './env/environment';
 import { BuildingIndex } from './features/building-index';
+import { ObstacleIndex } from './features/obstacles';
 import { createBuildings } from './features/buildings';
-import type { ResortFeatures } from './features/types';
+import type { Building, ResortFeatures, Terminal } from './features/types';
 import { Heightmap } from './geo/heightmap';
 import { LocalFrame, worldToEnu } from './geo/local-frame';
 import { type HeightmapMeta, loadManifest, resortUrl } from './resort/manifest';
@@ -187,6 +188,7 @@ async function main(): Promise<void> {
       height: groundHeight,
       // World z is -north.
       groomed: (x, z) => pisteLookup.at(x, -z)?.groomed ?? false,
+      collide: (p, v) => obstacles.resolve(p, v),
     },
     bounds,
   );
@@ -202,8 +204,25 @@ async function main(): Promise<void> {
   const fxNormal = new Vector3();
   const fxSlide = new Vector3();
   const lifts = new LiftSystem(features.lifts, groundHeight);
-  // Signs stand clear of buildings (world z = -north).
-  const buildingIndex = new BuildingIndex(features.buildings, 1.5);
+  // Solid things you can't ski through: buildings and the lift terminals' walls and huts.
+  const obstacles = new ObstacleIndex([
+    ...features.buildings.map((b) => ({
+      ring: b.footprint,
+      base: b.base,
+      top: b.top + (b.roof?.rise ?? 0),
+    })),
+    ...lifts.obstacles,
+  ]);
+  // Signs stand clear of buildings and terminals (world z = -north).
+  const buildingIndex = new BuildingIndex(
+    [
+      ...features.buildings,
+      ...lifts.lines.flatMap((l) =>
+        [l.bottomTerminal, l.topTerminal].map((t) => terminalFootprint(t)),
+      ),
+    ],
+    1.5,
+  );
   const insideBuilding = (x: number, z: number) => buildingIndex.contains(x, -z);
   scene.add(lifts.root, createLiftSigns(lifts.lines, groundHeight, insideBuilding));
   const ride = new RideControls(camera, lifts, ski);
@@ -369,7 +388,7 @@ async function main(): Promise<void> {
             ? ride.velocity
             : fly.currentVelocity
     ).clone();
-    if (mode === 'ride') ride.release();
+    if (mode === 'ride') ride.releaseClock();
     const look = controls().look;
     mode = next;
     if (mode === 'ski') {
@@ -389,25 +408,31 @@ async function main(): Promise<void> {
   };
   hud.setMode(mode);
   document.body.classList.toggle('skiing', mode !== 'fly');
-  let lastRideDistance = 0;
+  let nearTower = false;
+  /** E: walk to the loading point and wait for the next carrier. */
   const boardLift = (line: number) => {
+    const from = whereAmI().clone();
+    const yaw = controls().look.yaw;
     setMode('ride');
-    ride.board(line, controls().look.yaw);
-    lastRideDistance = 0;
-    sound.thump(3); // grip clamping on
+    ride.approach(line, from, yaw);
   };
-  /** Off at the top: on your skis just past the station, gliding away from it. */
+  /** Skied into a loading zone just as a carrier arrived: on you get. */
+  const scooped = (line: number, carrier: number) => {
+    const from = ski.feet.clone();
+    const yaw = ski.look.yaw;
+    setMode('ride');
+    ride.boardFrom(line, carrier, from, yaw);
+    sound.thump(3); // grip / seat taking your weight
+  };
+  /** Released at the unloading point, moving: off the chair and down the ramp. */
   const unload = () => {
-    const line = lifts.lines[ride.line]!;
-    const ahead = line.top.clone().sub(line.bottom).setY(0).normalize();
-    const out = line.top.clone().addScaledVector(ahead, 12);
-    const heading = (Math.atan2(ahead.x, -ahead.z) * 180) / Math.PI;
-    ride.release();
+    const { feet, velocity, heading } = ride.release();
+    ride.releaseClock();
     sound.thump(2.5);
     mode = 'ski';
     ski.place(
-      { east: out.x, north: -out.z, altitude: -1e4, heading, pitch: -5 },
-      ahead.multiplyScalar(3),
+      { east: feet.x, north: -feet.z, altitude: feet.y + EYE_HEIGHT, heading, pitch: -5 },
+      velocity,
     );
     ski.setActive(true);
     hud.setMode(mode);
@@ -507,7 +532,7 @@ async function main(): Promise<void> {
   const sim = { ready: false, frames: 0 };
   window.__sim = sim;
   // Dev-only handles for profiling scripts and debugging from the console.
-  if (import.meta.env.DEV) Object.assign(sim, { scene, renderer, camera, labels, minimap });
+  if (import.meta.env.DEV) Object.assign(sim, { scene, renderer, camera, labels, minimap, lifts });
   let last = performance.now();
   let lastX = fly.position.x;
   let lastY = fly.position.y;
@@ -520,31 +545,35 @@ async function main(): Promise<void> {
   const updateLiftSound = () => {
     const p = whereAmI();
     sound.setLiftHum(liftHumLevel(lifts.nearestStation(p.x, p.z), mode === 'ride'));
-    if (mode !== 'ride') return;
-    const d = ride.distance;
-    for (const tower of lifts.towerDistances(ride.line)) {
-      if ((lastRideDistance < tower && d >= tower) || (lastRideDistance > tower && d <= tower)) {
-        sound.clack();
-      }
-    }
-    lastRideDistance = d;
+    if (mode !== 'ride' || ride.phase !== 'riding') return;
+    // Clack as your carrier rolls over a tower's sheaves.
+    const p2 = ride.position;
+    const close = lifts
+      .towerPoints(ride.line)
+      .some((t) => Math.hypot(t.x - p2.x, t.z - p2.z) < 3.5);
+    if (close && !nearTower) sound.clack();
+    nearTower = close;
   };
   const prompt = $('#prompt');
   let promptText = '';
   const updatePrompt = () => {
     let text = '';
     if (mode === 'ride') {
-      const wait = ride.waiting ? ride.departsIn : 0;
-      text =
-        wait > 0
-          ? `Waiting for the ${ride.name} cabin · departs in ${formatWait(wait)} · hold W to fast-forward · S to skip to the top · E to step away`
-          : `${ride.name} · hold W to fast-forward · S to skip to the top · E to jump off`;
+      if (ride.phase === 'approach')
+        text = `Heading to the ${ride.name} loading point… · S to skip to the top`;
+      else if (ride.phase === 'waiting') {
+        text = `Waiting for ${ride.name} · ${formatWait(ride.departsIn)} · hold W to fast-forward · E to step away`;
+      } else {
+        text = `${ride.name} · hold W to fast-forward · S to skip to the top · E to jump off`;
+      }
     } else if (mode !== 'glide') {
       const p = whereAmI();
       const line = lifts.boardingNear(p.x, p.z);
       if (line !== null) {
         const l = lifts.lines[line]!;
-        text = `E — ride ${l.name} (${liftTypeName(l.lift.type)}, ${Math.round(l.lift.vertical)} m up)`;
+        text = l.inLoadingZone(p)
+          ? `${l.name} loading point · wait here to be picked up (or press E)`
+          : `E — ride ${l.name} (${liftTypeName(l.lift.type)}, ${Math.round(l.lift.vertical)} m up)`;
       }
     }
     if (text !== promptText) {
@@ -593,6 +622,10 @@ async function main(): Promise<void> {
     const landed = controls().update(dt, input);
     if (mode === 'glide' && landed) setMode('ski');
     if (mode === 'ride' && landed) unload();
+    if (mode === 'ski' && !ski.airborne) {
+      const hit = lifts.scoop(ski.feet);
+      if (hit) scooped(hit.line, hit.carrier);
+    }
     updateLiftSound();
     if (mode === 'fly') {
       // Third-person flying shows your skier hovering where you are.
@@ -722,6 +755,28 @@ function loadPrefs(): Prefs {
   } catch {
     return defaults;
   }
+}
+
+/** A terminal's hall as a building footprint (for keeping signs clear of it). */
+function terminalFootprint(t: Terminal): Building {
+  const corner = (u: number, v: number): [number, number] => [
+    t.east + t.dir[0] * u + t.across[0] * v,
+    t.north + t.dir[1] * u + t.across[1] * v,
+  ];
+  const w = t.width / 2 + 1;
+  return {
+    id: -1,
+    type: 'lift_station',
+    footprint: [
+      corner(-t.back - 1, -w),
+      corner(t.length + 1, -w),
+      corner(t.length + 1, w),
+      corner(-t.back - 1, w),
+    ],
+    base: t.pad - 2,
+    top: t.pad + 10,
+    heightSource: 'estimate',
+  };
 }
 
 function formatWait(seconds: number): string {

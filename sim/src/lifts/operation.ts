@@ -31,9 +31,11 @@ export interface Operation {
   length: number;
   /** Carrier hangs this far below the cable (m) (drag lifts: down to the snow). */
   hang: number;
+  /** Seconds between carriers (from capacity and occupancy). */
+  headway: number;
 }
 
-const MAX_CARRIERS = 140;
+export const MAX_CARRIERS = 180;
 
 export function carrierKind(type: string): CarrierKind {
   if (type === 'cable_car') return 'cabin';
@@ -70,7 +72,8 @@ export function operation(lift: Lift): Operation {
   if (carriers > MAX_CARRIERS) carriers = MAX_CARRIERS;
   if (!reversible) spacing = (2 * length) / carriers;
   const hang = kind === 'chair' ? 2.4 : kind === 'gondola' ? 3.2 : kind === 'cabin' ? 6 : 0;
-  return { kind, speed, reversible, spacing, carriers, dwell: 45, length, hang };
+  const headway = (occupancy * 3600) / capacity;
+  return { kind, speed, reversible, spacing, carriers, dwell: 45, length, hang, headway };
 }
 
 export interface CarrierState {

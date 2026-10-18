@@ -27,7 +27,7 @@ Open http://localhost:5173, pick a ski area and where to start, then **Start ski
 | Mouse | Look |
 | L / N | Toggle lift / peak names |
 | P | Paraglider: deploy / release (A/D bank, W speed bar, S brakes) |
-| E | Ride a lift from its bottom station (hold W to fast-forward, S to skip to the top) |
+| E | Ride a lift: walks you to the loading point (or just stand on it and get scooped up). Hold W to fast-forward, S to skip to the top |
 | M | Map: search pistes/lifts/peaks, click to teleport |
 | O | Piste colours on the snow |
 | K | Sound on / off |

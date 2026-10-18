@@ -9,11 +9,11 @@ import {
   Vector3,
 } from 'three/webgpu';
 
-import type { Lift } from '../features/types';
+import type { Lift, Terminal } from '../features/types';
 import {
-  bullwheelGeometry,
   cabinGeometry,
   chairGeometry,
+  floorBelowGrip,
   gondolaGeometry,
   platterGeometry,
   platterGripGeometry,
@@ -21,96 +21,298 @@ import {
   sheaveGeometry,
   towerGeometry,
 } from './carriers';
-import { type CarrierState, carrierAt, type Operation, operation } from './operation';
+import { LoopPath, loopCorners, maxStep, type TerminalFrame } from './loop';
+import { MAX_CARRIERS, type Operation, operation } from './operation';
+import { createTerminals, type Obstacle } from './terminals';
 
 const UP = new Vector3(0, 1, 0);
-/** Depth tower and station bases are sunk into the ground. */
+/** Depth tower bases are sunk into the ground. */
 const BURY = 2;
 /** Platter rides this high above the snow. */
 const PLATTER_HEIGHT = 0.85;
-/** How close to a bottom station you must be to board (m). */
+/** Drag-lift rope height above the pad at the terminals (m). */
+const DRAG_RAIL = 4;
+/** How close to a loading point "press E to ride" is offered (m). */
 const BOARDING_RADIUS = 35;
+/** Loading zone half-extents around the loading point: along the line, across it (m). */
+const ZONE_ALONG = 2.5;
+const ZONE_ACROSS = 1.6;
+/** Station speed of detached carriers (m/s). */
+const STATION_SPEED = { chair: 1.0, gondola: 0.35 } as const;
 /** Carriers farther than this from the camera aren't drawn (m). */
 const DRAW_RANGE = 3500;
 const X_AXIS = new Vector3(1, 0, 0);
 const tilt = new Quaternion();
 const q2 = new Quaternion();
 const poleTop = new Vector3();
-const bottom = new Vector3();
+const platterAt = new Vector3();
 
-/** One lift line: supports in world space plus its operating model. */
+export interface CarrierPose {
+  /** +1 on the uphill track, -1 coming back down. */
+  side: 1 | -1;
+  inStation: boolean;
+  /** A jig-back cabin standing at a station. */
+  moving: boolean;
+  /** Jig-back only: metres from the bottom dock. */
+  distance: number;
+}
+
+/** A straight-line track between two docks (jig-back cable cars). */
+class Track {
+  readonly cumulative: number[] = [0];
+  constructor(readonly points: Vector3[]) {
+    for (let i = 1; i < points.length; i++) {
+      this.cumulative.push(this.cumulative[i - 1]! + points[i]!.distanceTo(points[i - 1]!));
+    }
+  }
+  get length(): number {
+    return this.cumulative.at(-1)!;
+  }
+  at(d: number, out: Vector3, dir: Vector3): void {
+    const c = Math.min(Math.max(d, 0), this.length);
+    let i = 1;
+    while (i < this.cumulative.length - 1 && this.cumulative[i]! < c) i++;
+    const a = this.points[i - 1]!;
+    const b = this.points[i]!;
+    const span = this.cumulative[i]! - this.cumulative[i - 1]!;
+    out.copy(a).lerp(b, span > 0 ? (c - this.cumulative[i - 1]!) / span : 0);
+    dir.copy(b).sub(a).normalize();
+  }
+}
+
+/** One lift: its terminals, haul-rope path and operating model. */
 export class LiftLine {
   readonly op: Operation;
-  readonly points: Vector3[];
-  readonly cumulative: number[];
   readonly across: Vector3;
   readonly seats: number;
+  readonly bottomTerminal: Terminal;
+  readonly topTerminal: Terminal;
+  /** Rail (haul rope) height above the pad inside the terminals. */
+  readonly rail: number;
+  readonly frames: [TerminalFrame, TerminalFrame];
+  readonly towers: Vector3[];
+  /** Continuous loop (loop lifts). */
+  readonly loop: LoopPath | null = null;
+  /** Up and down tracks between docks (jig-backs), both measured from the bottom. */
+  readonly tracks: [Track, Track] | null = null;
+  /** Seconds between carriers on the loop. */
+  readonly headway: number;
+  /** Loop times at which a carrier passes the loading / unloading points. */
+  readonly loadTime: number = 0;
+  readonly unloadTime: number = 0;
+  /** World positions (on the pad) of the loading and unloading points. */
+  readonly loadPoint: Vector3;
+  readonly unloadPoint: Vector3;
+  private readonly bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
 
   constructor(readonly lift: Lift) {
-    this.op = operation(lift);
-    this.points = lift.supports.map((s) => new Vector3(s.east, s.top, -s.north));
-    this.cumulative = [0];
-    for (let i = 1; i < this.points.length; i++) {
-      this.cumulative.push(
-        this.cumulative[i - 1]! + this.points[i]!.distanceTo(this.points[i - 1]!),
+    const base = operation(lift);
+    const [bottomT, topT] = lift.terminals as [Terminal, Terminal];
+    this.bottomTerminal = bottomT;
+    this.topTerminal = topT;
+    const b = new Vector3(bottomT.east, 0, -bottomT.north);
+    const t = new Vector3(topT.east, 0, -topT.north);
+    const along = t.clone().sub(b).setY(0).normalize();
+    this.across = new Vector3().crossVectors(along, UP).normalize();
+    this.seats = Math.max(1, Math.round(lift.occupancy ?? (base.kind === 'gondola' ? 8 : 4)));
+    const isDrag = base.kind === 'platter' || base.kind === 'tbar';
+    this.rail = isDrag ? DRAG_RAIL : floorBelowGrip(base.kind, this.seats, base.hang);
+
+    const frame = (term: Terminal): TerminalFrame => ({
+      wheel: new Vector3(term.east, term.pad + this.rail, -term.north),
+      dir: new Vector3(term.dir[0], 0, -term.dir[1]),
+      length: term.length,
+    });
+    this.frames = [frame(bottomT), frame(topT)];
+    this.towers = lift.supports
+      .filter((s) => s.kind !== 'station')
+      .map((s) => new Vector3(s.east, s.top, -s.north));
+    const [fb, ft] = this.frames;
+    const r = lift.gauge / 2;
+    const onPad = (term: Terminal, u: number, side: number) =>
+      new Vector3(term.east, term.pad, -term.north)
+        .addScaledVector(new Vector3(term.dir[0], 0, -term.dir[1]), u)
+        .addScaledVector(this.across, side * r);
+    this.loadPoint = onPad(bottomT, bottomT.load, 1);
+    this.unloadPoint = onPad(topT, topT.unload, 1);
+
+    if (base.kind === 'cabin') {
+      // Jig-back: two cabins shuttle between docks, one on each track.
+      const dock = (f: TerminalFrame, term: Terminal, side: number) =>
+        f.wheel
+          .clone()
+          .addScaledVector(this.across, side * r)
+          .addScaledVector(f.dir, term.load);
+      const track = (side: number) =>
+        new Track([
+          dock(fb, bottomT, side),
+          ...this.towers.map((p) => p.clone().addScaledVector(this.across, side * r)),
+          dock(ft, topT, side),
+        ]);
+      this.tracks = [track(1), track(-1)];
+      this.op = { ...base, length: this.tracks[0].length, carriers: 2 };
+      this.headway = 0;
+    } else {
+      const stationSpeed =
+        bottomT.detachable && (base.kind === 'chair' || base.kind === 'gondola')
+          ? STATION_SPEED[base.kind]
+          : base.speed;
+      this.loop = new LoopPath(
+        loopCorners(fb, ft, this.towers, this.across, lift.gauge),
+        base.speed,
+        stationSpeed,
+      );
+      const carriers = Math.min(
+        MAX_CARRIERS,
+        Math.max(2, Math.round(this.loop.period / Math.max(base.headway, 1))),
+      );
+      this.headway = this.loop.period / carriers;
+      this.op = { ...base, carriers };
+      // Up-track samples are the first half of the loop; search there only.
+      const half = Math.floor(this.loop.points.length / 2);
+      const rail = (p: Vector3) => p.clone().setY(p.y + this.rail);
+      this.loadTime = this.loop.timeAt(this.loop.nearestIndex(rail(this.loadPoint), 0, half));
+      this.unloadTime = this.loop.timeAt(
+        this.loop.nearestIndex(rail(this.unloadPoint), 0, this.loop.points.length),
       );
     }
-    const first = this.points[0]!;
-    const last = this.points[this.points.length - 1]!;
-    const along = last.clone().sub(first).setY(0).normalize();
-    this.across = new Vector3().crossVectors(along, UP).normalize();
-    this.seats = Math.max(1, Math.round(lift.occupancy ?? (this.op.kind === 'gondola' ? 8 : 4)));
+
+    const xs = [fb.wheel.x, ft.wheel.x, ...this.towers.map((p) => p.x)];
+    const zs = [fb.wheel.z, ft.wheel.z, ...this.towers.map((p) => p.z)];
+    this.bounds = {
+      minX: Math.min(...xs),
+      maxX: Math.max(...xs),
+      minZ: Math.min(...zs),
+      maxZ: Math.max(...zs),
+    };
   }
 
   get name(): string {
     return this.lift.name ?? 'Unnamed lift';
   }
 
-  /** Cable point `distance` m up the line on `side`, with the direction of travel. */
-  cablePoint(distance: number, side: 1 | -1, out: Vector3, direction?: Vector3): Vector3 {
-    const total = this.cumulative[this.cumulative.length - 1]!;
-    const d = Math.min(Math.max(distance * (total / this.op.length), 0), total);
-    let lo = 0;
-    let hi = this.cumulative.length - 1;
-    while (hi - lo > 1) {
-      const mid = (lo + hi) >> 1;
-      if (this.cumulative[mid]! <= d) lo = mid;
-      else hi = mid;
-    }
-    const a = this.points[lo]!;
-    const b = this.points[hi]!;
-    const span = this.cumulative[hi]! - this.cumulative[lo]!;
-    out.copy(a).lerp(b, span > 0 ? (d - this.cumulative[lo]!) / span : 0);
-    out.addScaledVector(this.across, (side * this.lift.gauge) / 2);
-    if (direction) direction.copy(b).sub(a).normalize().multiplyScalar(side);
-    return out;
+  get bottom(): Vector3 {
+    return this.frames[0].wheel;
+  }
+
+  get top(): Vector3 {
+    return this.frames[1].wheel;
   }
 
   /** Horizontal distance from a point to the line's bounding box (m). */
   distanceTo(p: Vector3): number {
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minZ = Infinity;
-    let maxZ = -Infinity;
-    for (const q of this.points) {
-      minX = Math.min(minX, q.x);
-      maxX = Math.max(maxX, q.x);
-      minZ = Math.min(minZ, q.z);
-      maxZ = Math.max(maxZ, q.z);
+    const b = this.bounds;
+    return Math.hypot(
+      Math.max(b.minX - p.x, 0, p.x - b.maxX),
+      Math.max(b.minZ - p.z, 0, p.z - b.maxZ),
+    );
+  }
+
+  /** Grip position and travel direction of carrier `ci` at lift time `time`. */
+  pose(ci: number, time: number, out: Vector3, dir: Vector3): CarrierPose {
+    if (this.tracks) {
+      const s = jigBack(this.op, ci, time);
+      this.tracks[ci === 0 ? 0 : 1].at(s.distance, out, dir);
+      if (s.towardTop === false) dir.negate();
+      return {
+        side: ci === 0 ? 1 : -1,
+        inStation: !s.moving,
+        moving: s.moving,
+        distance: s.distance,
+      };
     }
-    const dx = Math.max(minX - p.x, 0, p.x - maxX);
-    const dz = Math.max(minZ - p.z, 0, p.z - maxZ);
-    return Math.hypot(dx, dz);
+    const loop = this.loop!;
+    const tau = time + ci * this.headway;
+    const { index, inStation } = loop.at(tau, out, dir);
+    return {
+      side: index < loop.points.length / 2 ? 1 : -1,
+      inStation,
+      moving: true,
+      distance: 0,
+    };
   }
 
-  /** Bottom station position (cable height). */
-  get bottom(): Vector3 {
-    return this.points[0]!;
+  /** Loop time of carrier `ci` (loop lifts), wrapped to one period. */
+  loopTime(ci: number, time: number): number {
+    const p = this.loop!.period;
+    return (((time + ci * this.headway) % p) + p) % p;
   }
 
-  get top(): Vector3 {
-    return this.points[this.points.length - 1]!;
+  /** The carrier that next reaches the loading point, and in how many seconds. */
+  nextToLoad(time: number): { carrier: number; inSeconds: number } {
+    if (this.tracks) return { carrier: 0, inSeconds: nextDeparture(this.op, time) };
+    // Carrier ci is at loop time (time + ci·h). It reaches loadTime after
+    // δ = (loadTime − time − ci·h) mod period seconds; the smallest δ is next.
+    const p = this.loop!.period;
+    const x = (((this.loadTime - time) % p) + p) % p;
+    const carrier = Math.min(Math.floor(x / this.headway), this.op.carriers - 1);
+    return { carrier, inSeconds: x - carrier * this.headway };
   }
+
+  /** Whether carrier `ci` passed loop time `mark` between lift times `from` and `to`. */
+  passed(ci: number, mark: number, from: number, to: number): boolean {
+    const p = this.loop!.period;
+    const travelled = to - from;
+    const sinceMark = (((this.loopTime(ci, to) - mark) % p) + p) % p;
+    return travelled > 0 && sinceMark <= travelled;
+  }
+
+  /** Whether a world point is in this lift's loading zone (on the pad by the loading point). */
+  inLoadingZone(p: Vector3): boolean {
+    const t = this.bottomTerminal;
+    const dx = p.x - this.loadPoint.x;
+    const dz = p.z - this.loadPoint.z;
+    const along = dx * t.dir[0] - dz * t.dir[1];
+    const across = dx * this.across.x + dz * this.across.z;
+    // Gondola and cable car riders stand beside the track (cabins pass alongside).
+    const enclosed = this.op.kind === 'gondola' || this.op.kind === 'cabin';
+    const acrossMin = -ZONE_ACROSS;
+    const acrossMax = enclosed ? ZONE_ACROSS + 2.5 : ZONE_ACROSS;
+    return (
+      Math.abs(along) <= ZONE_ALONG &&
+      across >= acrossMin &&
+      across <= acrossMax &&
+      Math.abs(p.y - this.loadPoint.y) < 2
+    );
+  }
+}
+
+/** Jig-back schedule: cabin 0 waits at the bottom, travels, waits at the top, returns. */
+function jigBack(
+  op: Operation,
+  ci: number,
+  t: number,
+): { distance: number; moving: boolean; towardTop: boolean | null } {
+  const L = op.length;
+  const travel = L / op.speed;
+  const period = 2 * (travel + op.dwell);
+  const phase = ((t % period) + period) % period;
+  let d: number;
+  let moving = true;
+  let up: boolean | null = true;
+  if (phase < op.dwell) {
+    d = 0;
+    moving = false;
+    up = null;
+  } else if (phase < op.dwell + travel) {
+    d = (phase - op.dwell) * op.speed;
+  } else if (phase < 2 * op.dwell + travel) {
+    d = L;
+    moving = false;
+    up = null;
+  } else {
+    d = L - (phase - 2 * op.dwell - travel) * op.speed;
+    up = false;
+  }
+  if (ci === 0) return { distance: d, moving, towardTop: up };
+  return { distance: L - d, moving, towardTop: up === null ? null : !up };
+}
+
+/** Seconds until the uphill cabin next leaves (0 while boarding). */
+export function nextDeparture(op: Operation, t: number): number {
+  const period = 2 * (op.length / op.speed + op.dwell);
+  const phase = ((t % period) + period) % period;
+  return phase < op.dwell ? 0 : period - phase;
 }
 
 interface CarrierGroup {
@@ -127,17 +329,23 @@ const scale = new Vector3();
 const ONE = new Vector3(1, 1, 1);
 
 /**
- * Every lift in the resort: static towers, sheaves, bullwheels, cables and stations,
- * plus carriers that run at each lift's real line speed. All instanced; carriers are
- * one draw call per carrier type.
+ * Every lift in the resort: generated terminals, towers, sheaves and ropes, plus carriers
+ * that run round each lift's loop at its real speeds. All instanced; carriers are one
+ * draw call per carrier type.
  */
 export class LiftSystem {
   readonly root = new Group();
   readonly lines: LiftLine[];
+  /** Collision obstacles from the terminals (walls, huts, footings). */
+  readonly obstacles: Obstacle[];
   /** Lift clock (s). Runs faster while the rider fast-forwards. */
   time = 0;
+  /** The lift clock at the previous update (for "did a carrier pass this point?"). */
+  previousTime = 0;
   /** Time multiplier for the lift clock. */
   rate = 1;
+  /** Problems found by the load-time checks (also logged as console errors). */
+  readonly problems: string[] = [];
   private readonly groups = new Map<string, CarrierGroup>();
   private readonly poles: CarrierGroup;
   private readonly platters: CarrierGroup;
@@ -148,10 +356,20 @@ export class LiftSystem {
     private readonly groundHeight: (x: number, z: number) => number,
   ) {
     this.root.name = 'lifts';
-    this.lines = lifts.filter((l) => l.supports.length >= 2).map((l) => new LiftLine(l));
+    this.lines = lifts
+      .filter((l) => l.supports.length >= 2 && l.terminals?.length === 2)
+      .map((l) => new LiftLine(l));
     const vertexColoured = () =>
       new MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.25 });
+    const terminals = createTerminals(
+      this.lines.flatMap((line) =>
+        [line.bottomTerminal, line.topTerminal].map((terminal) => ({ terminal, rail: line.rail })),
+      ),
+    );
+    this.obstacles = terminals.obstacles;
+    this.root.add(terminals.mesh);
     this.buildStatics(vertexColoured());
+    this.check();
 
     const material = vertexColoured();
     const group = (key: string, geometry: () => BufferGeometry) => {
@@ -212,6 +430,7 @@ export class LiftSystem {
 
   /** Advance the lift clock and move every carrier. */
   update(dt: number, camera?: Vector3): void {
+    this.previousTime = this.time;
     this.time += dt * this.rate;
     // Only carriers near the camera are drawn: beyond DRAW_RANGE they're sub-pixel, and
     // a big resort has >10k of them (each drawn in the main pass and every shadow
@@ -235,24 +454,13 @@ export class LiftSystem {
     for (const [li, ci] of this.poles.members) {
       const line = this.lines[li]!;
       if (!near[li]) continue;
-      const state = carrierAt(line.op, ci, this.time);
-      line.cablePoint(state.distance, state.side, pos, dir);
+      const pose = line.pose(ci, this.time, pos, dir);
       if (!close(pos)) continue;
-      const ground = this.groundHeight(pos.x, pos.z);
-      const length = Math.max(0.3, pos.y - 0.6 - (ground + PLATTER_HEIGHT));
-      q.setFromAxisAngle(UP, Math.atan2(-dir.x, -dir.z));
-      // Uphill the pole trails back to a skier; on the return it hangs straight.
-      const lean = state.side === 1 ? 0.45 : 0;
-      tilt.setFromAxisAngle(X_AXIS, -lean);
-      poleTop.copy(pos).setY(pos.y - 0.6);
-      m.compose(poleTop, q2.copy(q).multiply(tilt), scale.set(1, length / Math.cos(lean), 1));
+      const placed = this.platterPose(pos, dir, pose.side);
+      m.compose(poleTop, q2, scale.set(1, placed.length, 1));
       this.poles.mesh.setMatrixAt(poles++, m);
-      bottom
-        .set(0, -length, length * Math.tan(lean))
-        .applyQuaternion(q)
-        .add(poleTop);
       const key = line.op.kind === 'tbar' ? 'tbars' : 'platters';
-      m.compose(bottom, q, ONE);
+      m.compose(platterAt, q, ONE);
       this[key].mesh.setMatrixAt(platterCount[key]++, m);
     }
     this.poles.mesh.count = poles;
@@ -263,21 +471,34 @@ export class LiftSystem {
     }
   }
 
+  /**
+   * Drag-lift pole from a grip at `grip`: sets `poleTop`/`q2` (pole transform) and
+   * `platterAt`/`q` (platter). Uphill the pole trails back to a skier.
+   */
+  platterPose(grip: Vector3, travel: Vector3, side: 1 | -1): { length: number; platter: Vector3 } {
+    const ground = this.groundHeight(grip.x, grip.z);
+    const length = Math.max(0.3, grip.y - 0.6 - (ground + PLATTER_HEIGHT));
+    q.setFromAxisAngle(UP, Math.atan2(-travel.x, -travel.z));
+    const lean = side === 1 ? 0.45 : 0;
+    tilt.setFromAxisAngle(X_AXIS, -lean);
+    poleTop.copy(grip).setY(grip.y - 0.6);
+    q2.copy(q).multiply(tilt);
+    platterAt
+      .set(0, -length, length * Math.tan(lean))
+      .applyQuaternion(q)
+      .add(poleTop);
+    return { length: length / Math.cos(lean), platter: platterAt };
+  }
+
   /** World transform of a carrier's grip (origin on the cable, -z = travel direction). */
-  carrierMatrix(li: number, ci: number, out: Matrix4): CarrierState {
-    const line = this.lines[li]!;
-    const state = carrierAt(line.op, ci, this.time);
-    line.cablePoint(state.distance, state.side, pos, dir);
+  carrierMatrix(li: number, ci: number, out: Matrix4): CarrierPose {
+    const pose = this.lines[li]!.pose(ci, this.time, pos, dir);
     q.setFromAxisAngle(UP, Math.atan2(-dir.x, -dir.z));
     out.compose(pos, q, ONE);
-    return state;
+    return pose;
   }
 
-  carrierState(li: number, ci: number): CarrierState {
-    return carrierAt(this.lines[li]!.op, ci, this.time);
-  }
-
-  /** Horizontal distance to the nearest station (bottom or top) of any lift (m). */
+  /** Horizontal distance to the nearest terminal of any lift (m). */
   nearestStation(x: number, z: number): number {
     let best = Infinity;
     for (const line of this.lines) {
@@ -290,21 +511,12 @@ export class LiftSystem {
     return best;
   }
 
-  /** Distances up the line of each tower (not stations) on a lift. */
-  towerDistances(li: number): number[] {
-    const line = this.lines[li]!;
-    const scale = line.op.length / line.cumulative.at(-1)!;
-    return line.lift.supports
-      .map((s, i) => (s.kind === 'station' ? -1 : line.cumulative[i]! * scale))
-      .filter((d) => d >= 0);
-  }
-
-  /** The nearest lift you could board from (x, z), if any bottom station is close. */
+  /** The lift whose loading point is nearest (x, z), within BOARDING_RADIUS. */
   boardingNear(x: number, z: number): number | null {
     let best: number | null = null;
     let bestDistance = BOARDING_RADIUS;
     this.lines.forEach((line, li) => {
-      const d = Math.hypot(line.bottom.x - x, line.bottom.z - z);
+      const d = Math.hypot(line.loadPoint.x - x, line.loadPoint.z - z);
       if (d < bestDistance) {
         bestDistance = d;
         best = li;
@@ -313,31 +525,76 @@ export class LiftSystem {
     return best;
   }
 
-  /** The uphill carrier nearest the bottom station (the next one you'd load onto). */
-  nextCarrier(li: number): number {
-    const op = this.lines[li]!.op;
-    let best = 0;
-    let bestDistance = Infinity;
-    for (let ci = 0; ci < op.carriers; ci++) {
-      const s = carrierAt(op, ci, this.time);
-      if (s.side === 1 && s.distance < bestDistance) {
-        bestDistance = s.distance;
-        best = ci;
+  /**
+   * Manual boarding: if `feet` is in a lift's loading zone and a carrier has just reached
+   * the loading point (a chair scooping you up, a cabin's door alongside), return it.
+   */
+  scoop(feet: Vector3): { line: number; carrier: number } | null {
+    for (let li = 0; li < this.lines.length; li++) {
+      const line = this.lines[li]!;
+      if (Math.abs(line.loadPoint.x - feet.x) > 8 || Math.abs(line.loadPoint.z - feet.z) > 8)
+        continue;
+      if (!line.inLoadingZone(feet)) continue;
+      if (line.tracks) {
+        const s = jigBack(line.op, 0, this.time);
+        if (!s.moving && s.distance === 0) return { line: li, carrier: 0 };
+        continue;
+      }
+      const { carrier } = line.nextToLoad(this.previousTime);
+      if (line.passed(carrier, line.loadTime, this.previousTime, this.time)) {
+        return { line: li, carrier };
       }
     }
-    return best;
+    return null;
+  }
+
+  /** Distances up the line of each tower on a lift (for the sheave clack). */
+  towerPoints(li: number): Vector3[] {
+    return this.lines[li]!.towers;
+  }
+
+  /** Load-time invariants: continuous paths, loading points on their pads. */
+  private check(): void {
+    for (const line of this.lines) {
+      if (line.loop && maxStep(line.loop) > 1) {
+        this.problems.push(`${line.name}: haul rope path has a gap`);
+      }
+      for (const [point, term, label] of [
+        [line.loadPoint, line.bottomTerminal, 'loading'],
+        [line.unloadPoint, line.topTerminal, 'unloading'],
+      ] as const) {
+        const ground = this.groundHeight(point.x, point.z);
+        // Top chair/drag ramps start dropping at the unload point; allow for that.
+        const tolerance = label === 'unloading' && term.ramp ? 0.6 : 0.35;
+        if (Math.abs(ground - term.pad) > tolerance) {
+          this.problems.push(
+            `${line.name}: ${label} point ${(ground - term.pad).toFixed(2)} m off its pad`,
+          );
+        }
+      }
+    }
+    if (this.problems.length) console.error(`Lift checks failed:\n${this.problems.join('\n')}`);
   }
 
   private buildStatics(material: MeshStandardNodeMaterial): void {
     const towers: Matrix4[] = [];
     const arms: Matrix4[] = [];
     const sheaves: Matrix4[] = [];
-    const wheels: Matrix4[] = [];
     const cables: Matrix4[] = [];
-    const stations: Matrix4[] = [];
-    const boxSites: Vector3[] = [];
     const cableMaterial = new MeshStandardNodeMaterial({ color: 0x1d1f22, roughness: 0.6 });
-    const stationMaterial = new MeshStandardNodeMaterial({ color: 0x8a8d93, roughness: 0.8 });
+    const rope = (a: Vector3, b: Vector3, thickness: number) => {
+      const span = b.clone().sub(a);
+      if (span.lengthSq() < 1e-6) return;
+      cables.push(
+        m
+          .compose(
+            a.clone().lerp(b, 0.5),
+            new Quaternion().setFromUnitVectors(new Vector3(0, 0, 1), span.clone().normalize()),
+            scale.set(thickness, thickness, span.length()),
+          )
+          .clone(),
+      );
+    };
 
     for (const line of this.lines) {
       const { lift, op } = line;
@@ -345,56 +602,36 @@ export class LiftSystem {
       const yaw = Math.atan2(-(line.top.x - line.bottom.x), -(line.top.z - line.bottom.z));
       q.setFromAxisAngle(UP, yaw);
       const radius = heavy ? 1.6 : op.kind === 'platter' || op.kind === 'tbar' ? 0.35 : 0.6;
+      const r = lift.gauge / 2;
 
-      lift.supports.forEach((s, i) => {
-        const top = line.points[i]!;
-        if (s.kind === 'station') {
-          // Bullwheel at cable height, the loop the carriers turn around.
-          wheels.push(m.compose(top, q, scale.set(lift.gauge / 2, 1, lift.gauge / 2)).clone());
-          // Lifts often share a station; one placeholder box per site, or the
-          // coincident roofs and walls z-fight.
-          const shared = boxSites.some((p) => Math.hypot(p.x - top.x, p.z - top.z) < 20);
-          if (!s.stationBuilding && !shared) {
-            boxSites.push(top.clone());
-            const size = heavy ? [lift.gauge + 8, 10, 16] : [lift.gauge + 4, 6, 10];
-            const base = s.ground - BURY;
-            const roof = Math.max(top.y + 1.5, s.ground + size[1]!);
-            pos.set(top.x, (base + roof) / 2, top.z);
-            stations.push(m.compose(pos, q, scale.set(size[0]!, roof - base, size[2]!)).clone());
-          }
-          return;
-        }
+      lift.supports.forEach((s) => {
+        if (s.kind === 'station') return; // terminals are generated separately
+        const top = new Vector3(s.east, s.top, -s.north);
         const base = s.ground - BURY;
         const armY = top.y + 0.35;
         pos.set(top.x, base, top.z);
         towers.push(m.compose(pos, q, scale.set(radius, armY - base, radius)).clone());
         pos.set(top.x, armY + 0.2, top.z);
         arms.push(m.compose(pos, q, scale.set(lift.gauge + 1.2, 0.35, 0.45)).clone());
-        for (const side of [1, -1] as const) {
-          line.cablePoint(line.cumulative[i]! * (op.length / line.cumulative.at(-1)!), side, pos);
+        for (const side of [1, -1]) {
+          pos.copy(top).addScaledVector(line.across, side * r);
           sheaves.push(m.compose(pos, q, ONE).clone());
         }
       });
 
-      // Haul rope on each side, span by span.
-      for (const side of [1, -1] as const) {
-        for (let i = 0; i < line.points.length - 1; i++) {
-          const a = line.points[i]!.clone().addScaledVector(line.across, (side * lift.gauge) / 2);
-          const b = line.points[i + 1]!.clone().addScaledVector(
-            line.across,
-            (side * lift.gauge) / 2,
-          );
-          const span = b.clone().sub(a);
-          const thickness = heavy ? 0.12 : 0.06;
-          cables.push(
-            m
-              .compose(
-                a.clone().lerp(b, 0.5),
-                new Quaternion().setFromUnitVectors(new Vector3(0, 0, 1), span.clone().normalize()),
-                scale.set(thickness, thickness, span.length()),
-              )
-              .clone(),
-          );
+      // Ropes along the haul-rope path (round the bullwheels for loops).
+      const thickness = heavy ? 0.12 : 0.06;
+      if (line.loop) {
+        // One segment per span between corners (towers, station ends, bullwheel arcs).
+        const corners = line.loop.corners;
+        for (let i = 0; i < corners.length; i++) {
+          rope(corners[i]!.position, corners[(i + 1) % corners.length]!.position, thickness);
+        }
+      } else {
+        for (const track of line.tracks!) {
+          for (let i = 0; i < track.points.length - 1; i++) {
+            rope(track.points[i]!, track.points[i + 1]!, thickness);
+          }
         }
       }
     }
@@ -419,11 +656,9 @@ export class LiftSystem {
       new MeshStandardNodeMaterial({ color: 0x6c7076, metalness: 0.5, roughness: 0.45 }),
       arms,
     );
-    // Sheaves and bullwheels are a few cm thick: shadows wouldn't show but would cost
-    // every shadow cascade thousands of instances.
+    // Sheaves are a few cm thick: shadows wouldn't show but would cost every shadow
+    // cascade thousands of instances.
     add(sheaveGeometry(), material, sheaves, false);
-    add(bullwheelGeometry(), material, wheels, false);
     add(new BoxGeometry(1, 1, 1), cableMaterial, cables, false);
-    add(new BoxGeometry(1, 1, 1), stationMaterial, stations);
   }
 }

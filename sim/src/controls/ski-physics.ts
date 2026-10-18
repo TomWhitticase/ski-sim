@@ -48,6 +48,8 @@ export interface SkiTerrain {
   height(x: number, z: number): number;
   /** Whether the snow at (x, z) is a groomed piste. Treated as groomed if omitted. */
   groomed?(x: number, z: number): boolean;
+  /** Push a body out of solid things (buildings, station walls); adjusts velocity. */
+  collide?(position: Vector3, velocity: Vector3): void;
 }
 
 export interface SkiState {

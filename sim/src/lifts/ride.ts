@@ -3,31 +3,46 @@ import { Euler, Matrix4, type PerspectiveCamera, Quaternion, Vector3 } from 'thr
 import { FLY } from '../config';
 import { type Input, Look } from '../controls/input';
 import type { SkiControls } from '../controls/ski-controls';
-import type { LiftSystem } from './lift-system';
-import { nextDeparture } from './operation';
+import { floorBelowGrip } from './carriers';
+import { type LiftLine, type LiftSystem, nextDeparture } from './lift-system';
 
 const FAST_FORWARD = 8;
 const CHASE_DISTANCE = 6;
+/** Walking pace on the way to the loading point after pressing E (m/s). */
+const WALK_SPEED = 3;
+/** Seconds to settle into the seat once the carrier reaches you. */
+const BOARD_BLEND = 0.5;
+
+export type RidePhase = 'approach' | 'waiting' | 'boarding' | 'riding';
 
 /**
- * Riding a lift. You're attached to one carrier and move with it; at the top you're
- * handed back to ski mode. Hold W to fast-forward the lift clock; S skips to the top.
+ * Getting on, riding and getting off a lift, with no teleports:
+ * - approach (after pressing E): walk to the loading point;
+ * - waiting: stand on the loading point until the next carrier reaches you (you can also
+ *   ski into the loading zone yourself; LiftSystem.scoop() starts you at `boarding`);
+ * - boarding: settle into the seat/cabin as it carries you along;
+ * - riding: until your carrier passes the unloading point, where you're released.
+ * Hold W to fast-forward the lift clock; S skips straight to the top.
  */
 export class RideControls {
   readonly look = new Look(FLY.mouseSensitivity);
   line = 0;
   carrier = 0;
-  /** Waiting at a jig-back station for the cabin to leave. */
-  waiting = false;
+  phase: RidePhase = 'waiting';
+  readonly velocity = new Vector3();
+  private readonly waypoints: Vector3[] = [];
+  private blend = 0;
   private moved = false;
+  private readonly blendFrom = new Vector3();
   private readonly grip = new Matrix4();
   private readonly gripPos = new Vector3();
   private readonly gripQ = new Quaternion();
+  private readonly travel = new Vector3();
   private readonly feet = new Vector3();
-  private readonly euler = new Euler(0, 0, 0, 'YXZ');
-  private readonly offset = new Vector3();
+  private readonly seat = new Vector3();
   private readonly lastFeet = new Vector3();
-  readonly velocity = new Vector3();
+  private readonly euler = new Euler(0, 0, 0, 'YXZ');
+  private bodyYaw = 0;
 
   constructor(
     private readonly camera: PerspectiveCamera,
@@ -48,105 +63,196 @@ export class RideControls {
   }
 
   get name(): string {
-    return this.lifts.lines[this.line]!.name;
+    return this.lineObj.name;
   }
 
-  /** How far up the line you are (m); 0 while waiting. */
-  get distance(): number {
-    return this.waiting ? 0 : this.lifts.carrierState(this.line, this.carrier).distance;
+  private get lineObj(): LiftLine {
+    return this.lifts.lines[this.line]!;
   }
 
-  /** Seconds until departure while waiting for a cable car, else 0. */
+  /** Seconds until you're picked up while waiting (cable car: until it departs). */
   get departsIn(): number {
-    const op = this.lifts.lines[this.line]!.op;
-    return op.reversible ? nextDeparture(op, this.lifts.time) : 0;
+    const line = this.lineObj;
+    if (line.tracks) return nextDeparture(line.op, this.lifts.time);
+    return line.nextToLoad(this.lifts.time).inSeconds;
+  }
+
+  /** How far from the loading point you are (m, for tower clacks): 0 until riding. */
+  get distance(): number {
+    return this.phase === 'riding' ? this.feet.distanceTo(this.lineObj.loadPoint) : 0;
   }
 
   /** Teleports end the ride first (see main.ts), so there's nothing to place here. */
   place(): void {}
 
-  board(line: number, lookYaw: number): void {
+  /** Press-E boarding: walk from `from` to the loading point, then wait there. */
+  approach(line: number, from: Vector3, lookYaw: number): void {
     this.line = line;
-    const op = this.lifts.lines[line]!.op;
-    this.carrier = op.reversible ? 0 : this.lifts.nextCarrier(line);
-    this.waiting = op.reversible && nextDeparture(op, this.lifts.time) > 0;
-    this.moved = false;
+    const l = this.lineObj;
+    const t = l.bottomTerminal;
+    this.waypoints.length = 0;
+    if (l.op.kind === 'gondola' || l.op.kind === 'cabin') {
+      // In through the door on the uphill side, then to your spot beside the track.
+      const outside = l.loadPoint
+        .clone()
+        .addScaledVector(l.across, t.width / 2 - t.gauge / 2 + 2.5);
+      this.waypoints.push(outside, l.loadPoint.clone().addScaledVector(l.across, 1.4));
+    } else {
+      this.waypoints.push(l.loadPoint.clone());
+    }
+    this.feet.copy(from);
+    this.lastFeet.copy(from);
     this.look.yaw = lookYaw;
     this.look.pitch = 0;
-    this.attach();
-    this.lastFeet.copy(this.feet);
+    this.phase = 'approach';
     this.velocity.set(0, 0, 0);
   }
 
-  /** Returns true when you've arrived at the top. */
+  /** Start boarding a specific carrier from where you are (skied into the loading zone). */
+  boardFrom(line: number, carrier: number, from: Vector3, lookYaw: number): void {
+    this.line = line;
+    this.feet.copy(from);
+    this.lastFeet.copy(from);
+    this.look.yaw = lookYaw;
+    this.look.pitch = 0;
+    this.startBoarding(carrier);
+  }
+
+  /** Returns true once you've been released at the top (or S skipped there). */
   update(dt: number, input: Input): boolean {
     this.look.apply(input);
-    this.lifts.rate = input.down('KeyW') ? FAST_FORWARD : 1;
-    // S skips the rest of the ride: straight off at the top.
-    if (input.wasPressed('KeyS')) return true;
-    const op = this.lifts.lines[this.line]!.op;
-
-    if (this.waiting) {
-      // Stand by the bottom station until the cabin is boarding.
-      if (nextDeparture(op, this.lifts.time) === 0) this.waiting = false;
+    const lifts = this.lifts;
+    lifts.rate = input.down('KeyW') && this.phase !== 'approach' ? FAST_FORWARD : 1;
+    if (input.wasPressed('KeyS')) {
+      this.skipToTop();
+      return true;
     }
-    const state = this.lifts.carrierState(this.line, this.carrier);
-    if (state.moving) this.moved = true;
-    this.attach();
-    if (dt > 0)
-      this.velocity
-        .copy(this.feet)
-        .sub(this.lastFeet)
-        .divideScalar(dt * this.lifts.rate);
-    this.lastFeet.copy(this.feet);
+    const line = this.lineObj;
 
-    if (op.reversible) return this.moved && !state.moving && state.distance > op.length / 2;
-    return state.side === -1;
+    if (this.phase === 'approach') {
+      const target = this.waypoints[0]!;
+      const step = WALK_SPEED * dt;
+      const to = target.clone().sub(this.feet).setY(0);
+      if (to.length() <= step) {
+        this.feet.copy(target);
+        this.waypoints.shift();
+        if (!this.waypoints.length) this.phase = 'waiting';
+      } else {
+        to.setLength(step);
+        this.feet.add(to);
+        this.bodyYaw = Math.atan2(-to.x, -to.z);
+      }
+      this.feet.y = this.skier.groundAt(this.feet.x, this.feet.z);
+    } else if (this.phase === 'waiting') {
+      const t = line.bottomTerminal;
+      this.bodyYaw = Math.atan2(-t.dir[0], t.dir[1]);
+      if (line.tracks) {
+        if (nextDeparture(line.op, lifts.time) === 0) this.startBoarding(0);
+      } else {
+        const { carrier } = line.nextToLoad(lifts.previousTime);
+        if (line.passed(carrier, line.loadTime, lifts.previousTime, lifts.time)) {
+          this.startBoarding(carrier);
+        }
+      }
+    }
+
+    if (this.phase === 'boarding' || this.phase === 'riding') {
+      const pose = lifts.carrierMatrix(this.line, this.carrier, this.grip);
+      this.grip.decompose(this.gripPos, this.gripQ, new Vector3());
+      this.travel.set(0, 0, -1).applyQuaternion(this.gripQ);
+      this.seatPosition(pose.side);
+      if (this.phase === 'boarding') {
+        this.blend = Math.min(1, this.blend + dt / BOARD_BLEND);
+        const k = this.blend * this.blend * (3 - 2 * this.blend);
+        this.feet.copy(this.blendFrom).lerp(this.seat, k);
+        if (this.blend >= 1) this.phase = 'riding';
+      } else {
+        this.feet.copy(this.seat);
+      }
+      this.bodyYaw = new Euler().setFromQuaternion(this.gripQ, 'YXZ').y;
+      if (pose.moving) this.moved = true;
+    }
+
+    if (dt > 0) this.velocity.copy(this.feet).sub(this.lastFeet).divideScalar(dt);
+    this.lastFeet.copy(this.feet);
+    this.pose();
+
+    if (this.phase !== 'riding') return false;
+    if (line.tracks) {
+      const p = line.pose(this.carrier, lifts.time, new Vector3(), new Vector3());
+      return this.moved && !p.moving && p.distance > line.op.length / 2;
+    }
+    return line.passed(this.carrier, line.unloadTime, lifts.previousTime, lifts.time);
+  }
+
+  /** Where to put you when you get off, and how you're moving. */
+  release(): { feet: Vector3; velocity: Vector3; heading: number } {
+    const line = this.lineObj;
+    const t = line.topTerminal;
+    const out = new Vector3(-t.dir[0], 0, t.dir[1]); // onward, past the bullwheel
+    const velocity = new Vector3();
+    if (line.op.kind === 'gondola' || line.op.kind === 'cabin') {
+      // Out through the door on the uphill side.
+      velocity.copy(line.across).multiplyScalar(2).addScaledVector(out, 0.3);
+    } else {
+      const speed = Math.max(Math.hypot(this.velocity.x, this.velocity.z) / this.lifts.rate, 2.5);
+      velocity.copy(out).multiplyScalar(speed);
+    }
+    const heading = (Math.atan2(velocity.x, -velocity.z) * 180) / Math.PI;
+    return { feet: this.feet.clone(), velocity, heading };
   }
 
   /** Lift clock back to normal speed (call when leaving). */
-  release(): void {
+  releaseClock(): void {
     this.lifts.rate = 1;
   }
 
-  /** Put you in or on the carrier and place the camera. */
-  private attach(): void {
-    const line = this.lifts.lines[this.line]!;
+  private startBoarding(carrier: number): void {
+    this.carrier = carrier;
+    this.blendFrom.copy(this.feet);
+    this.blend = 0;
+    this.moved = false;
+    this.phase = 'boarding';
+  }
+
+  /** S: off at the top unloading point, as if you'd ridden it. */
+  private skipToTop(): void {
+    this.feet.copy(this.lineObj.unloadPoint);
+    this.velocity.set(0, 0, 0);
+    this.phase = 'riding';
+  }
+
+  /** Your feet on the carrier (seat, cabin floor, or behind a platter on the snow). */
+  private seatPosition(side: 1 | -1): void {
+    const line = this.lineObj;
     const { kind, hang } = line.op;
-    let crouch = 0.15;
-    if (this.waiting) {
-      // On the platform below the bottom station, facing up the line.
-      line.cablePoint(0, 1, this.gripPos);
-      this.gripPos.y -= hang;
-      const ahead = line.top.clone().sub(line.bottom).setY(0).normalize();
-      this.gripQ.setFromAxisAngle(new Vector3(0, 1, 0), Math.atan2(-ahead.x, -ahead.z));
-    } else {
-      this.lifts.carrierMatrix(this.line, this.carrier, this.grip);
-      this.grip.decompose(this.gripPos, this.gripQ, new Vector3());
-    }
-
+    const local = new Vector3();
     if (kind === 'chair') {
-      // Seated on the right-hand end of the chair.
-      this.offset.set(line.seats * 0.25 - 0.35, -hang - 0.5, -0.12);
-      crouch = 0.62;
+      local.set(line.seats * 0.25 - 0.35, -(floorBelowGrip(kind, line.seats, hang) + 0.5), -0.12);
     } else if (kind === 'gondola') {
-      this.offset.set(0.3, -hang - 0.85, 0.2);
+      local.set(0.3, -floorBelowGrip(kind, line.seats, hang) + 0.02, 0.2);
     } else if (kind === 'cabin') {
-      this.offset.set(0.8, -hang - 1.35, -1.5);
+      local.set(0.8, -floorBelowGrip(kind, line.seats, hang) + 0.02, -1.5);
     } else {
-      this.offset.set(0, 0, 0.9);
+      const { platter } = this.lifts.platterPose(this.gripPos, this.travel, side);
+      this.seat.set(platter.x, this.skier.groundAt(platter.x, platter.z), platter.z);
+      return;
     }
-    if (this.waiting) this.offset.set(0, 0, 0);
-    this.feet.copy(this.offset).applyQuaternion(this.gripQ).add(this.gripPos);
-    if (kind === 'platter' || kind === 'tbar') {
-      // Towed along the snow under the line.
-      this.feet.y = this.skierGround(this.feet);
-    }
-    const yaw = new Euler().setFromQuaternion(this.gripQ, 'YXZ').y;
-    this.skier.showRiding(this.feet, yaw, crouch);
+    this.seat.copy(local).applyQuaternion(this.gripQ).add(this.gripPos);
+  }
 
-    const eye = crouch > 0.5 ? 1.18 : 1.62;
-    if (this.camera && this.skier.view === 'first-person') {
+  /** Pose the skier model and camera. */
+  private pose(): void {
+    const kind = this.lineObj.op.kind;
+    const crouch =
+      kind === 'chair' && this.phase === 'riding'
+        ? 0.62
+        : kind === 'chair' && this.phase === 'boarding'
+          ? 0.15 + 0.47 * this.blend
+          : 0.15;
+    this.skier.showRiding(this.feet, this.bodyYaw, crouch);
+    const eye = 1.62 - 0.7 * Math.max(0, crouch - 0.15);
+    if (this.skier.view === 'first-person') {
       this.camera.position.set(this.feet.x, this.feet.y + eye, this.feet.z);
       this.euler.set(this.look.pitch, this.look.yaw, 0);
       this.camera.quaternion.setFromEuler(this.euler);
@@ -160,9 +266,5 @@ export class RideControls {
       );
       this.camera.lookAt(this.feet.x, this.feet.y + 1, this.feet.z);
     }
-  }
-
-  private skierGround(p: Vector3): number {
-    return this.skier.groundAt(p.x, p.z);
   }
 }

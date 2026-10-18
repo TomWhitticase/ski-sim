@@ -188,14 +188,30 @@ P deploys a paraglider from fly or ski mode, keeping your velocity; P again drop
 - `controls/glider-controls.ts` builds the canopy (vertex-coloured cells), the lines and a seated pilot (a second `SkierModel`).
 - Peak names moved from P to N.
 
-### Lift operation and riding
+### Lift terminals, operation and riding
 
-- `lifts/operation.ts` (pure, unit-tested) gives speed, carrier spacing and count from OSM specs (`aerialway:duration/occupancy/capacity`, parsed by the pipeline) with typical fallbacks. Loop lifts run continuously; cable cars run as jig-backs (two cabins, 45 s dwell).
-- `lifts/lift-system.ts`: towers, crossarms, sheave trains, bullwheels, ropes and stations are static instances. Carriers are one InstancedMesh per type and seat count, all updated each frame (~3.6k carriers at 60 fps).
-- `lifts/signs.ts` + `lifts/sign-placement.ts`: a name board on two posts at each end of every lift, standing on the ground beside the station entrance. `placeSign` (pure, unit-tested) tries candidate spots in order and rejects any inside a building (`features/building-index.ts`), straddling a step over 2.5 m, or over the cable corridor. If nothing qualifies, it places no sign: no sign beats a floating one. `checkSign` re-verifies every placed sign at load (posts on the ground, board at reading height, not floating) and logs a console error for any violation, which fails the e2e view tests. Never derive sign height from nearby roofs (that was the Arpasson bug). One canvas atlas, one instanced mesh.
-- Lift sounds: drive hum near stations, sheave clacks as your carrier passes each tower, a clunk on boarding and unloading.
-- Avoid coplanar geometry (z-fighting): lifts sharing a station get one placeholder box; back-to-back sign faces sit 4 cm apart.
-- `lifts/ride.ts`: press E within 35 m of a bottom station to board the next carrier (cable cars: wait for the cabin). Hold W to fast-forward the lift clock (×8); S skips straight to the top. You're unloaded at the top in ski mode, moving; E mid-ride jumps off.
+**Pipeline (`terminals.py`).** Generated from the lift line alone, so it works for any resort:
+- **Kind and size:** chair (detachable or fixed), gondola, cable car or drag, sized from gauge and type. Detachable means published speed over 3.2 m/s, any gondola, or 6+ seats.
+- **Pads:** a flat pad under each terminal, with nearby terminals sharing one height. Chair and drag tops also get a ski-off ramp that drops 2.4 m from the unload point, so the chair passes overhead. Ramps never carve another terminal's pad.
+- **Ordering:** pads are flattened *before* buildings and lifts are placed, so everything sits on the final ground.
+- **Building cuts:** a building mostly inside a hall *is* the station and is replaced. Otherwise the hall and the cable corridor (below the lowest carrier) are cut out of it. A station inside a big building gets sliced clean through, so there are no holes. Cuts repeat until stable, with a 10 cm margin against coordinate rounding.
+- **Check:** `conflicts()` must report nothing (logged as an ERROR otherwise, and recorded in `manifest.validation.liftClearance`).
+
+**Sim.**
+- `lifts/loop.ts`: each loop lift is one continuous path: up track, round the top bullwheel, down track, round the bottom one. Carriers are spaced in *time*, so detachables crawl through stations (chairs 1 m/s, gondolas 0.35 m/s) and bunch there. Jig-back cable cars use two docked tracks.
+- `lifts/operation.ts`: line speed, headway and capacity.
+- `lifts/terminals.ts`: station meshes (chair: housing, canopy, hut, loading gate; gondola/cable car: enclosed hall with a door gap on the uphill side; drag: post and hut), merged into one draw call, plus their collision obstacles.
+- `lifts/lift-system.ts`: carriers, statics, and the load and unload points with "has a carrier just passed?" timing (`nextToLoad`, `passed`).
+- `LiftSystem.check()` (console error, so the e2e tests fail): continuous paths, and loading/unloading points on their pads.
+
+**Boarding** (`lifts/ride.ts`), no teleports:
+- **Manual:** stand in the loading zone and the next carrier scoops you up (`LiftSystem.scoop`).
+- **E:** you walk to the loading point (through the door for halls) and wait.
+- **Seat:** a 0.5 s blend into the seat.
+- **Top:** released at the unload point, moving: onto the ramp for chairs and drags, out of the side door for halls.
+- **Skip:** S skips to the top from any phase; W fast-forwards (×8).
+
+**Collisions** (`features/obstacles.ts`): the skier is pushed out of buildings and terminal walls, with the into-wall velocity removed.
 
 ### Lifts and buildings
 
@@ -222,7 +238,7 @@ Known limits:
 - 4 m data looks soft at ground level, though a tiling procedural snow-detail normal map (`terrain/snow-detail.ts`) adds texture within ~400 m. Skiing will need finer tiles streamed near the camera.
 - There's no texture/imagery drape yet. Snow vs rock is decided by slope.
 - Pistes use default widths, so edges are approximate where OSM has no area polygon.
-- Lift cables are straight with no sag. Carriers jump between tracks at the bullwheel instead of going round it, and don't slow in stations. Building roofs are flat, and multipolygon buildings (courtyards) are skipped.
+- Lift cables are straight with no sag. Terminals are a few generic designs per lift type, not the real station architecture. Building roofs are flat, and multipolygon buildings (courtyards) are skipped.
 
 Large binaries (DEMs, imagery, meshes) are never committed directly. Generate them through the pipeline. If shared assets ever have to live in the repo, use Git LFS.
 
