@@ -348,6 +348,17 @@ export class SkierModel {
     }
   }
 
+  /** Skis, bindings and boots (hidden when you're just flying around). */
+  setSkisVisible(visible: boolean): void {
+    this.skis.left.group.visible = visible;
+    this.skis.right.group.visible = visible;
+  }
+
+  /** World position of a ski's centre on the snow. Call after the root's matrices update. */
+  skiPosition(side: 'left' | 'right', out: Vector3): Vector3 {
+    return this.skis[side].group.getWorldPosition(out);
+  }
+
   /** In first person the camera sits in the head: hide the body, keep skis and poles. */
   setFirstPerson(firstPerson: boolean): void {
     this.figure.visible = !firstPerson;

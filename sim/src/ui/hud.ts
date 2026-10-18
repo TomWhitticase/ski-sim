@@ -39,6 +39,7 @@ export class Hud {
         <div class="hud-toggle" data-toggle="lift"><kbd>L</kbd> Lift names <b></b></div>
         <div class="hud-toggle" data-toggle="peak"><kbd>N</kbd> Peak names <b></b></div>
         <div class="hud-toggle" data-toggle="pistes"><kbd>O</kbd> Piste colours <b></b></div>
+        <div class="hud-toggle" data-toggle="sound"><kbd>K</kbd> Sound <b></b></div>
         <div class="hud-toggle"><kbd>M</kbd> Map &amp; teleport</div>
         <div class="hud-toggle"><kbd>F</kbd> Fly / ski</div>
         <div class="hud-toggle"><kbd>P</kbd> Paraglider</div>

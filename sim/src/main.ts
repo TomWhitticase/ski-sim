@@ -8,7 +8,13 @@ import {
 } from 'three/webgpu';
 
 import { CAMERA, DEFAULT_RESORT, SIM_TIME, TERRAIN } from './config';
+import { Sound } from './audio/sound';
+import { soundLevels } from './audio/levels';
 import { FlyControls } from './controls/fly-controls';
+import { surfaceNormal } from './controls/ski-physics';
+import { skidAmount, sprayRate, trailWidth } from './fx/intensity';
+import { SnowSpray } from './fx/snow-spray';
+import { SnowTrails } from './fx/snow-trails';
 import { GliderControls } from './controls/glider-controls';
 import { Input } from './controls/input';
 import { EYE_HEIGHT, SkiControls } from './controls/ski-controls';
@@ -156,6 +162,14 @@ async function main(): Promise<void> {
   scene.add(ski.skier);
   const glider = new GliderControls(camera, groundHeight, bounds);
   scene.add(glider.root);
+  const trails = new SnowTrails();
+  const spray = new SnowSpray();
+  scene.add(trails.mesh, spray.mesh);
+  const fxLeft = new Vector3();
+  const fxRight = new Vector3();
+  const fxMid = new Vector3();
+  const fxNormal = new Vector3();
+  const fxSlide = new Vector3();
   let mode: Mode = loadMode();
   const controls = () => (mode === 'ski' ? ski : mode === 'glide' ? glider : fly);
   const spawn: Pose = { ...manifest.spawn, pitch: -8 };
@@ -213,6 +227,7 @@ async function main(): Promise<void> {
     groundHeight,
     { lift: prefs.lift, peak: prefs.peak },
   );
+  const sound = new Sound(!prefs.sound);
   const savePrefs = () =>
     localStorage.setItem(
       PREFS_KEY,
@@ -220,6 +235,7 @@ async function main(): Promise<void> {
         lift: labels.isVisible('lift'),
         peak: labels.isVisible('peak'),
         pistes: pisteTint.value > 0,
+        sound: !sound.isMuted,
       }),
     );
   const toggleLabels = (kind: LabelKind) => {
@@ -232,6 +248,12 @@ async function main(): Promise<void> {
     hud.setToggle('pistes', pisteTint.value > 0);
     savePrefs();
   };
+  const toggleSound = () => {
+    sound.setMuted(!sound.isMuted);
+    hud.setToggle('sound', !sound.isMuted);
+    savePrefs();
+  };
+  hud.setToggle('sound', !sound.isMuted);
   hud.setToggle('lift', labels.isVisible('lift'));
   hud.setToggle('peak', labels.isVisible('peak'));
   hud.setToggle('pistes', pisteTint.value > 0);
@@ -353,6 +375,8 @@ async function main(): Promise<void> {
       debug.hidden = !debug.hidden;
     } else if (e.code === 'KeyL' && !e.repeat) {
       toggleLabels('lift');
+    } else if (e.code === 'KeyK' && !e.repeat) {
+      toggleSound();
     } else if (e.code === 'KeyO' && !e.repeat) {
       togglePisteColours();
     } else if (e.code === 'KeyN' && !e.repeat) {
@@ -360,7 +384,10 @@ async function main(): Promise<void> {
     }
   });
   const start = $<HTMLButtonElement>('#start');
-  start.addEventListener('click', () => void input.lock());
+  start.addEventListener('click', () => {
+    sound.start(); // audio may only start from a user gesture
+    void input.lock();
+  });
   status.textContent =
     manifest.resort.country === 'FR' ? 'Savoie, France' : manifest.resort.country;
   start.hidden = false;
@@ -377,6 +404,29 @@ async function main(): Promise<void> {
   let fps = 60;
 
   let lastPersist = 0;
+
+  /** Tracks, spray and sound from what the skis are doing this frame. */
+  const updateSnowFx = (dt: number, airSpeed: number) => {
+    const contact = mode === 'ski' ? ski.contact : null;
+    if (contact && contact.onSnow && contact.speed > 0.5) {
+      ski.skiPositions(fxLeft, fxRight);
+      fxMid.copy(fxLeft).add(fxRight).multiplyScalar(0.5);
+      surfaceNormal({ height: groundHeight }, fxMid.x, fxMid.z, fxNormal);
+      const width = trailWidth(contact);
+      const skid = skidAmount(contact);
+      trails.extend('left', fxLeft, fxNormal, width, skid);
+      trails.extend('right', fxRight, fxNormal, width, skid);
+      // Snow flies the way you're travelling (forward in a hockey stop).
+      fxSlide.set(ski.velocity.x, 0, ski.velocity.z).normalize();
+      spray.emit(fxMid, fxSlide, ski.velocity, sprayRate(contact), dt);
+    } else {
+      trails.break();
+    }
+    spray.update(dt, groundHeight);
+    trails.flush();
+    sound.update(soundLevels(airSpeed, contact));
+    if (mode === 'ski' && ski.landingImpact > 0) sound.thump(ski.landingImpact);
+  };
 
   renderer.setAnimationLoop(() => {
     const now = performance.now();
@@ -425,6 +475,7 @@ async function main(): Promise<void> {
     const { east, north } = worldToEnu(here.x, here.z);
     const { lat, lon } = frame.toLatLon(east, north);
     const ownSpeed = mode === 'ski' ? ski.speed : mode === 'glide' ? glider.speed : speed;
+    updateSnowFx(dt, ownSpeed);
     hud.update({ altitude: here.y, lat, lon, speed: ownSpeed });
     // Which run is underfoot (only meaningful near the snow).
     const nearSnow = here.y - groundHeight(here.x, here.z) < 60;
@@ -497,10 +548,11 @@ interface Prefs {
   lift: boolean;
   peak: boolean;
   pistes: boolean;
+  sound: boolean;
 }
 
 function loadPrefs(): Prefs {
-  const defaults = { lift: true, peak: true, pistes: true };
+  const defaults = { lift: true, peak: true, pistes: true, sound: true };
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') };
   } catch {

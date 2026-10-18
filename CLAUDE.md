@@ -142,6 +142,14 @@ There are two layers. **Near** is lidar at 4 m covering the ski area. **Far** is
 
 Difficulty codes are 1 green (novice), 2 blue (easy), 3 red (intermediate), 4/5 black, 6 freeride. Freeride itineraries (and `piste:grooming=backcountry`) count as off-piste: no overlay and no markers.
 
+### Snow effects and sound
+
+`fx/intensity.ts` (pure, unit-tested) turns the ski contact (speed, sideslip, edge, groomed) into a skid amount and a carve amount, and from those the spray rate, track width and sound levels. Spray, trails and sound all share it so they stay consistent: a hockey stop gives a big spray, a wide smear and a loud scrape; a gentle turn gives almost no spray, a thin groove and a soft hiss.
+- `fx/snow-trails.ts`: ring buffer of 8k instanced quads, uploading only new instances via `addUpdateRange`. Marks fade with camera distance.
+- `fx/snow-spray.ts`: pool of 1.4k instanced particles on the CPU.
+- `audio/sound.ts`: all procedural Web Audio (filtered noise, no audio files): wind, glide hiss, skid scrape, landing thumps. It starts from the "Click to play" gesture; K mutes (persisted).
+- Measured at a steady 60 fps during a full hockey-stop spray.
+
 ### Paraglider
 
 P deploys a paraglider from fly or ski mode, keeping your velocity; P again drops the wing (ski mode, falling), and touching down switches to ski mode automatically.

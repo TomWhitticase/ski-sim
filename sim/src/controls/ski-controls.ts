@@ -7,6 +7,7 @@ import { type Input, Look } from './input';
 import { SkierModel } from './ski-model';
 import { SKI, type SkiState, type SkiTerrain, stepSki, surfaceNormal } from './ski-physics';
 import { initialStance, updateStance } from './ski-stance';
+import type { SnowContact } from '../fx/intensity';
 
 export const EYE_HEIGHT = 1.7;
 /** How far the eye drops in a full tuck (m). */
@@ -65,6 +66,10 @@ export class SkiControls {
   /** Direction the body balances along, in the skier's slope-aligned frame. */
   private readonly bodyUp = new Vector3(0, 1, 0);
   private readonly inverse = new Quaternion();
+  /** What the skis are doing to the snow this frame (for spray, trails and sound). */
+  readonly contact: SnowContact = { speed: 0, sideslip: 0, edge: 0, onSnow: false, groomed: true };
+  /** Impact speed (m/s) if you landed this frame, else 0. */
+  landingImpact = 0;
 
   constructor(
     private readonly camera: PerspectiveCamera,
@@ -127,6 +132,7 @@ export class SkiControls {
 
   setActive(active: boolean): void {
     this.skier.visible = active;
+    this.model.setSkisVisible(true);
     this.applyView();
   }
 
@@ -135,10 +141,18 @@ export class SkiControls {
     this.applyView();
   }
 
+  /** World positions of the two skis (after this frame's pose). */
+  skiPositions(left: Vector3, right: Vector3): void {
+    this.skier.updateMatrixWorld(true);
+    this.model.skiPosition('left', left);
+    this.model.skiPosition('right', right);
+  }
+
   /** Show the skier hovering upright at a fly-mode eye position (third-person flying). */
   showFlying(eye: Vector3, yaw: number): void {
     this.skier.visible = true;
     this.model.setFirstPerson(false);
+    this.model.setSkisVisible(false);
     this.skier.position.set(eye.x, eye.y - EYE_HEIGHT, eye.z);
     this.skier.quaternion.setFromAxisAngle(UP, yaw);
     this.model.apply(FLYING_STANCE, UP);
@@ -167,6 +181,8 @@ export class SkiControls {
     const tuck = input.down('ControlLeft', 'ControlRight');
     const plough = input.down('ShiftLeft', 'ShiftRight');
     const skate = input.down('KeyW') && !tuck && !plough;
+    const wasAirborne = this.state.airborne;
+    const fallSpeed = -this.state.velocity.y;
     stepSki(
       this.state,
       {
@@ -221,6 +237,14 @@ export class SkiControls {
     // Edge angle: how far the balance line tips across the skis from the slope normal.
     const balanceEdge = Math.atan2(-this.bodyUp.x, this.bodyUp.y);
 
+    this.landingImpact = wasAirborne && !this.state.airborne ? Math.max(0, fallSpeed) : 0;
+    Object.assign(this.contact, {
+      speed,
+      sideslip,
+      edge: balanceEdge,
+      onSnow: !this.state.airborne,
+      groomed: this.terrain.groomed?.(p.x, p.z) ?? true,
+    });
     updateStance(
       this.stance,
       {
