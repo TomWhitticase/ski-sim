@@ -1,16 +1,17 @@
 import { expect, type Page, test } from '@playwright/test';
 
 async function load(page: Page, query = '') {
+  const resort = 'resort=les-3-vallees';
   await page.addInitScript(() => {
     Object.defineProperty(Document.prototype, 'pointerLockElement', {
       get: () => document.querySelector('#scene'),
     });
   });
-  await page.goto(`/${query}`);
+  await page.goto(query ? `/${query}&${resort}` : `/?${resort}`);
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10, null, { timeout: 90_000 });
 }
 
-const run = (page: Page) => page.locator('#hud [data-piste] span');
+const run = (page: Page) => page.locator('#run [data-piste] span');
 
 test('teleporting to a piste puts you at its top, and the HUD names the run', async ({ page }) => {
   await load(page);
@@ -50,15 +51,15 @@ test('off the pistes the HUD says so, and flying high hides the run row', async 
   await page.evaluate(() => localStorage.clear()); // forget ski mode
   await load(page, '?at=45.2981,6.5803,3500&heading=0&pitch=0'); // 1 km above the village
   await page.waitForTimeout(300);
-  await expect(page.locator('#hud .hud-piste')).toBeHidden();
+  await expect(page.locator('#run')).toBeHidden();
 });
 
-test('O toggles piste colours and remembers the choice', async ({ page }) => {
+test('3 toggles piste colours and remembers the choice', async ({ page }) => {
   await load(page);
-  const toggle = page.locator('#hud [data-toggle="pistes"] b');
+  const toggle = page.locator('#toggles [data-toggle="pistes"] b');
   await expect(toggle).toHaveText('ON');
   await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
-  await page.keyboard.press('KeyO');
+  await page.keyboard.press('Digit3');
   await expect(toggle).toHaveText('OFF');
   await page.reload();
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10);

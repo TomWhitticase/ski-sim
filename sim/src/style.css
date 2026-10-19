@@ -38,15 +38,20 @@ body {
   user-select: none;
 }
 
+#hud,
+#run,
+#toggles {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
 #hud {
   top: 16px;
   left: 16px;
-  padding: 10px 14px;
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-  font-size: 15px;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.6;
-  min-width: 210px;
+  padding: 8px 12px;
+  font-size: 14px;
+  line-height: 1.55;
+  min-width: 180px;
 }
 
 .hud-row {
@@ -59,37 +64,61 @@ body {
   color: var(--muted);
 }
 
-.hud-piste[hidden] {
+/* Minimap, the run underfoot and the display toggles stacked top right. */
+#map-side {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+
+#map-side .panel {
+  position: relative;
+}
+
+#run {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 12px;
+  font-size: 14px;
+}
+
+#run[hidden] {
   display: none;
 }
 
-.hud-piste [data-piste] {
-  max-width: 170px;
+#run [data-piste] {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.hud-piste i {
+#run i {
   display: inline-block;
-  width: 9px;
-  height: 9px;
-  margin-right: 6px;
+  width: 10px;
+  height: 10px;
+  margin-right: 7px;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.7);
-  vertical-align: 0;
+  vertical-align: -1px;
 }
 
-.hud-piste i[hidden] {
+#run i[hidden] {
   display: none;
 }
 
-.hud-toggles {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid rgba(255, 255, 255, 0.15);
+#toggles {
+  padding: 5px 12px;
   font-size: 12px;
-  line-height: 1.7;
+  line-height: 1.75;
   color: var(--muted);
 }
 
@@ -97,6 +126,10 @@ body {
   float: right;
   font-weight: 600;
   color: var(--muted);
+}
+
+.hud-toggle.on {
+  color: var(--panel-text);
 }
 
 .hud-toggle.on b {
@@ -107,11 +140,12 @@ body {
   display: inline-block;
   min-width: 18px;
   padding: 0 4px;
-  margin-right: 6px;
+  margin: 0 6px 0 0;
   border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 4px;
   text-align: center;
   font-family: inherit;
+  line-height: 1.4;
   color: var(--panel-text);
 }
 
@@ -179,9 +213,6 @@ body {
 }
 
 #minimap {
-  top: 16px;
-  right: 16px;
-  width: 240px;
   height: 240px;
   padding: 0;
   overflow: hidden;

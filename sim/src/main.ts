@@ -281,7 +281,7 @@ async function main(): Promise<void> {
   nearTerrain.update(camera.position, Infinity);
   farTerrain.update(camera.position, Infinity);
 
-  const hud = new Hud($('#hud'));
+  const hud = new Hud($('#hud'), $('#run'), $('#toggles'));
   const toast = new Toast($('#toast'));
   const minimap = await Minimap.load(
     $<HTMLCanvasElement>('#minimap canvas'),
@@ -320,10 +320,8 @@ async function main(): Promise<void> {
   };
   const toggleSound = () => {
     sound.setMuted(!sound.isMuted);
-    hud.setToggle('sound', !sound.isMuted);
     savePrefs();
   };
-  hud.setToggle('sound', !sound.isMuted);
   hud.setToggle('lift', labels.isVisible('lift'));
   hud.setToggle('peak', labels.isVisible('peak'));
   hud.setToggle('pistes', pisteTint.value > 0);
@@ -503,14 +501,14 @@ async function main(): Promise<void> {
     } else if (e.code === 'F3') {
       e.preventDefault();
       debug.hidden = !debug.hidden;
-    } else if (e.code === 'KeyL' && !e.repeat) {
+    } else if ((e.code === 'Digit1' || e.code === 'Numpad1') && !e.repeat) {
       toggleLabels('lift');
+    } else if ((e.code === 'Digit2' || e.code === 'Numpad2') && !e.repeat) {
+      toggleLabels('peak');
+    } else if ((e.code === 'Digit3' || e.code === 'Numpad3') && !e.repeat) {
+      togglePisteColours();
     } else if (e.code === 'KeyK' && !e.repeat) {
       toggleSound();
-    } else if (e.code === 'KeyO' && !e.repeat) {
-      togglePisteColours();
-    } else if (e.code === 'KeyN' && !e.repeat) {
-      toggleLabels('peak');
     }
   });
   /** Start (or restart) at a ski village: on your skis in front of its main lift. */

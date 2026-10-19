@@ -7,7 +7,7 @@ async function startFlying(page: Page, query: string) {
       get: () => document.querySelector('#scene'),
     });
   });
-  await page.goto(`/?${query}`);
+  await page.goto(`/?resort=les-3-vallees&${query}`);
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10, null, { timeout: 90_000 });
   await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
 }
@@ -103,23 +103,23 @@ test('mouse turns the view', async ({ page }) => {
   expect(Math.abs(after.lat - before.lat)).toBeLessThan(0.0002);
 });
 
-test('L and N toggle lift and peak names, and the choice persists', async ({ page }) => {
+test('1 and 2 toggle lift and peak names, and the choice persists', async ({ page }) => {
   await startFlying(page, 'at=45.2981,6.5803,2700&heading=200&pitch=-8');
   const shown = (kind: string) => page.locator(`#labels .label-${kind}:not([hidden])`).count();
-  const toggle = (kind: string) => page.locator(`#hud [data-toggle="${kind}"] b`);
+  const toggle = (kind: string) => page.locator(`#toggles [data-toggle="${kind}"] b`);
 
   await page.waitForTimeout(500);
   expect(await shown('lift')).toBeGreaterThan(3);
   expect(await shown('peak')).toBeGreaterThan(3);
   await expect(toggle('lift')).toHaveText('ON');
 
-  await page.keyboard.press('KeyL');
+  await page.keyboard.press('Digit1');
   await page.waitForTimeout(200);
   expect(await shown('lift')).toBe(0);
   expect(await shown('peak')).toBeGreaterThan(3);
   await expect(toggle('lift')).toHaveText('OFF');
 
-  await page.keyboard.press('KeyN');
+  await page.keyboard.press('Digit2');
   await page.waitForTimeout(200);
   expect(await shown('peak')).toBe(0);
 

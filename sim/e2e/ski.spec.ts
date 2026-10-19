@@ -36,7 +36,7 @@ test('F switches to ski mode in mid-air: you fall, land and ski on', async ({ pa
   await page.waitForTimeout(3000); // ~2.4 s of free fall, then on the snow
   const landed = await hudNumber(page, 'altitude');
   expect(landed).toBeLessThan(2575);
-  await expect(page.locator('#hud [data-piste]')).toBeVisible();
+  await expect(page.locator('#run [data-piste]')).toBeVisible();
 
   await page.waitForTimeout(2000);
   const speed = await hudNumber(page, 'speed');

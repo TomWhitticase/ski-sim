@@ -144,6 +144,8 @@ sim/src/
   controls/           Shared input + mouse look; fly mode; ski mode (ski-physics.ts and ski-setup.ts are pure and unit-tested)
   nav/                Saved pose (localStorage, per resort) and teleport destinations
   ui/                 HUD, minimap, fullscreen world map (M), world-anchored name labels
+                      (HUD: mode/position/speed top left; the run underfoot and the 1/2/3
+                      display toggles under the minimap. Key help lives only in the controls modal.)
 sim/e2e/              Playwright view screenshots and control tests
 ```
 
@@ -206,7 +208,6 @@ Difficulty codes are 1 green (novice), 2 blue (easy), 3 red (intermediate), 4/5 
 P deploys a paraglider from fly or ski mode, keeping your velocity; P again drops the wing (ski mode, falling), and touching down switches to ski mode automatically.
 - `controls/glider-physics.ts` (pure, unit-tested) uses real intermediate-wing numbers: trim ~38 km/h at 1.1 m/s sink, speed bar (W), brakes (S), bank to turn (A/D) at g·tan(bank)/v with extra sink. Speed changes trade height by energy balance, so a fast launch zooms up and a slow one dives.
 - `controls/glider-controls.ts` builds the canopy (vertex-coloured cells), the lines and a seated pilot (a second `SkierModel`).
-- Peak names moved from P to N.
 
 ### Lift terminals, operation and riding
 
@@ -257,7 +258,7 @@ Both come from OSM through Overpass (`sources/osm.py`). The response is cached u
 
 ### Labels
 
-`sim/src/ui/labels.ts` draws HTML tags projected from world anchors (L / P toggle them; the choice persists in localStorage).
+`sim/src/ui/labels.ts` draws HTML tags projected from world anchors (1 toggles lift names, 2 peak names; the choice persists in localStorage).
 - Labels are hidden when terrain occludes them. A ray-march against the heightmap runs on a rolling budget, so not every label is checked every frame.
 - Labels are also hidden beyond a per-kind distance, or when they'd overlap a higher-priority tag. Lifts and local peaks win; distant peaks are ranked by elevation.
 

@@ -28,7 +28,7 @@ test('ride the Cascades chairlift to the top and ski off', async ({ page }) => {
   await page.keyboard.press('KeyE');
   await page.waitForTimeout(1500);
   expect(await mode(page)).toBe('LIFT');
-  await expect(page.locator('#hud [data-piste] span')).toHaveText('Cascades');
+  await expect(page.locator('#run [data-piste] span')).toHaveText('Cascades');
   const low = await altitude(page);
   await page.screenshot({ path: 'test-results/views/lift-chair-fp.png' });
   await page.keyboard.press('KeyV');

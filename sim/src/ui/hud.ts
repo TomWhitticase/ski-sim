@@ -59,30 +59,41 @@ export class Toast {
   }
 }
 
-/** Always-visible readout of position and speed. */
+/** The on-screen display toggles, shown under the minimap with their number keys. */
+export const DISPLAY_TOGGLES = [
+  { name: 'lift', key: '1', label: 'Lift names' },
+  { name: 'peak', key: '2', label: 'Peak names' },
+  { name: 'pistes', key: '3', label: 'Piste colours' },
+] as const;
+
+export type DisplayToggle = (typeof DISPLAY_TOGGLES)[number]['name'];
+
+/**
+ * Always-visible readout of position and speed (top left), plus the run
+ * underfoot and the display toggles beside the minimap.
+ */
 export class Hud {
   private readonly fields: Record<keyof HudState, HTMLElement>;
   private pisteKey: string | null = null;
 
-  constructor(private readonly root: HTMLElement) {
+  constructor(
+    private readonly root: HTMLElement,
+    private readonly run: HTMLElement,
+    private readonly toggles: HTMLElement,
+  ) {
     root.innerHTML = `
       <div class="hud-row"><span class="hud-label">MODE</span><span data-mode></span></div>
       <div class="hud-row"><span class="hud-label">ALT</span><span data-field="altitude"></span></div>
       <div class="hud-row"><span class="hud-label">LAT</span><span data-field="lat"></span></div>
       <div class="hud-row"><span class="hud-label">LON</span><span data-field="lon"></span></div>
       <div class="hud-row"><span class="hud-label">SPD</span><span data-field="speed"></span></div>
-      <div class="hud-row hud-piste"><span class="hud-label">RUN</span><span data-piste><i></i><span></span></span></div>
-      <div class="hud-toggles">
-        <div class="hud-toggle" data-toggle="lift"><kbd>L</kbd> Lift names <b></b></div>
-        <div class="hud-toggle" data-toggle="peak"><kbd>N</kbd> Peak names <b></b></div>
-        <div class="hud-toggle" data-toggle="pistes"><kbd>O</kbd> Piste colours <b></b></div>
-        <div class="hud-toggle" data-toggle="sound"><kbd>K</kbd> Sound <b></b></div>
-        <div class="hud-toggle"><kbd>M</kbd> Map &amp; teleport</div>
-        <div class="hud-toggle"><kbd>F</kbd> Fly / ski</div>
-        <div class="hud-toggle"><kbd>P</kbd> Paraglider</div>
-        <div class="hud-toggle"><kbd>V</kbd> Camera</div>
-      </div>
     `;
+    run.innerHTML =
+      '<span class="hud-label">RUN</span><span data-piste><i></i><span></span></span>';
+    toggles.innerHTML = DISPLAY_TOGGLES.map(
+      (t) =>
+        `<div class="hud-toggle" data-toggle="${t.name}"><kbd>${t.key}</kbd> ${t.label} <b></b></div>`,
+    ).join('');
     const field = (name: keyof HudState) =>
       root.querySelector<HTMLElement>(`[data-field="${name}"]`)!;
     this.fields = {
@@ -93,10 +104,9 @@ export class Hud {
     };
   }
 
-  /** Reflect an overlay toggle (e.g. "lift", "peak") in the HUD. */
-  setToggle(name: string, on: boolean): void {
-    const row = this.root.querySelector<HTMLElement>(`[data-toggle="${name}"]`);
-    if (!row) return;
+  /** Reflect a display toggle in its row under the minimap. */
+  setToggle(name: DisplayToggle, on: boolean): void {
+    const row = this.toggles.querySelector<HTMLElement>(`[data-toggle="${name}"]`)!;
     row.classList.toggle('on', on);
     row.querySelector('b')!.textContent = on ? 'ON' : 'OFF';
   }
@@ -106,13 +116,12 @@ export class Hud {
     const key = piste ? `${piste.name}|${piste.colour}` : '';
     if (key === this.pisteKey) return;
     this.pisteKey = key;
-    const row = this.root.querySelector<HTMLElement>('.hud-piste')!;
-    row.hidden = !piste;
+    this.run.hidden = !piste;
     if (!piste) return;
-    const dot = row.querySelector<HTMLElement>('i')!;
+    const dot = this.run.querySelector<HTMLElement>('i')!;
     dot.hidden = !piste.colour;
     if (piste.colour) dot.style.background = piste.colour;
-    row.querySelector('[data-piste] span')!.textContent = piste.name;
+    this.run.querySelector('[data-piste] span')!.textContent = piste.name;
   }
 
   setMode(mode: 'fly' | 'ski' | 'glide' | 'ride'): void {
