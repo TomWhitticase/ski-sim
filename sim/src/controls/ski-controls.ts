@@ -5,7 +5,15 @@ import type { Pose } from '../nav/pose';
 import type { Bounds } from './fly-controls';
 import { type Input, Look } from './input';
 import { SkierModel } from './ski-model';
-import { SKI, type SkiState, type SkiTerrain, stepSki, surfaceNormal } from './ski-physics';
+import {
+  type Landing,
+  SKI,
+  type SkiState,
+  type SkiTerrain,
+  slopePitch,
+  stepSki,
+  surfaceNormal,
+} from './ski-physics';
 import { DEFAULT_HANDLING, type SkiSetup, skiHandling } from './ski-setup';
 import { initialStance, type Stance, updateStance } from './ski-stance';
 import type { SnowContact } from '../fx/intensity';
@@ -26,6 +34,13 @@ const REALIGN_RATE = 6;
 const MAX_TWIST = (110 * Math.PI) / 180;
 const CHASE_DISTANCE = 4.5;
 const UP = new Vector3(0, 1, 0);
+const FORWARD = new Vector3(0, 0, -1);
+/** Flips turn about the centre of mass, this far up the body from the feet (m). */
+const COM_HEIGHT = 0.9;
+/** Crashed in first person, the eye drops this close to the snow (m). */
+const CRASH_EYE = 0.45;
+/** After touchdown, how quickly what's left of the flip (an off landing) settles (1/s). */
+const SETTLE_RATE = 12;
 /** Largest acceleration the body leans against (m/s²); filters landing spikes. */
 const MAX_BALANCE_ACCEL = 1.3 * SKI.gravity;
 /** How quickly the body's balance follows changes in acceleration (1/s). */
@@ -42,7 +57,8 @@ export type SkiCamera = 'first-person' | 'chase';
  * Ski mode: mouse looks and steers (skis point where you look), A/D also turn,
  * W skates, Ctrl tucks, Shift snowploughs, Space jumps, V swaps camera.
  * Holding S locks the upper body to where you face and lets A/D swing just the skis,
- * e.g. sideways across your path for a hockey stop.
+ * e.g. sideways across your path for a hockey stop. [ and ] lean forward and back; in
+ * the air they flip you (front flip / backflip).
  */
 export class SkiControls {
   readonly look = new Look(FLY.mouseSensitivity);
@@ -63,6 +79,16 @@ export class SkiControls {
   private readonly normal = new Vector3();
   private readonly q = new Quaternion();
   private readonly qYaw = new Quaternion();
+  private readonly qFlip = new Quaternion();
+  /** The skier's orientation on the slope, before any flip or crash. */
+  private readonly grounded = new Quaternion();
+  private readonly axis = new Vector3();
+  private readonly com = new Vector3();
+  /**
+   * Visible flip: the skis' pitch relative to the slope below (rad, > 0 = rotating back).
+   * Whatever's left at touchdown settles out over a few frames.
+   */
+  private flip = 0;
   /** Smoothed rate the direction of travel is turning (rad/s, > 0 = left). */
   private turnRate = 0;
   private travelYaw = 0;
@@ -82,6 +108,10 @@ export class SkiControls {
   footstep = false;
   /** Poles planted this frame. */
   polePlant = false;
+  /** How the touchdown went, if you landed this frame (flips counted). */
+  landing: Landing | null = null;
+  /** The last landing that came out of the air (for tests and the HUD). */
+  lastLanding: Landing | null = null;
 
   constructor(
     private readonly camera: PerspectiveCamera,
@@ -121,6 +151,11 @@ export class SkiControls {
     return this.state.airborne;
   }
 
+  /** Down in the snow after a botched landing. */
+  get crashed(): boolean {
+    return (this.state.crash ?? 0) > 0;
+  }
+
   /**
    * Put the skier at a pose whose altitude is eye height. If that's above the snow you
    * start in the air and fall (keeping `velocity`, e.g. momentum carried over from flying);
@@ -142,6 +177,12 @@ export class SkiControls {
     this.look.pitchDegrees = Math.min(pose.pitch, 10);
     this.skiYaw = this.look.yaw;
     this.state.yaw = this.skiYaw;
+    surfaceNormal(this.terrain, p.x, p.z, this.normal);
+    this.state.pitch = slopePitch(this.skiYaw, this.normal);
+    this.state.takeoffPitch = this.state.pitch;
+    this.state.pitchRate = 0;
+    this.state.crash = 0;
+    this.flip = 0;
     this.prevVelocity.copy(this.state.velocity);
     this.accel.set(0, 0, 0);
     this.updateCamera();
@@ -213,7 +254,12 @@ export class SkiControls {
     this.look.apply(input, (80 * Math.PI) / 180);
     const turn = (input.down('KeyA') ? 1 : 0) - (input.down('KeyD') ? 1 : 0);
     const pivot = input.down('KeyS');
-    if (pivot) {
+    const lean = (input.down('BracketLeft') ? 1 : 0) - (input.down('BracketRight') ? 1 : 0);
+    if (this.crashed) {
+      // Down in the snow: no steering. The physics swings you round to face downhill,
+      // and your view follows so you get up looking down the slope.
+      this.look.yaw += wrapAngle(this.state.yaw - this.look.yaw) * Math.min(1, dt * 4);
+    } else if (pivot) {
       // Upper body stays put; only the skis swing.
       const twist = wrapAngle(
         this.skiYaw + turn * PIVOT_RATE * this.handling.pivotRate * dt - this.look.yaw,
@@ -224,7 +270,7 @@ export class SkiControls {
       const twist = wrapAngle(this.skiYaw - this.look.yaw);
       this.skiYaw = this.look.yaw + twist * Math.exp(-REALIGN_RATE * dt);
     }
-    this.state.yaw = this.skiYaw;
+    if (!this.crashed) this.state.yaw = this.skiYaw;
 
     const tuck = input.down('ControlLeft', 'ControlRight');
     const plough = input.down('ShiftLeft', 'ShiftRight');
@@ -242,11 +288,20 @@ export class SkiControls {
         pole,
         brake: plough,
         jump: input.wasPressed('Space') && !this.state.airborne,
+        lean,
       },
       dt,
       this.terrain,
       this.handling,
     );
+
+    if (this.crashed) this.skiYaw = this.state.yaw;
+    if (!this.state.airborne) {
+      // Ease the body and view down onto the slope rather than snapping.
+      this.flip = Math.abs(this.flip) < 1e-3 ? 0 : this.flip * Math.exp(-SETTLE_RATE * dt);
+    }
+    this.landing = this.state.landing ?? null;
+    if (this.landing) this.lastLanding = this.landing;
 
     const p = this.state.position;
     this.terrain.collide?.(p, this.state.velocity);
@@ -283,7 +338,8 @@ export class SkiControls {
     }
     this.prevVelocity.copy(v);
     this.orient();
-    this.inverse.copy(this.skier.quaternion).invert();
+    // Relative to the skis on the slope; a flip turns the whole body, balance and all.
+    this.inverse.copy(this.grounded).invert();
     this.bodyUp
       .set(this.accel.x, this.accel.y + SKI.gravity, this.accel.z)
       .normalize()
@@ -313,6 +369,8 @@ export class SkiControls {
         climb: this.state.climbing ?? false,
         tuck,
         airborne: this.state.airborne,
+        foreAft: this.crashed ? 0 : lean,
+        crashed: this.crashed,
         edgeRate: this.handling.edgeRate,
       },
       dt,
@@ -326,12 +384,30 @@ export class SkiControls {
     const p = this.state.position;
     const eye = EYE_HEIGHT - CROUCH_DROP * this.stance.crouch;
 
+    this.orient();
+    // Down in the snow, the view drops and rolls with the tumble, then you stand back up.
+    const down = this.crashDown();
     if (this.view === 'first-person') {
       // Head follows the body's lean a little, and bobs with skating strides.
       const bob = Math.abs(Math.sin(this.stance.skatePhase)) * 0.04 * (1 - this.stance.crouch);
-      this.camera.position.set(p.x, p.y + eye - bob, p.z);
-      this.euler.set(this.look.pitch, this.look.yaw, this.stance.lean * 0.3);
+      const height = eye - bob + (CRASH_EYE - eye) * down;
+      this.euler.set(
+        this.look.pitch - 0.08 * this.stance.foreAft - 0.3 * down,
+        this.look.yaw,
+        this.stance.lean * 0.3 + 1.1 * down,
+      );
       this.camera.quaternion.setFromEuler(this.euler);
+      if (this.flip !== 0) {
+        // Mid-flip the head swings round the centre of mass, and the view turns with it.
+        this.qFlip.setFromAxisAngle(this.axis, this.flip);
+        this.camera.position
+          .set(0, height - COM_HEIGHT, 0)
+          .applyQuaternion(this.qFlip)
+          .add(this.com);
+        this.camera.quaternion.premultiply(this.qFlip);
+      } else {
+        this.camera.position.set(p.x, p.y + height, p.z);
+      }
     } else {
       // Orbit behind the skier; looking down raises the camera.
       const elevation = 0.25 - this.look.pitch;
@@ -343,14 +419,27 @@ export class SkiControls {
         p.z + Math.cos(this.look.yaw) * back,
       );
       cam.y = Math.max(cam.y, this.terrain.height(cam.x, cam.z) + 1);
-      this.camera.lookAt(p.x, p.y + 1.0, p.z);
+      // Watch the centre of mass, so a flip spins in place in the middle of the view.
+      this.camera.lookAt(this.com);
     }
 
-    this.orient();
     this.model.apply(this.stance, this.bodyUp);
   }
 
-  /** Skis flat on the slope, pointing where the skis point. */
+  /** How far into lying in the snow a crash is: 0 skiing, 1 sprawled. */
+  private crashDown(): number {
+    const left = this.state.crash ?? 0;
+    if (left <= 0) return 0;
+    const since = SKI.crashTime - left;
+    // Hit the deck in ~0.2 s, stay down, get up over the last ~0.5 s.
+    return Math.min(1, since / 0.2, left / 0.5);
+  }
+
+  /**
+   * Skis flat on the slope, pointing where the skis point. In the air the whole skier
+   * also turns about the centre of mass by the flip (the skis' pitch off the slope below).
+   * Crashed, the skier tips over onto their side and tumbles.
+   */
   private orient(): void {
     const p = this.state.position;
     surfaceNormal(this.terrain, p.x, p.z, this.normal);
@@ -358,6 +447,27 @@ export class SkiControls {
     this.qYaw.setFromAxisAngle(UP, this.skiYaw);
     this.skier.position.copy(p);
     this.skier.quaternion.copy(this.q).multiply(this.qYaw);
+    this.grounded.copy(this.skier.quaternion);
+    if (this.state.airborne) {
+      this.flip = (this.state.pitch ?? 0) - slopePitch(this.skiYaw, this.normal);
+    }
+    this.com.set(0, COM_HEIGHT, 0).applyQuaternion(this.skier.quaternion).add(p);
+    if (this.flip !== 0) {
+      // About the skier's right-hand side: positive lifts the tips (backflip).
+      this.axis.set(Math.cos(this.skiYaw), 0, -Math.sin(this.skiYaw));
+      this.qFlip.setFromAxisAngle(this.axis, this.flip);
+      this.skier.quaternion.premultiply(this.qFlip);
+      this.skier.position.set(0, -COM_HEIGHT, 0).applyQuaternion(this.skier.quaternion);
+      this.skier.position.add(this.com);
+    }
+    const down = this.crashDown();
+    if (down > 0) {
+      // Over onto the left side, with a cartwheel in the first moments of the slide.
+      const since = SKI.crashTime - (this.state.crash ?? 0);
+      const tumble = since < 0.6 ? 2 * Math.PI * Math.sqrt(since / 0.6) : 0;
+      this.qFlip.setFromAxisAngle(FORWARD, down * (Math.PI / 2 - 0.15) + tumble);
+      this.skier.quaternion.multiply(this.qFlip);
+    }
   }
 }
 

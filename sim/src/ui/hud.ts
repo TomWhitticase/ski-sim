@@ -22,6 +22,43 @@ export function formatSpeed(metresPerSecond: number): string {
   return `${Math.round(metresPerSecond * 3.6)} km/h`;
 }
 
+const MULTIPLES = ['', 'Double ', 'Triple ', 'Quad '];
+
+/**
+ * What to call a landing: "Backflip!", "Double front flip!"; null for no flip landed
+ * cleanly. `flips` > 0 counts backflips, < 0 front flips.
+ */
+export function landingToast(flips: number, outcome: 'clean' | 'sketchy' | 'crash'): string | null {
+  const n = Math.abs(flips);
+  const name =
+    n === 0
+      ? ''
+      : (n < MULTIPLES.length ? MULTIPLES[n - 1]! : `${n}× `) +
+        (flips > 0 ? 'backflip' : 'front flip');
+  const title = name.charAt(0).toUpperCase() + name.slice(1);
+  if (outcome === 'crash') return n ? `${title}… crashed!` : 'Crashed!';
+  if (!n) return null;
+  return outcome === 'sketchy' ? `${title}! (sketchy landing)` : `${title}!`;
+}
+
+/** Brief centred message, e.g. a trick name on landing; fades out after `ms`. */
+export class Toast {
+  private timer = 0;
+
+  constructor(private readonly el: HTMLElement) {}
+
+  show(text: string, ms = 1800): void {
+    this.el.textContent = text;
+    this.el.hidden = false;
+    // Restart the pop-in animation.
+    this.el.classList.remove('show');
+    void this.el.offsetWidth;
+    this.el.classList.add('show');
+    clearTimeout(this.timer);
+    this.timer = window.setTimeout(() => (this.el.hidden = true), ms);
+  }
+}
+
 /** Always-visible readout of position and speed. */
 export class Hud {
   private readonly fields: Record<keyof HudState, HTMLElement>;

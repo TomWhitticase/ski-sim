@@ -25,6 +25,8 @@ export interface Stance {
   crouch: number;
   /** Body lean into the turn (rad, > 0 leans left). */
   lean: number;
+  /** Fore/aft lean: 1 = pressing the shins forward, -1 = sitting back. */
+  foreAft: number;
   /** Upper body rotation relative to the skis (rad, > 0 = facing left of the skis). */
   twist: number;
   /** Skating stride phase (rad), advancing while skating. */
@@ -73,6 +75,10 @@ export interface StanceInput {
   pole?: boolean;
   tuck: boolean;
   airborne: boolean;
+  /** Fore/aft lean intent, -1 (back) to 1 (forward); in the air it tucks you into a flip. */
+  foreAft?: number;
+  /** Crashed: sprawled in the snow. */
+  crashed?: boolean;
   /** How quickly the skis roll edge to edge, 1 = reference (narrow skis are quicker). */
   edgeRate?: number;
 }
@@ -101,6 +107,7 @@ export function initialStance(): Stance {
     right: flat(STANCE_WIDTH),
     crouch: 0,
     lean: 0,
+    foreAft: 0,
     twist: 0,
     skatePhase: 0,
     poleSweep: 0.35,
@@ -187,8 +194,24 @@ export function targetStance(
       crouch = Math.max(crouch, 0.15 * (1 - u));
     }
   }
-  if (input.airborne) crouch = Math.max(crouch, 0.4);
-  return { left, right, crouch, lean: edge * 0.85, twist: input.twist ?? 0, poleSweep, armReach };
+  const foreAft = Math.max(-1, Math.min(1, input.foreAft ?? 0));
+  // Flipping, you pull your knees up into a tuck.
+  if (input.airborne) crouch = Math.max(crouch, 0.4 + 0.45 * Math.abs(foreAft));
+  if (input.crashed) {
+    crouch = 0.7;
+    armReach = 1;
+    poleSweep = 1.2;
+  }
+  return {
+    left,
+    right,
+    crouch,
+    lean: edge * 0.85,
+    foreAft,
+    twist: input.twist ?? 0,
+    poleSweep,
+    armReach,
+  };
 }
 
 /** Move `stance` toward the target for this input over `dt` seconds. */
@@ -222,6 +245,7 @@ export function updateStance(stance: Stance, input: StanceInput, dt: number): St
   ease(stance.right, target.right);
   stance.crouch += (target.crouch - stance.crouch) * k;
   stance.lean += (target.lean - stance.lean) * k;
+  stance.foreAft += (target.foreAft - stance.foreAft) * k;
   stance.twist = target.twist; // already smooth: follows the controls directly
   stance.poleSweep += (target.poleSweep - stance.poleSweep) * k;
   stance.armReach += (target.armReach - stance.armReach) * k;

@@ -1,7 +1,14 @@
 import { Vector3 } from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
 
-import { SKI, type SkiIntent, type SkiState, type SkiTerrain, stepSki } from './ski-physics';
+import {
+  type Landing,
+  SKI,
+  type SkiIntent,
+  type SkiState,
+  type SkiTerrain,
+  stepSki,
+} from './ski-physics';
 import { DEFAULT_HANDLING, SKI_PRESETS, type SkiHandling, skiHandling } from './ski-setup';
 
 const RAD = Math.PI / 180;
@@ -275,5 +282,144 @@ describe('ski setup', () => {
       expect(capped.velocity.length()).toBeLessThanOrEqual(skis.maxSpeed + 1e-6);
       expect(skis.maxSpeed).toBeLessThanOrEqual(40);
     }
+  });
+});
+
+describe('flips', () => {
+  const flat = slope(0);
+  /** Launched off the flat lake: `up` m/s upward gives 2·up/g seconds of air. */
+  function launch(up: number): SkiState {
+    const state = skier(flat, DOWNHILL);
+    state.velocity.set(0, up, 8);
+    state.airborne = true;
+    state.pitch = 0;
+    state.takeoffPitch = 0;
+    return state;
+  }
+  /** Step until touchdown, leaning while `lean(t)` says so; returns the landing. */
+  function fly(state: SkiState, lean: (t: number, s: SkiState) => number, terrain = flat) {
+    let landing: Landing | null = null;
+    for (let t = 0; t < 10 && !landing; t += 1 / 60) {
+      stepSki(state, { ...idle, lean: lean(t, state) }, 1 / 60, terrain);
+      landing = state.landing ?? null;
+    }
+    return landing!;
+  }
+
+  it('holding ] through 2 s of air gives at least a full backflip', () => {
+    const state = launch(SKI.gravity); // 2 s up and down
+    let most = 0;
+    fly(state, (_t, s) => {
+      most = Math.max(most, s.pitch! - s.takeoffPitch!);
+      return -1;
+    });
+    expect(most).toBeGreaterThan(2 * Math.PI);
+  });
+
+  it('builds rotation gradually, not instantly', () => {
+    const state = launch(SKI.gravity);
+    stepSki(state, { ...idle, lean: -1 }, 0.1, flat);
+    expect(state.pitchRate!).toBeGreaterThan(0);
+    expect(state.pitchRate!).toBeLessThan(SKI.flipRate / 2);
+  });
+
+  it('lands a backflip: hold ], let go at ~300°, and the momentum and spotting finish it', () => {
+    const state = launch(SKI.gravity);
+    const landing = fly(state, (_t, s) => (s.pitch! < (300 * Math.PI) / 180 ? -1 : 0));
+    expect(landing.outcome).toBe('clean');
+    expect(landing.flips).toBe(1);
+    expect(state.crash ?? 0).toBe(0);
+    expect(state.velocity.length()).toBeGreaterThan(6); // skis on
+  });
+
+  it('lands a double front flip with [ on a bigger jump', () => {
+    const state = launch(15); // ~3 s of air
+    const landing = fly(state, (_t, s) => (s.pitch! > -(660 * Math.PI) / 180 ? 1 : 0));
+    expect(landing.flips).toBe(-2);
+    expect(landing.outcome).not.toBe('crash');
+  });
+
+  it('lands flat skis and skis on without leaning', () => {
+    const landing = fly(launch(5), () => 0);
+    expect(landing).toEqual({ flips: 0, error: expect.closeTo(0, 2), outcome: 'clean' });
+  });
+
+  it('spots a landing on a steeper slope than the takeoff', () => {
+    // Off a 10° slope, over a 3 m step onto 35°.
+    const t: SkiTerrain = {
+      height: (_x, z) =>
+        2000 -
+        (z < 10
+          ? z * Math.tan(10 * RAD)
+          : 10 * Math.tan(10 * RAD) + 3 + (z - 10) * Math.tan(35 * RAD)),
+    };
+    const state = skier(t, DOWNHILL);
+    state.velocity.set(0, -12 * Math.sin(10 * RAD), 12 * Math.cos(10 * RAD));
+    const landing = fly(state, () => 0, t);
+    expect(landing.outcome).not.toBe('crash');
+  });
+
+  it('crashes landing 90° off the slope, slides to a stop, then stands facing downhill', () => {
+    const t = slope(20);
+    const state = skier(t, ACROSS);
+    state.position.y += 0.05;
+    state.velocity.set(0, -1, 10);
+    state.airborne = true;
+    state.pitch = Math.PI / 2;
+    state.takeoffPitch = 0;
+    const landing = fly(state, () => -1, t);
+    expect(landing.outcome).toBe('crash');
+    expect(state.crash).toBeGreaterThan(0);
+    // Can't ski off while down: W, jump and steering do nothing.
+    run(state, t, SKI.crashTime / 2, { ...idle, push: true, jump: true });
+    expect(state.airborne).toBe(false);
+    run(state, t, SKI.crashTime / 2 + 0.1);
+    expect(state.crash).toBe(0);
+    expect(state.velocity.length()).toBeLessThan(1);
+    expect(Math.cos(state.yaw - DOWNHILL)).toBeGreaterThan(0.95);
+  });
+
+  /** Drop the last few centimetres onto the lake with the skis at `degrees` (tips up). */
+  function touchdown(degrees: number): { state: SkiState; landing: Landing } {
+    const state = launch(-2);
+    state.position.y += 0.02;
+    state.pitch = degrees * RAD;
+    return { state, landing: fly(state, () => 0) };
+  }
+
+  it('grades landings: clean, sketchy (costs speed), crash', () => {
+    const clean = touchdown(5);
+    const sketchy = touchdown(25);
+    expect(clean.landing.outcome).toBe('clean');
+    expect(sketchy.landing.outcome).toBe('sketchy');
+    expect(touchdown(-28).landing.outcome).toBe('sketchy');
+    expect(sketchy.state.velocity.length()).toBeLessThan(clean.state.velocity.length() * 0.9);
+    expect(sketchy.state.crash ?? 0).toBe(0);
+    expect(touchdown(50).landing.outcome).toBe('crash');
+    expect(touchdown(-50).landing.outcome).toBe('crash');
+  });
+});
+
+describe('leaning on the snow', () => {
+  it('forward lean turns a little quicker; it stays subtle', () => {
+    const t = slope(15);
+    const turned = (lean: number) => {
+      const state = run(skier(t, DOWNHILL), t, 4);
+      state.yaw = DOWNHILL - 40 * RAD;
+      run(state, t, 0.4, { ...idle, lean });
+      return Math.atan2(-state.velocity.x, state.velocity.z);
+    };
+    const neutral = turned(0);
+    expect(turned(1)).toBeGreaterThan(neutral);
+    expect(turned(1)).toBeLessThan(neutral * 1.3);
+    expect(turned(-1)).toBeLessThan(neutral);
+  });
+
+  it('leaning back floats in powder', () => {
+    const powder: SkiTerrain = { ...slope(15), groomed: () => false };
+    const speed = (lean: number) =>
+      run(skier(powder, DOWNHILL), powder, 20, { ...idle, lean }).velocity.length();
+    expect(speed(-1)).toBeGreaterThan(speed(0));
+    expect(speed(-1)).toBeLessThan(speed(0) * 1.3);
   });
 });
