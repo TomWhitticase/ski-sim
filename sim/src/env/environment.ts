@@ -1,5 +1,6 @@
 import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js';
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
+import { uniform } from 'three/tsl';
 import {
   type Camera,
   Color,
@@ -55,6 +56,8 @@ export function daylight(elevation: number) {
     day,
     /** How much the fog takes the sunset tint. */
     dusk: low * smoothstep(-6, 2, elevation),
+    /** Floodlit runs: on as the sun sets, full once it's down. */
+    floodlights: 1 - smoothstep(-3, 3, elevation),
   };
 }
 
@@ -65,6 +68,8 @@ export class Environment {
   private readonly sunLight = new DirectionalLight(0xfff6ec, 3.2);
   private readonly skyLight = new HemisphereLight(0xa8c8f0, 0xdfe6ee, 0.9);
   private readonly fog = new FogExp2(0xb9d0ea, 0.000011);
+  /** 0..1: how strongly floodlit runs and their masts glow (shader uniform). */
+  readonly floodlights = uniform(0);
 
   constructor(
     scene: Scene,
@@ -127,6 +132,7 @@ export class Environment {
     this.skyLight.intensity = light.ambient;
     this.skyLight.color.lerpColors(SKY_NIGHT, SKY_DAY, light.day);
     this.fog.color.lerpColors(FOG_NIGHT, FOG_DAY, light.day).lerp(FOG_DUSK, light.dusk * 0.6);
+    this.floodlights.value = light.floodlights;
   }
 
   update(camera: Camera): void {

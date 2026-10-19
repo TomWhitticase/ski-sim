@@ -131,6 +131,7 @@ pipeline/src/ski_sim_pipeline/
   build.py            Orchestrates a resort build
   sources/            One module per data provider (ign, copernicus, osm)
   features.py         Lifts (stations, towers, clearance-driven synthetic towers) and buildings
+  pistes.py, parks.py Runs of every type, overlay/lookup/lit rasters, floodlights; generated snow park layouts
   frame.py, grid.py   Local projection; grid resampling, sampling and near/far stitching
   export.py, minimap.py
 sim/src/
@@ -140,13 +141,14 @@ sim/src/
   features/           Extruded buildings
   lifts/              Lift operation model, carriers, lift system (statics + moving carriers), riding
   env/                Sky, sun position, time-of-day clock, lights, cascaded shadows, fog
+  parks/              Snow park surfaces (height, normals) and their meshes
   render/             Adaptive resolution (render scale follows frame time)
   controls/           Shared input + mouse look; fly mode; ski mode (ski-physics.ts and ski-setup.ts are pure and unit-tested)
   nav/                Saved pose (localStorage, per resort) and teleport destinations
   ui/                 HUD, minimap, fullscreen world map (M), world-anchored name labels
                       (HUD: mode/position/speed top left; the time of day above the minimap; the run
                       underfoot and the 1/2/3 display toggles under it. Key help lives only in the controls modal.)
-sim/e2e/              Playwright view screenshots and control tests
+sim/e2e/              Playwright view screenshots and control tests (parks.spec.ts: kicker air, park and night views)
 ```
 
 ### Terrain rendering
@@ -170,6 +172,7 @@ There are two layers. **Near** is lidar at 4 m covering the ski area. **Far** is
 - V (first/third person) works in both modes and is remembered. Fly mode tracks `FlyControls.position` (the eye); in third person the camera orbits behind it and the skier is shown hovering there, see-through (`FLYING_OPACITY`).
 - e2e tests use a frozen lake at 45.28856, 6.5752 (under 15 cm of relief over 100 m) as flat ground.
 - Off-piste (per the piste lookup grid) uses higher friction and drag than groomed runs.
+- Take-off: you leave the snow when your ballistic path `SKI.liftLook` (0.06 s) ahead is more than `liftGap` (15 cm) above the snow there (a kicker's lip), or a step drops more than `airThreshold`. Snapping to the snow each step alone only ever lets go at cliffs. `SkiTerrain.normal` (optional) supplies a finer normal than the default 2 m finite difference; snow parks use it.
 - W by speed: below ~16 km/h it skates (or walks or climbs, with footstep sounds under 9 km/h); above that it double-poles (`ski-stance` pole cycle plus `SKI.poleAccel`, up to ~32 km/h) with pole-plant sounds. Stance animation emits `step`/`plant` events and the controller exposes them as `footstep`/`polePlant` for audio.
 - Skating (W below skating speed) holds your edges: sideways slip is cancelled, so you can skate along a traverse instead of being pinned by the side slope.
 - Walking uphill: with W held and the skis pointing up a slope too steep to skate, `stepSki` switches to climbing (herringbone): ~1.3 m/s on gentle grades, down to 0.35 m/s on steep ones, never stuck. Releasing W lets you slide back.
@@ -194,13 +197,24 @@ The time shows above the minimap (with the clock speed unless it's real time). T
 
 ### Pistes
 
-`pipeline/pistes.py` turns OSM `piste:type=downhill` ways into:
-- centrelines buffered to a default width per difficulty (OSM has no widths here), plus area polygons where mapped;
+`pipeline/pistes.py` turns OSM piste ways into:
+- centrelines buffered to a default width per difficulty or type (OSM has no widths here), plus area polygons where mapped;
 - `pistes-overlay.png`: RGBA on the near terrain grid, premultiplied piste colour plus coverage, sampled by the terrain shader;
-- `pistes-lookup.png`: an 8 m grid where R,G = piste index and B = difficulty, used for the HUD "RUN" row and groomed-vs-powder physics;
-- `pistes.json`: run records (top, start heading, length, lines/areas) and edge-marker poles.
+- `pistes-lookup.png`: an 8 m grid where R,G = piste index and B = difficulty (low nibble, 0 none) | type code << 4 (`RUN_TYPES`; downhill is 0, so its B is just the difficulty). Used for the HUD "RUN" row and groomed-vs-powder physics; `PisteLookup.codeAt` decodes it;
+- `pistes.json`: run records (type, top, start heading, length, ref, oneway, lit, lines/areas/tunnels), edge-marker poles, park layouts and floodlight masts.
 
 Difficulty codes are 1 green (novice), 2 blue (easy), 3 red (intermediate), 4/5 black, 6 freeride. Freeride itineraries (and `piste:grooming=backcountry`) count as off-piste: no overlay and no markers.
+- **Run types** (`RUN_TYPES`, first known value of a multi-valued `piste:type`): `downhill`, `snow_park` (orange), `sled`, `nordic` (thin), `playground`, `skitour` and `hike` (unprepared: no overlay, powder physics, dashed on the minimap), `connection` (grey, or its difficulty colour). Other types default to no difficulty. Edge markers line only downhill runs and connections. The HUD row shows `runLabel`: ref + name, plus the type for non-downhill runs (and "one-way").
+- **Bridges and tunnels** (`bridge`/`tunnel` other than `no`; a bare `layer` > 0 is a bridge, < 0 a tunnel): kept out of a piste's `lines` (in `bridges`/`tunnels`), so they're never graded. Tunnels are also left out of the overlay and lookup (the snow above isn't the run) and drawn dashed on the minimap.
+- **Floodlit runs** (`lit`/`piste:lit` other than `no`, only `FLOODLIT_TYPES`; a lit street or footpath has street lamps): masts every 40 m alternating sides, 3 m outside the edge, and `pistes-lit.png`, a glow mask on its own 4 m grid (manifest `pistes.lit`) with a pool round each mast's aim point, clipped to the run plus 8 m. The terrain shader adds it as warm emissive × `Environment.floodlights` (`daylight().floodlights`: on as the sun sets); lamp heads glow by the same uniform (`pistes/floodlights.ts`). No real lights.
+
+### Snow parks
+
+OSM maps where a park is, not what's in it, so `pipeline/parks.py` designs a layout per `snow_park` area or line, deterministically from its geometry, name, difficulty and the terrain, and marks it `synthetic` (manifest `pistes.parks`):
+- **Spine:** the fall line through the area (or its long axis if that's much longer), or the mapped line, oriented downhill. Features keep 2 m inside the outline and clear of buildings and lift lines (`blocked`), with 25 m run-outs between them.
+- **Jumps** (default): kickers down the spine, sized by difficulty (`SIZES`: small 0.9 m lip at 20°, medium 1.5 m at 25°, large 2.3 m at 30°; family/kids names are small), alternating with boxes (snow ramp + 0.5 m flat box). Parks 34 m+ wide get a separate jib line of boxes. `kicker_profile`: run-in curving from the hill to the take-off angle, level table, rounded knuckle, landing at 26–34° (at least hill + 12°) easing back into the hill. Only on 4–22° grades.
+- **Course** (name matches `CROSS_NAMES`: cross, BX, snake, bumpy...): berms (banked walls outside 9 m-radius arcs, alternating sides) every 36 m with rollers between.
+- **Sim** (`parks/park-shapes.ts`, pure, unit-tested): features are absolute surfaces; the snow is a smooth max of terrain and features (`SnowParks.height`), with finely sampled normals on them. Ski, fly, glide and snow FX use this `snowHeight`; lifts, labels and placement keep the plain ground. `parks/park-meshes.ts` draws them all in one vertex-coloured mesh (blue dye on the lips; boxes grey-topped with red sides), 5 cm below the physics surface so where they meet the snow the terrain wins.
 
 ### Snow effects and sound
 
@@ -251,7 +265,7 @@ P deploys a paraglider from fly or ski mode, keeping your velocity; P again drop
 - **Across:** the cross-slope is limited by difficulty (`MAX_CROSS`: 4° green to 14° black). The bench narrows on steep sides (down to 8 m, like a real cat track) so its edges stay within 4 m of the slope, and it's raised so it's mostly packed-snow fill, not a cut into rock. Banks bridge the edge back to the natural slope.
 - **Along:** the centreline profile is fitted (pool-adjacent-violators) so it never climbs, preferring a 5% gliding grade, within 5 m of fill and 3 m of cut. A run that really climbs more than that keeps climbing.
 - A piste's segments are merged and then split at significant high/low points (`_legs`), so two legs meeting at a junction are each graded downhill. Where the run is also mapped as an area, the bench takes the area's width; areas wider than 50 m are open slopes and left alone. The first 30 m of a run are never dug down (a summit start would become a pit you can't skate out of).
-- Skipped: freeride runs and cliffs (cross-slope over ~60°, usually a loosely drawn line).
+- Skipped: freeride runs and cliffs (cross-slope over ~60°, usually a loosely drawn line), bridges and tunnels (not in `lines`), and types outside `GRADED_TYPES` (downhill, connection as an easy cat track, sled, park lines): cross-country and walking routes climb as they please.
 - The build logs and records (`manifest.validation.pisteGrading`) how much climbing the run centrelines had before and after.
 - The near terrain is also despiked first (`grid.despike`): the IGN lidar has rings of 100–500 m deep pits in a few places.
 
@@ -280,6 +294,7 @@ Known limits:
 - 4 m data looks soft at ground level, though a tiling procedural snow-detail normal map (`terrain/snow-detail.ts`) adds texture within ~400 m. Skiing will need finer tiles streamed near the camera.
 - There's no texture/imagery drape yet. Snow vs rock is decided by slope.
 - Pistes use default widths, so edges are approximate where OSM has no area polygon.
+- Snow park features are generated, not surveyed; there are no rails, halfpipes or bridge decks (a bridge's run is skied on the ground beneath it).
 - Lift cables are straight with no sag. Terminals are a few generic designs per lift type, not the real station architecture. Building roofs are flat, and multipolygon buildings (courtyards) are skipped.
 
 Large binaries (DEMs, imagery, meshes) are never committed directly. Generate them through the pipeline. If shared assets ever have to live in the repo, use Git LFS.

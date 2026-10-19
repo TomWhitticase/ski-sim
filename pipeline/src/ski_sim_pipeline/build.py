@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 from rasterio.warp import Resampling
 
-from . import approach, features, grading, minimap, pistes, terminals
+from . import approach, features, grading, minimap, parks, pistes, terminals
 from . import bases as base_finder
 from .config import ResortConfig, load_resort
 from .export import write_heightmap
@@ -21,7 +21,7 @@ from .sources import copernicus, ign, osm
 
 log = logging.getLogger(__name__)
 
-MANIFEST_VERSION = 7
+MANIFEST_VERSION = 8
 LANDMARK_SEARCH_RADIUS = 30.0  # OSM summit nodes are often a few metres off the true top
 LANDMARK_TOLERANCE = 15.0
 
@@ -204,9 +204,15 @@ def build_features(
 
 
 def build_pistes(
-    frame: LocalFrame, raw_dir: Path, near: np.ndarray, near_grid: Grid, out_dir: Path
+    frame: LocalFrame,
+    raw_dir: Path,
+    near: np.ndarray,
+    near_grid: Grid,
+    out_dir: Path,
+    feature_data: dict | None = None,
 ) -> dict:
-    """Piste overlay texture, lookup grid, edge markers and run records."""
+    """Piste overlay texture, lookup grid, edge markers, run records, snow park layouts
+    (kept clear of buildings and lift lines) and floodlights."""
     extent = near_grid.extent
     elements = osm.fetch_pistes(frame.bounds_in("EPSG:4326", extent), raw_dir)
     runs, shapes = pistes.collect(elements, frame, extent)
@@ -226,6 +232,11 @@ def build_pistes(
     )
     markers = pistes.edge_markers(shapes, runs, fine, fine_grid, ground)
     records = pistes.summarise(runs, ground)
+    park_layouts = parks.build(runs, ground, parks.blocked(feature_data or {}))
+    lights = pistes.floodlights(runs, ground)
+    lit = pistes.lit_mask(runs, lights)
+    if lit:
+        lit[0].save(out_dir / "pistes-lit.png", optimize=True)
 
     named = [r for r in records if r["name"]]
     groomed_km = sum(r["length"] for r in records if r["groomed"]) / 1000
@@ -236,18 +247,43 @@ def build_pistes(
         groomed_km,
         len(markers),
     )
+    types: dict[str, int] = {}
+    for r in records:
+        types[r["type"]] = types.get(r["type"], 0) + 1
+    log.info("Run types: %s", types)
+    log.info(
+        "%d snow parks laid out (%d features); %d floodlights on %d lit runs",
+        len(park_layouts),
+        sum(len(p["features"]) for p in park_layouts),
+        len(lights),
+        sum(r["lit"] for r in records),
+    )
     (out_dir / "pistes.json").write_text(
         json.dumps(
-            {"pistes": records, "markers": markers}, separators=(",", ":"), ensure_ascii=False
+            {"pistes": records, "markers": markers, "parks": park_layouts, "lights": lights},
+            separators=(",", ":"),
+            ensure_ascii=False,
         )
     )
     return {
         "file": "pistes.json",
         "overlay": {"file": "pistes-overlay.png", "cellSize": near_grid.cell_size},
         "lookup": {"file": "pistes-lookup.png", "cellSize": pistes.LOOKUP_CELL},
+        "lit": {"file": "pistes-lit.png", "cellSize": pistes.LIT_CELL, "extent": lit[1].to_json()}
+        if lit
+        else None,
         "extent": extent.to_json(),
         "count": len(records),
         "markers": len(markers),
+        "types": types,
+        "parks": {
+            "count": len(park_layouts),
+            "features": sum(len(p["features"]) for p in park_layouts),
+            # OSM maps where parks are, not what's in them: the features are designed.
+            "synthetic": True,
+            "basis": "OSM piste:type=snow_park geometry, name and difficulty; terrain",
+        },
+        "lights": len(lights),
     }
 
 
@@ -380,7 +416,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         validation = validate_peaks(feature_data["peaks"], near_grid.extent)
 
     log.info("Building pistes (OpenStreetMap)")
-    pistes_meta = build_pistes(frame, raw_root, near, near_grid, out_dir)
+    pistes_meta = build_pistes(frame, raw_root, near, near_grid, out_dir, feature_data)
     piste_records = json.loads((out_dir / "pistes.json").read_text())["pistes"]
 
     log.info("Writing outputs to %s", out_dir)

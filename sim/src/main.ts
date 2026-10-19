@@ -36,14 +36,17 @@ import { buildPlaces, groundedPose, liftTypeName } from './nav/places';
 import { LiftSystem } from './lifts/lift-system';
 import { RideControls } from './lifts/ride';
 import { createLiftSigns } from './lifts/signs';
+import { createParkMeshes } from './parks/park-meshes';
+import { SnowParks } from './parks/park-shapes';
+import { createFloodlights, FLOODLIGHT_COLOUR } from './pistes/floodlights';
 import { createPisteMarkers } from './pistes/markers';
 import {
-  DIFFICULTY,
   loadPixels,
   overlayTexture,
   type PisteData,
   PisteLookup,
-  pisteTitle,
+  pisteColour,
+  runLabel,
 } from './pistes/pistes';
 import { loadPose, type Pose, savePose } from './nav/pose';
 import { Hud } from './ui/hud';
@@ -125,14 +128,17 @@ async function main(): Promise<void> {
   $('#attribution').textContent =
     'Terrain: ' + manifest.provenance.map((p) => p.attribution).join(' · ');
   status.textContent = 'Loading terrain…';
-  const [near, far, features, pisteData, pisteOverlay, pisteLookupPixels] = await Promise.all([
-    loadHeightmap(resortId, manifest.terrain.near),
-    loadHeightmap(resortId, manifest.terrain.far),
-    loadFeatures(resortId, manifest.features.file),
-    fetchJson<PisteData>(resortUrl(resortId, manifest.pistes.file)),
-    loadPixels(resortUrl(resortId, manifest.pistes.overlay.file)),
-    loadPixels(resortUrl(resortId, manifest.pistes.lookup.file)),
-  ]);
+  const litMeta = manifest.pistes.lit;
+  const [near, far, features, pisteData, pisteOverlay, pisteLookupPixels, litPixels] =
+    await Promise.all([
+      loadHeightmap(resortId, manifest.terrain.near),
+      loadHeightmap(resortId, manifest.terrain.far),
+      loadFeatures(resortId, manifest.features.file),
+      fetchJson<PisteData>(resortUrl(resortId, manifest.pistes.file)),
+      loadPixels(resortUrl(resortId, manifest.pistes.overlay.file)),
+      loadPixels(resortUrl(resortId, manifest.pistes.lookup.file)),
+      litMeta ? loadPixels(resortUrl(resortId, litMeta.file)) : null,
+    ]);
   const pisteLookup = new PisteLookup(
     pisteLookupPixels,
     manifest.pistes.lookup.cellSize,
@@ -146,6 +152,9 @@ async function main(): Promise<void> {
     const { east, north } = worldToEnu(x, z);
     return near.contains(east, north) ? near.sample(east, north) : far.sample(east, north);
   };
+  // The snow you ski, fly and land on: the ground plus snow park features.
+  const parks = new SnowParks(pisteData.parks ?? []);
+  const snowHeight = (x: number, z: number) => parks.height(x, z, groundHeight(x, z));
 
   const canvas = $<HTMLCanvasElement>('#scene');
   const renderer = new WebGPURenderer({ canvas, antialias: true, reversedDepthBuffer: true });
@@ -198,7 +207,20 @@ async function main(): Promise<void> {
     near,
     createTerrainMaterial(near, createNormalTexture(near), undefined, {
       snowDetail: true,
-      pistes: { overlay: overlayTexture(pisteOverlay), tint: pisteTint },
+      pistes: {
+        overlay: overlayTexture(pisteOverlay),
+        tint: pisteTint,
+        floodlit:
+          litMeta && litPixels
+            ? {
+                mask: overlayTexture(litPixels),
+                extent: litMeta.extent,
+                cellSize: litMeta.cellSize,
+                colour: FLOODLIGHT_COLOUR,
+                on: environment.floodlights,
+              }
+            : undefined,
+      },
     }),
     TERRAIN.near,
   );
@@ -212,6 +234,8 @@ async function main(): Promise<void> {
     farTerrain.object,
     createBuildings(features.buildings),
     createPisteMarkers(pisteData),
+    createParkMeshes(parks.features, (east, north) => groundHeight(east, -north)),
+    createFloodlights(pisteData.lights ?? [], environment.floodlights),
   );
 
   const farExtent = far.extent;
@@ -222,11 +246,12 @@ async function main(): Promise<void> {
     maxZ: -farExtent.south - 500,
   };
   const input = new Input(canvas);
-  const fly = new FlyControls(camera, groundHeight, bounds);
+  const fly = new FlyControls(camera, snowHeight, bounds);
   const ski = new SkiControls(
     camera,
     {
-      height: groundHeight,
+      height: snowHeight,
+      normal: (x, z, out) => parks.normal(x, z, groundHeight, out),
       // World z is -north.
       groomed: (x, z) => pisteLookup.at(x, -z)?.groomed ?? false,
       collide: (p, v) => obstacles.resolve(p, v),
@@ -236,7 +261,7 @@ async function main(): Promise<void> {
   ski.setSetup(skiSetup.current);
   changeSkis = (setup) => ski.setSetup(setup);
   scene.add(ski.skier);
-  const glider = new GliderControls(camera, groundHeight, bounds);
+  const glider = new GliderControls(camera, snowHeight, bounds);
   scene.add(glider.root);
   const trails = new SnowTrails();
   const spray = new SnowSpray();
@@ -641,7 +666,7 @@ async function main(): Promise<void> {
     if (contact && contact.onSnow && contact.speed > 0.5) {
       ski.skiPositions(fxLeft, fxRight);
       fxMid.copy(fxLeft).add(fxRight).multiplyScalar(0.5);
-      surfaceNormal({ height: groundHeight }, fxMid.x, fxMid.z, fxNormal);
+      surfaceNormal({ height: snowHeight }, fxMid.x, fxMid.z, fxNormal);
       const width = trailWidth(contact);
       const skid = skidAmount(contact);
       trails.extend('left', fxLeft, fxNormal, width, skid);
@@ -652,7 +677,7 @@ async function main(): Promise<void> {
     } else {
       trails.break();
     }
-    spray.update(dt, groundHeight);
+    spray.update(dt, snowHeight);
     trails.flush();
     sound.update(soundLevels(airSpeed, contact));
     if (mode === 'ski' && ski.landingImpact > 0) sound.thump(ski.landingImpact);
@@ -738,7 +763,7 @@ async function main(): Promise<void> {
         : !nearSnow
           ? null
           : piste
-            ? { name: pisteTitle(piste), colour: DIFFICULTY[piste.difficulty].colour }
+            ? { name: runLabel(piste), colour: pisteColour(piste) }
             : { name: 'Off-piste', colour: null },
     );
     minimap.draw(east, north, controls().heading);

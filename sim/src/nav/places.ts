@@ -1,5 +1,5 @@
 import type { Lift, Peak } from '../features/types';
-import { DIFFICULTY, type PisteRecord, pisteTitle } from '../pistes/pistes';
+import { type PisteRecord, pisteColour, pisteKind, pisteTitle } from '../pistes/pistes';
 import type { Extent } from '../resort/manifest';
 import type { Pose } from './pose';
 
@@ -121,7 +121,6 @@ export function buildPlaces(
   }
   for (const piste of pistes) {
     if (!piste.name) continue;
-    const d = DIFFICULTY[piste.difficulty];
     const size =
       piste.length > 0
         ? `${(piste.length / 1000).toFixed(1)} km`
@@ -129,9 +128,9 @@ export function buildPlaces(
     places.push({
       kind: 'piste',
       name: pisteTitle(piste),
-      detail: `${d.name} · ${size}`,
+      detail: `${pisteKind(piste)} · ${size}`,
       pose: pisteViewpoint(piste),
-      colour: d.colour,
+      colour: pisteColour(piste),
     });
   }
   for (const peak of peaks) {

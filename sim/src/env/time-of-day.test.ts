@@ -109,6 +109,12 @@ describe('daylight', () => {
     expect(daylight(-20).ambient).toBeGreaterThan(0.1);
   });
 
+  it('switches the floodlights on at dusk', () => {
+    expect(daylight(20).floodlights).toBe(0);
+    expect(daylight(0).floodlights).toBeCloseTo(0.5);
+    expect(daylight(-10).floodlights).toBe(1);
+  });
+
   it('fades smoothly through dusk', () => {
     let prev = Infinity;
     for (let e = 40; e >= -20; e -= 1) {

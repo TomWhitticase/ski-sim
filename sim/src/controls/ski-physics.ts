@@ -11,7 +11,8 @@ import { DEFAULT_HANDLING, type SkiHandling } from './ski-setup';
  * - skidding: when velocity and skis disagree, velocity swings toward the skis
  *   (carving) and the sideways component scrubs speed; a 90° turn is a hockey stop
  * - chatter: past the skis' stable speed they wash out and scrub speed
- * Leaving a convex roll faster than the slope falls away makes you airborne. In the air
+ * Leaving a lip or a convex roll faster than the slope falls away makes you airborne:
+ * checked by looking `liftLook` ahead along your ballistic path. In the air
  * leaning ([ / ]) pitches you into a front flip or backflip; land with the skis within
  * `SKI.landTolerance` of the slope to ski on, otherwise you crash and slide to a stop.
  * Ski-dependent numbers (friction, carve rate, float, speed cap...) come from the
@@ -61,11 +62,23 @@ export const SKI = {
   leanFloat: 0.25,
   /** Height above the snow before we count as airborne (m). */
   airThreshold: 0.4,
+  /**
+   * Take-off look-ahead: if, this long ahead (s) and halfway there, your ballistic path
+   * would be more than `liftGap` (m) above the snow, it falls away under you and you fly
+   * (a kicker's lip). Per-step snapping to the snow alone only ever lets go at cliffs.
+   */
+  liftLook: 0.06,
+  liftGap: 0.15,
   maxStep: 1 / 120,
 };
 
 export interface SkiTerrain {
   height(x: number, z: number): number;
+  /**
+   * Upward unit surface normal at (x, z). Optional: by default it's sampled from `height`
+   * NORMAL_STEP apart, too coarse for a kicker's few-metre transition.
+   */
+  normal?(x: number, z: number, out: Vector3): Vector3;
   /** Whether the snow at (x, z) is a groomed piste. Treated as groomed if omitted. */
   groomed?(x: number, z: number): boolean;
   /** Push a body out of solid things (buildings, station walls); adjusts velocity. */
@@ -125,6 +138,7 @@ const slopeDir = new Vector3();
 
 /** Upward unit surface normal at (x, z), in world axes. */
 export function surfaceNormal(t: SkiTerrain, x: number, z: number, out: Vector3): Vector3 {
+  if (t.normal) return t.normal(x, z, out);
   const h = NORMAL_STEP;
   return out
     .set(t.height(x - h, z) - t.height(x + h, z), 2 * h, t.height(x, z - h) - t.height(x, z + h))
@@ -294,9 +308,15 @@ function substep(
     return;
   }
 
+  // Clear of the snow halfway there too: still on a curving run-in, the ramp is above
+  // the path just ahead even though the snow past the lip is below it.
+  const clears = (t: number) =>
+    p.y + v.y * t - 0.5 * SKI.gravity * t * t >
+    terrain.height(p.x + v.x * t, p.z + v.z * t) + SKI.liftGap;
+  const lip = clears(SKI.liftLook) && clears(SKI.liftLook / 2);
   p.addScaledVector(v, h);
   const ground = terrain.height(p.x, p.z);
-  if (p.y > ground + SKI.airThreshold) {
+  if (lip || p.y > ground + SKI.airThreshold) {
     takeOff(state); // the slope fell away faster than we did
   } else {
     p.y = ground;

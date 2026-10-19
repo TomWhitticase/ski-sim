@@ -1,5 +1,6 @@
 import {
   cameraPosition,
+  color,
   Discard,
   Fn,
   float,
@@ -47,7 +48,18 @@ export interface PisteShading {
   overlay: Texture;
   /** 0..1: how strongly to tint pistes in their difficulty colour. */
   tint: UniformNode<'float', number>;
+  /** Floodlit runs: glow mask (R, grid-registered on `extent`) and how lit it is (0..1). */
+  floodlit?: {
+    mask: Texture;
+    extent: Extent;
+    cellSize: number;
+    colour: number;
+    on: UniformNode<'float', number>;
+  };
 }
+
+/** Emissive strength of a fully lit pool on the snow under the floodlights. */
+const FLOODLIT_GLOW = 0.35;
 
 export function createTerrainMaterial(
   hm: Heightmap,
@@ -130,6 +142,19 @@ export function createTerrainMaterial(
       .oneMinus()
       .mul(HOLE_EDGE_DIP);
     material.positionNode = positionGeometry.sub(vec3(0, dip, 0));
+  }
+  if (pistes?.floodlit) {
+    // Pools of warm light under the floodlights: a baked mask, no real lights.
+    const lit = pistes.floodlit;
+    const cols = Math.round((lit.extent.east - lit.extent.west) / lit.cellSize) + 1;
+    const rows = Math.round((lit.extent.north - lit.extent.south) / lit.cellSize) + 1;
+    const litUv = vec2(
+      positionWorld.x.sub(lit.extent.west).div(lit.cellSize).add(0.5).div(cols),
+      positionWorld.z.add(lit.extent.north).div(lit.cellSize).add(0.5).div(rows),
+    );
+    material.emissiveNode = color(lit.colour).mul(
+      texture(lit.mask, litUv).r.mul(lit.on).mul(FLOODLIT_GLOW),
+    );
   }
   material.roughnessNode = mix(0.6, 0.9, rock);
   material.metalness = 0;

@@ -113,3 +113,27 @@ def test_a_run_starting_on_a_summit_plateau_is_not_dug_into_a_pit():
     grade([run([(0, 0), (500, 0)])], heights, GRID)
     es = np.arange(0, 28, 2.0)  # the first 30 m: filled, never dug down
     assert np.all(at(heights, es, np.zeros_like(es)) >= at(before, es, np.zeros_like(es)) - 0.05)
+
+
+def test_bridges_and_cross_country_tracks_are_not_graded():
+    # A bumpy 8% slope: a downhill run here would be graded smooth.
+    def ground(e, n):
+        return 2000 - 0.08 * e + 2.0 * np.sin(e / 20)
+
+    heights = terrain(ground)
+    before = heights.copy()
+    bridge = run([(0, 0), (600, 0)])
+    bridge["bridges"] = bridge.pop("lines")  # the whole run crosses on a bridge
+    bridge["lines"] = []
+    nordic = {**run([(0, 100), (600, 100)]), "type": "nordic", "difficulty": 0}
+    grade([bridge, nordic], heights, GRID)
+    assert np.array_equal(heights, before)
+
+
+def test_connections_without_a_difficulty_are_graded_as_easy_cat_tracks():
+    side = math.tan(math.radians(25))
+    heights = terrain(lambda e, n: 2000 + side * n - 0.06 * e)
+    track = {**run([(0, 0), (600, 0)]), "type": "connection", "difficulty": 0}
+    grade([track], heights, GRID)
+    up, down = at(heights, 300, 3.0)[0], at(heights, 300, -3.0)[0]
+    assert abs(up - down) / 6 <= math.tan(math.radians(MAX_CROSS[2])) + 0.02

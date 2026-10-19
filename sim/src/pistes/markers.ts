@@ -6,7 +6,7 @@ import {
   MeshStandardNodeMaterial,
 } from 'three/webgpu';
 
-import { DIFFICULTY, type PisteData, type PisteRecord } from './pistes';
+import { type PisteData, type PisteRecord, pisteColour } from './pistes';
 
 const POLE_HEIGHT = 2;
 const POLE_RADIUS = 0.06;
@@ -30,7 +30,7 @@ export function createPisteMarkers(data: PisteData): InstancedMesh {
     m.makeTranslation(east, ground - SINK, -north);
     mesh.setMatrixAt(i, m);
     const piste = byIndex.get(index);
-    mesh.setColorAt(i, colour.set(piste ? DIFFICULTY[piste.difficulty].colour : '#888888'));
+    mesh.setColorAt(i, colour.set(piste ? pisteColour(piste) : '#888888'));
   });
   mesh.count = data.markers.length;
   mesh.computeBoundingSphere();

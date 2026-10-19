@@ -18,6 +18,11 @@ the rock above, and graded so they keep going downhill. The lidar shows the moun
 Where a run is also mapped as an area, the bench takes the area's width; areas wider
 than OPEN_SLOPE are open slopes and are left alone, as are freeride itineraries. This
 runs before terminals are flattened, so station pads win.
+
+Only types in GRADED_TYPES are benched (downhill runs, connections, which are cat
+tracks, sledging runs and park lines); cross-country and walking routes climb and dip
+as they please. Segments on bridges and in tunnels aren't in a piste's `lines`, so the
+ground under a bridge keeps its shape.
 """
 
 from __future__ import annotations
@@ -59,6 +64,7 @@ MIN_LENGTH = 30.0
 OPEN_SLOPE = 50.0  # a mapped piste area wider than this is an open slope, not a road (m)
 AREA_STEP = 2.0
 TURN = 20.0  # a merged line rising or falling back this far is split there (m)
+GRADED_TYPES = {"downhill", "connection", "sled", "snow_park"}
 
 
 def _smooth(x: np.ndarray, k: int) -> np.ndarray:
@@ -244,13 +250,17 @@ def stamp(heights: np.ndarray, grid: Grid, p: dict) -> None:
 
 
 def _runs(pistes: list[dict], ground) -> list[tuple[LineString, int, float]]:
-    """Each piste's centrelines merged where they join, oriented downhill."""
-    from .pistes import DEFAULT_WIDTH, FREERIDE
+    """Each piste's centrelines merged where they join, oriented downhill, with the
+    difficulty used for its cross-slope limit (easy where none is tagged) and its width."""
+    from .pistes import DIFFICULTY_CODES, FREERIDE, width_of
 
     out = []
     for piste in pistes:
         if piste["difficulty"] == FREERIDE or not piste["lines"]:
             continue
+        if piste.get("type", "downhill") not in GRADED_TYPES:
+            continue
+        difficulty = piste["difficulty"] or DIFFICULTY_CODES["easy"]
         merged = linemerge(MultiLineString(piste["lines"]))
         lines = list(getattr(merged, "geoms", [merged]))
         for merged_line in lines:
@@ -261,7 +271,7 @@ def _runs(pistes: list[dict], ground) -> list[tuple[LineString, int, float]]:
                 ha, hb = ground(np.array([a[0], b[0]]), np.array([a[1], b[1]]))
                 if hb > ha:
                     line = LineString(line.coords[::-1])
-                out.append((line, piste["difficulty"], DEFAULT_WIDTH[piste["difficulty"]]))
+                out.append((line, difficulty, width_of(piste)))
     return out
 
 
