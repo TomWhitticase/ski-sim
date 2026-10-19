@@ -13,9 +13,13 @@
 
     <div id="hud" class="panel"></div>
 
-    <div id="minimap" class="panel">
-      <canvas></canvas>
-      <span class="minimap-scale"></span>
+    <div id="map-side">
+      <div id="minimap" class="panel">
+        <canvas></canvas>
+        <span class="minimap-scale"></span>
+      </div>
+      <div id="run" class="panel" hidden></div>
+      <div id="toggles" class="panel"></div>
     </div>
 
     <div id="crosshair"></div>
@@ -145,9 +149,11 @@
               <dd>Look around</dd>
               <dt>V</dt>
               <dd>First / third person</dd>
-              <dt>L / N</dt>
-              <dd>Lift / peak names</dd>
-              <dt>O</dt>
+              <dt>1</dt>
+              <dd>Lift names</dd>
+              <dt>2</dt>
+              <dd>Peak names</dd>
+              <dt>3</dt>
               <dd>Piste colours</dd>
               <dt>K</dt>
               <dd>Sound on / off</dd>

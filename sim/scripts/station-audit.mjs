@@ -282,7 +282,7 @@ async function load(page, query) {
   });
 }
 
-const HIDE_UI = '#hud, #minimap, #prompt, #crosshair { visibility: hidden !important; }';
+const HIDE_UI = '#hud, #map-side, #prompt, #crosshair { visibility: hidden !important; }';
 /** Frames to let terrain LOD, shadows and labels catch up after a teleport. */
 const SETTLE_FRAMES = 40;
 

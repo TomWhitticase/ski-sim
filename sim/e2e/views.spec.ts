@@ -21,7 +21,7 @@ for (const view of VIEWS) {
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
 
-    await page.goto(`/?${view.query}`);
+    await page.goto(`/?resort=les-3-vallees&${view.query}`);
     await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 30, null, { timeout: 90_000 });
     // Hide the start overlay so the scene is visible.
     await page.evaluate(() => document.body.classList.add('flying'));
@@ -35,7 +35,7 @@ for (const view of VIEWS) {
 test('labels for places behind the camera stay hidden', async ({ page }) => {
   // Facing NNE from Cime de Caron: the Orelle sector (Rocher Blanc, Télécabine d'Orelle)
   // is directly behind.
-  await page.goto('/?at=45.2632,6.5610,3210&heading=25&pitch=0');
+  await page.goto('/?resort=les-3-vallees&at=45.2632,6.5610,3210&heading=25&pitch=0');
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 30, null, { timeout: 90_000 });
   const shown = await page.locator('#labels .label:not([hidden]) .label-name').allTextContents();
   expect(shown).toContain('Mont Blanc / Monte Bianco');
