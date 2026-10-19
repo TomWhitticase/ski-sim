@@ -15,22 +15,14 @@ import {
   Vector3,
 } from 'three/webgpu';
 
+import { DEFAULT_SETUP, type SkiDimensions, type SkiSetup, skiDimensions } from './ski-setup';
 import type { SkiPose, Stance } from './ski-stance';
 
 type RGB = [number, number, number];
 
-/** A 170 cm all-mountain ski, 124/100/116 mm (tip/waist/tail), skier-local -z = forward. */
-const SKI = {
-  length: 1.7,
-  /** Distance from the boot centre to the tail; the mount point sits a bit behind centre. */
-  tail: 0.8,
-  tipWidth: 0.124,
-  waistWidth: 0.1,
-  tailWidth: 0.116,
-  tipRise: 0.07,
-  tailRise: 0.025,
-  stations: 64,
-};
+/** Default: a 178 cm all-mountain ski, ~122/88/113 mm. Skier-local -z = forward. */
+const DEFAULT_DIMENSIONS = skiDimensions(DEFAULT_SETUP);
+const STATIONS = 64;
 
 const TOPSHEET: RGB = [0.05, 0.12, 0.32];
 const ACCENT: RGB = [0.95, 0.42, 0.08];
@@ -44,21 +36,25 @@ const smoothstep = (a: number, b: number, x: number) => {
 };
 
 /** Shape of the ski at fraction t along it (0 = tail end, 1 = tip end). */
-export function skiProfile(t: number): { halfWidth: number; rise: number; thickness: number } {
+export function skiProfile(
+  t: number,
+  d: SkiDimensions = DEFAULT_DIMENSIONS,
+): { halfWidth: number; rise: number; thickness: number } {
   // Sidecut: a smooth curve through tail contact, waist and shovel...
   const waistT = 0.48;
   const w =
     t < waistT
-      ? SKI.waistWidth + (SKI.tailWidth - SKI.waistWidth) * ((waistT - t) / waistT) ** 2
-      : SKI.waistWidth + (SKI.tipWidth - SKI.waistWidth) * ((t - waistT) / (0.86 - waistT)) ** 2;
+      ? d.waistWidth + (d.tailWidth - d.waistWidth) * ((waistT - t) / waistT) ** 2
+      : d.waistWidth + (d.tipWidth - d.waistWidth) * ((t - waistT) / (0.86 - waistT)) ** 2;
   // ...rounded off at the very tip and tail.
   const tipRound = t > 0.86 ? Math.sqrt(Math.max(0, 1 - ((t - 0.86) / 0.14) ** 2)) : 1;
   const tailRound = t < 0.04 ? Math.sqrt(Math.max(0, 1 - ((0.04 - t) / 0.04) ** 2)) : 1;
   const width =
-    Math.min(w, t > 0.86 ? SKI.tipWidth : Infinity) * (0.35 + 0.65 * tipRound * tailRound);
-  // Rocker: the shovel curves up over the last fifth; a small tail kick.
+    Math.min(w, t > 0.86 ? d.tipWidth : Infinity) * (0.35 + 0.65 * tipRound * tailRound);
+  // Rocker: the shovel curves up from the rocker line (further back on rockered skis);
+  // a tail kick, bigger on twin tips.
   const rise =
-    SKI.tipRise * smoothstep(0.8, 1, t) ** 1.6 + SKI.tailRise * smoothstep(0.07, 0, t) ** 1.6;
+    d.tipRise * smoothstep(d.rockerStart, 1, t) ** 1.6 + d.tailRise * smoothstep(0.07, 0, t) ** 1.6;
   // Thickest underfoot, thin at the ends.
   const thickness = 0.007 + 0.011 * Math.exp(-(((t - 0.47) / 0.22) ** 2));
   return { halfWidth: width / 2, rise, thickness };
@@ -72,11 +68,11 @@ function topsheetColour(t: number): RGB {
 }
 
 /** Ski with separate top, base and edge faces (sharp creases, vertex-coloured). */
-export function createSkiGeometry(): BufferGeometry {
+export function createSkiGeometry(d: SkiDimensions = DEFAULT_DIMENSIONS): BufferGeometry {
   const positions: number[] = [];
   const colours: number[] = [];
   const indices: number[] = [];
-  const n = SKI.stations;
+  const n = STATIONS;
 
   // Each face strip: two rails of vertices along the ski, triangulated between them.
   const strip = (
@@ -98,9 +94,9 @@ export function createSkiGeometry(): BufferGeometry {
     }
   };
 
-  const z = (t: number) => SKI.tail - t * SKI.length;
+  const z = (t: number) => d.tail - t * d.length;
   const at = (t: number, side: -1 | 1, top: boolean): [number, number, number] => {
-    const p = skiProfile(t);
+    const p = skiProfile(t, d);
     return [side * p.halfWidth, p.rise + (top ? p.thickness : 0), z(t)];
   };
   // Wound so each face's front points outward.
@@ -133,10 +129,11 @@ export function createSkiGeometry(): BufferGeometry {
   return geometry;
 }
 
-const UNDERFOOT = skiProfile(SKI.tail / SKI.length).thickness;
+const UNDERFOOT = skiProfile(DEFAULT_DIMENSIONS.tail / DEFAULT_DIMENSIONS.length).thickness;
 
 interface SkiRig {
   group: Group;
+  ski: Mesh;
 }
 
 /**
@@ -159,6 +156,7 @@ export class SkierModel {
     cuff: Mesh;
   }[] = [];
   private readonly skis: { left: SkiRig; right: SkiRig };
+  private skiGeometry = createSkiGeometry();
 
   constructor() {
     const mat = (color: number, roughness: number, metalness = 0) =>
@@ -173,7 +171,6 @@ export class SkierModel {
     const poleShaft = mat(0xadb5bd, 0.3, 0.8);
     const poleGrip = mat(0x212529, 0.8);
 
-    const skiGeometry = createSkiGeometry();
     const plate = new BoxGeometry(0.072, 0.014, 0.42);
     const toe = new BoxGeometry(0.068, 0.045, 0.085);
     const heel = new BoxGeometry(0.07, 0.06, 0.11);
@@ -199,7 +196,7 @@ export class SkierModel {
         parts.push(mesh);
         return mesh;
       };
-      add(skiGeometry, skiMat, 0, 0, 0);
+      const ski = add(this.skiGeometry, skiMat, 0, 0, 0);
       const top = UNDERFOOT;
       add(plate, binding, 0, top + 0.007, 0);
       add(toe, binding, 0, top + 0.035, -0.2);
@@ -219,7 +216,7 @@ export class SkierModel {
       group.position.x = side * 0.11;
       group.name = side === -1 ? 'ski-left' : 'ski-right';
       this.root.add(group);
-      return { group };
+      return { group, ski };
     };
     this.skis = { left: makeSki(-1), right: makeSki(1) };
 
@@ -365,6 +362,15 @@ export class SkierModel {
     this.root.traverse((o) => {
       if ((o as Mesh).isMesh) o.castShadow = opacity >= 1;
     });
+  }
+
+  /** Reshape the skis (length, widths, rocker, mount) to match a setup. */
+  setSkiSetup(setup: SkiSetup): void {
+    const geometry = createSkiGeometry(skiDimensions(setup));
+    this.skis.left.ski.geometry = geometry;
+    this.skis.right.ski.geometry = geometry;
+    this.skiGeometry.dispose();
+    this.skiGeometry = geometry;
   }
 
   /** Skis, bindings and boots. */

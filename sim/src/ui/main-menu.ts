@@ -1,4 +1,5 @@
 import type { StartBase } from '../resort/manifest';
+import { Modal } from './modal';
 
 export interface ResortEntry {
   id: string;
@@ -25,6 +26,7 @@ export class MainMenu {
   private started = false;
   private bases: StartBase[] = [];
   private hasSaved = false;
+  readonly controls = new Modal(document.querySelector<HTMLDialogElement>('#controls-modal')!);
 
   constructor(
     root: HTMLElement,
@@ -34,6 +36,7 @@ export class MainMenu {
     this.startsEl = root.querySelector('#menu-starts')!;
     this.button = root.querySelector('#start')!;
     this.status = root.querySelector('#status')!;
+    root.querySelector('#open-controls')!.addEventListener('click', () => this.controls.open());
     this.button.addEventListener('click', () => {
       const choice = this.choice;
       this.started = true;

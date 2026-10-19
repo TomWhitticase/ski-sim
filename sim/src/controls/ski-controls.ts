@@ -6,6 +6,7 @@ import type { Bounds } from './fly-controls';
 import { type Input, Look } from './input';
 import { SkierModel } from './ski-model';
 import { SKI, type SkiState, type SkiTerrain, stepSki, surfaceNormal } from './ski-physics';
+import { DEFAULT_HANDLING, type SkiSetup, skiHandling } from './ski-setup';
 import { initialStance, updateStance } from './ski-stance';
 import type { SnowContact } from '../fx/intensity';
 
@@ -49,6 +50,8 @@ export class SkiControls {
   readonly skier = this.model.root;
   private readonly stance = initialStance();
   view: SkiCamera = 'first-person';
+  /** How the current skis handle (see `setSetup`). */
+  private handling = DEFAULT_HANDLING;
 
   private readonly state: SkiState = {
     position: new Vector3(),
@@ -144,6 +147,12 @@ export class SkiControls {
     this.updateCamera();
   }
 
+  /** Change skis: handling and the visible skis follow the setup. */
+  setSetup(setup: SkiSetup): void {
+    this.handling = skiHandling(setup);
+    this.model.setSkiSetup(setup);
+  }
+
   setActive(active: boolean): void {
     this.skier.visible = active;
     this.model.setOpacity(1);
@@ -199,10 +208,12 @@ export class SkiControls {
     const pivot = input.down('KeyS');
     if (pivot) {
       // Upper body stays put; only the skis swing.
-      const twist = wrapAngle(this.skiYaw + turn * PIVOT_RATE * dt - this.look.yaw);
+      const twist = wrapAngle(
+        this.skiYaw + turn * PIVOT_RATE * this.handling.pivotRate * dt - this.look.yaw,
+      );
       this.skiYaw = this.look.yaw + Math.max(-MAX_TWIST, Math.min(MAX_TWIST, twist));
     } else {
-      this.look.yaw += turn * TURN_RATE * dt;
+      this.look.yaw += turn * TURN_RATE * this.handling.turnRate * dt;
       const twist = wrapAngle(this.skiYaw - this.look.yaw);
       this.skiYaw = this.look.yaw + twist * Math.exp(-REALIGN_RATE * dt);
     }
@@ -227,6 +238,7 @@ export class SkiControls {
       },
       dt,
       this.terrain,
+      this.handling,
     );
 
     const p = this.state.position;
@@ -294,6 +306,7 @@ export class SkiControls {
         climb: this.state.climbing ?? false,
         tuck,
         airborne: this.state.airborne,
+        edgeRate: this.handling.edgeRate,
       },
       dt,
     );

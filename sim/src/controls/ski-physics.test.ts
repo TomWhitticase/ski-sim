@@ -2,6 +2,7 @@ import { Vector3 } from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
 
 import { SKI, type SkiIntent, type SkiState, type SkiTerrain, stepSki } from './ski-physics';
+import { DEFAULT_HANDLING, SKI_PRESETS, type SkiHandling, skiHandling } from './ski-setup';
 
 const RAD = Math.PI / 180;
 const idle: SkiIntent = { tuck: false, push: false, brake: false, jump: false };
@@ -21,8 +22,14 @@ function skier(terrain: SkiTerrain, yaw: number): SkiState {
   };
 }
 
-function run(state: SkiState, terrain: SkiTerrain, seconds: number, intent = idle) {
-  for (let t = 0; t < seconds; t += 1 / 60) stepSki(state, intent, 1 / 60, terrain);
+function run(
+  state: SkiState,
+  terrain: SkiTerrain,
+  seconds: number,
+  intent = idle,
+  skis: SkiHandling = DEFAULT_HANDLING,
+) {
+  for (let t = 0; t < seconds; t += 1 / 60) stepSki(state, intent, 1 / 60, terrain, skis);
   return state;
 }
 
@@ -41,7 +48,8 @@ describe('stepSki', () => {
     const state = run(skier(t, DOWNHILL), t, 60);
     const theta = 20 * RAD;
     const terminal = Math.sqrt(
-      (SKI.gravity * Math.sin(theta) - SKI.snowFriction * SKI.gravity * Math.cos(theta)) /
+      (SKI.gravity * Math.sin(theta) -
+        DEFAULT_HANDLING.snowFriction * SKI.gravity * Math.cos(theta)) /
         SKI.dragUpright,
     );
     expect(state.velocity.length()).toBeGreaterThan(terminal * 0.95);
@@ -56,7 +64,7 @@ describe('stepSki', () => {
     expect(tuck).toBeGreaterThan(upright);
     const steep = slope(45);
     const capped = run(skier(steep, DOWNHILL), steep, 60, { ...idle, tuck: true });
-    expect(capped.velocity.length()).toBeLessThanOrEqual(SKI.maxSpeed + 1e-6);
+    expect(capped.velocity.length()).toBeLessThanOrEqual(DEFAULT_HANDLING.maxSpeed + 1e-6);
   });
 
   it('holds still when the skis are across a moderate slope', () => {
@@ -160,5 +168,103 @@ describe('double-poling', () => {
     coasting.velocity.set(0, 0, 5);
     run(coasting, t, 20);
     expect(coasting.velocity.length()).toBeLessThan(state.velocity.length());
+  });
+});
+
+describe('ski setup', () => {
+  const handling = (id: keyof typeof SKI_PRESETS) => skiHandling(SKI_PRESETS[id].setup);
+  const DOWN = Math.PI;
+  const speedAfter = (t: SkiTerrain, skis: SkiHandling, seconds: number, intent = idle) =>
+    run(skier(t, DOWN), t, seconds, intent, skis).velocity.length();
+
+  it('a GS ski is faster than a park ski on a groomed slope', () => {
+    const t = slope(22);
+    const gs = speedAfter(t, handling('gs'), 40, { ...idle, tuck: true });
+    const park = speedAfter(t, handling('park'), 40, { ...idle, tuck: true });
+    expect(gs).toBeGreaterThan(park * 1.15);
+    expect(park).toBeGreaterThan(15); // still a usable ski
+  });
+
+  it('a wide rockered ski loses less speed in powder than a narrow race ski', () => {
+    const powder: SkiTerrain = { ...slope(20), groomed: () => false };
+    // Coast across a flat powder field at 54 km/h and see how much speed is lost.
+    const flat: SkiTerrain = { height: () => 2000, groomed: () => false };
+    const loss = (skis: SkiHandling) => {
+      const state = skier(flat, DOWN);
+      state.velocity.set(0, 0, 15);
+      run(state, flat, 3, idle, skis);
+      return 15 - state.velocity.length();
+    };
+    const freeride = loss(handling('freeride'));
+    const slalom = loss(handling('slalom'));
+    expect(freeride).toBeLessThan(slalom * 0.8);
+    // And on a powder slope the wide ski runs faster.
+    expect(speedAfter(powder, handling('freeride'), 30)).toBeGreaterThan(
+      speedAfter(powder, handling('slalom'), 30),
+    );
+  });
+
+  it('race wax glides further on the flat than an unwaxed base', () => {
+    const glide = (skis: SkiHandling) => {
+      const t = slope(0);
+      const state = skier(t, DOWN);
+      state.velocity.set(0, 0, 8);
+      run(state, t, 4, idle, skis);
+      return state.velocity.length();
+    };
+    const base = SKI_PRESETS['all-mountain'].setup;
+    expect(glide(skiHandling({ ...base, wax: 'race' }))).toBeGreaterThan(
+      glide(skiHandling({ ...base, wax: 'unwaxed' })) + 0.5,
+    );
+  });
+
+  /** Heading change (rad) after 1 s with the skis turned 35° off the direction of travel. */
+  function turned(skis: SkiHandling, speed: number, groomed = true): number {
+    const t: SkiTerrain = { height: () => 2000, groomed: () => groomed };
+    const state = skier(t, DOWN);
+    state.velocity.set(0, 0, speed);
+    state.yaw = DOWN - 35 * RAD;
+    run(state, t, 1, idle, skis);
+    return Math.atan2(-state.velocity.x, state.velocity.z);
+  }
+
+  it('a tighter sidecut and a shorter ski carve round quicker', () => {
+    expect(turned(handling('slalom'), 15)).toBeGreaterThan(turned(handling('gs'), 15));
+    const base = SKI_PRESETS['all-mountain'].setup;
+    expect(turned(skiHandling({ ...base, length: 160 }), 15)).toBeGreaterThan(
+      turned(skiHandling({ ...base, length: 195 }), 15),
+    );
+  });
+
+  it('sharp edges hold on hard snow; dull edges skid', () => {
+    const base = SKI_PRESETS['all-mountain'].setup;
+    expect(turned(skiHandling({ ...base, tune: 'race' }), 15)).toBeGreaterThan(
+      turned(skiHandling({ ...base, tune: 'dull' }), 15),
+    );
+  });
+
+  it('soft skis wash out at speed where stiff ones still carve', () => {
+    const base = SKI_PRESETS['all-mountain'].setup;
+    const soft = skiHandling({ ...base, flex: 2 });
+    const stiff = skiHandling({ ...base, flex: 10 });
+    expect(turned(stiff, 30)).toBeGreaterThan(turned(soft, 30));
+    // ...but at low speed the soft ski is the more forgiving one.
+    expect(turned(soft, 4)).toBeGreaterThan(turned(stiff, 4));
+  });
+
+  it('every preset keeps the speed cap and still stops in a hockey stop', () => {
+    for (const id of Object.keys(SKI_PRESETS) as (keyof typeof SKI_PRESETS)[]) {
+      const skis = handling(id);
+      const t = slope(15);
+      const state = run(skier(t, DOWN), t, 6, idle, skis);
+      expect(state.velocity.length()).toBeGreaterThan(5);
+      state.yaw = ACROSS;
+      run(state, t, 4, { ...idle, brake: true }, skis);
+      expect(state.velocity.length(), id).toBeLessThan(1.5);
+      const steep = slope(45);
+      const capped = run(skier(steep, DOWN), steep, 60, { ...idle, tuck: true }, skis);
+      expect(capped.velocity.length()).toBeLessThanOrEqual(skis.maxSpeed + 1e-6);
+      expect(skis.maxSpeed).toBeLessThanOrEqual(40);
+    }
   });
 });

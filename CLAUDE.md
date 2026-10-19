@@ -33,6 +33,7 @@ pnpm dev               # http://localhost:5173 (serves data/processed as static 
 pnpm test              # Vitest unit tests
 pnpm screenshot        # Playwright: renders e2e view poses + runs control tests (serial: workers=1)
 pnpm perf              # load time + fps at fixed poses (needs pnpm dev running)
+SIM_PORT=5176 pnpm screenshot   # Playwright and perf honour SIM_PORT (default 5173) for parallel worktrees
 pnpm typecheck && pnpm lint
 pnpm build
 ```
@@ -132,7 +133,7 @@ sim/src/
   lifts/              Lift operation model, carriers, lift system (statics + moving carriers), riding
   env/                Sky, sun position, lights, cascaded shadows, fog
   render/             Adaptive resolution (render scale follows frame time)
-  controls/           Shared input + mouse look; fly mode; ski mode (ski-physics.ts is pure and unit-tested)
+  controls/           Shared input + mouse look; fly mode; ski mode (ski-physics.ts and ski-setup.ts are pure and unit-tested)
   nav/                Saved pose (localStorage, per resort) and teleport destinations
   ui/                 HUD, minimap, fullscreen world map (M), world-anchored name labels
 sim/e2e/              Playwright view screenshots and control tests
@@ -162,6 +163,14 @@ There are two layers. **Near** is lidar at 4 m covering the ski area. **Far** is
 - W by speed: below ~16 km/h it skates (or walks or climbs, with footstep sounds under 9 km/h); above that it double-poles (`ski-stance` pole cycle plus `SKI.poleAccel`, up to ~32 km/h) with pole-plant sounds. Stance animation emits `step`/`plant` events and the controller exposes them as `footstep`/`polePlant` for audio.
 - Walking uphill: with W held and the skis pointing up a slope too steep to skate, `stepSki` switches to climbing (herringbone): ~1.3 m/s on gentle grades, down to 0.35 m/s on steep ones, never stuck. Releasing W lets you slide back.
 - Map teleports always land you on the ground (`groundedPose`, eye height above the DEM), aimed at the summit for peak destinations.
+
+### Ski setup
+
+G (or the main/pause menu's "Ski setup" button) opens a modal (`ui/ski-setup-menu.ts`) with presets (Slalom race, Giant slalom, All-mountain, Freeride / powder, Park) and real ski properties: length, waist, sidecut radius, flex, camber/rocker profile, wax, edge tune and binding mount. Persisted as `ski-sim.ski-setup`.
+- `controls/ski-setup.ts` (pure, unit-tested) turns a setup into `SkiHandling`: friction, powder float, carve rate, hard-snow grip, skid deceleration, stable speed (chatter above it), speed cap, and multipliers for A/D turning, S-pivots and edge-to-edge speed. `stepSki` takes the handling as an argument; there are no globals.
+- The All-mountain preset is the reference: it maps onto the base physics (handling multipliers of 1; only the chatter above ~100 km/h is new), so tuning `BASE_HANDLING` moves every ski together. Keep extremes playable: `ski-setup.test.ts` checks the speed cap, minimum carving and turn rates at both ends of every slider.
+- The model's skis follow the setup (`skiDimensions`): length, waist, tip/tail widths from the sidecut radius, rocker rise, and the mount point (~3.5% of the length behind centre). The default 178 cm ski is about chin height on the 1.83 m skier.
+- The controls list is also a modal (`#controls-modal`). Both use `ui/modal.ts`, a native `<dialog>` (Esc and backdrop clicks close it). While a dialog is open, game keys other than G are ignored.
 
 ### Pistes
 

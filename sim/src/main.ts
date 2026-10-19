@@ -18,6 +18,7 @@ import { SnowTrails } from './fx/snow-trails';
 import { GliderControls } from './controls/glider-controls';
 import { Input } from './controls/input';
 import { EYE_HEIGHT, SkiControls } from './controls/ski-controls';
+import { loadSetup, saveSetup, type SkiSetup } from './controls/ski-setup';
 import { Environment } from './env/environment';
 import { BuildingIndex } from './features/building-index';
 import { ObstacleIndex } from './features/obstacles';
@@ -47,6 +48,7 @@ import { loadPose, type Pose, savePose } from './nav/pose';
 import { Hud } from './ui/hud';
 import { type LabelKind, type LabelSpec, Labels, liftLabel, peakLabel } from './ui/labels';
 import { LAST_RESORT_KEY, MainMenu, type ResortEntry, type StartChoice } from './ui/main-menu';
+import { SkiSetupMenu } from './ui/ski-setup-menu';
 import { Minimap } from './ui/minimap';
 import { WorldMap } from './ui/world-map';
 
@@ -100,6 +102,12 @@ async function main(): Promise<void> {
   let play: (choice: StartChoice) => void = () => {};
   const menu = new MainMenu($('#overlay'), (choice) => play(choice));
   menu.setResorts(resorts, resortId);
+  let changeSkis: (setup: SkiSetup) => void = () => {};
+  const skiSetup = new SkiSetupMenu($('#ski-setup-modal'), loadSetup(localStorage), (setup) => {
+    saveSetup(localStorage, setup);
+    changeSkis(setup);
+  });
+  $('#open-ski-setup').addEventListener('click', () => skiSetup.open());
 
   const manifest = await loadManifest(resortId);
   menu.setStarts(
@@ -192,6 +200,8 @@ async function main(): Promise<void> {
     },
     bounds,
   );
+  ski.setSetup(skiSetup.current);
+  changeSkis = (setup) => ski.setSetup(setup);
   scene.add(ski.skier);
   const glider = new GliderControls(camera, groundHeight, bounds);
   scene.add(glider.root);
@@ -470,6 +480,12 @@ async function main(): Promise<void> {
   document.addEventListener('visibilitychange', persistPose);
   document.addEventListener('keydown', (e) => {
     if (e.target instanceof HTMLInputElement) return; // typing in the map search box
+    if (e.code === 'KeyG' && !e.repeat && !worldMap.isOpen) {
+      if (document.pointerLockElement) document.exitPointerLock();
+      skiSetup.toggle();
+      return;
+    }
+    if (document.querySelector('dialog[open]')) return; // a menu dialog has the keyboard
     if (e.code === 'KeyM' && !e.repeat) {
       if (worldMap.isOpen) closeMap(true);
       else openMap();

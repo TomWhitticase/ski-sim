@@ -62,69 +62,120 @@
         </div>
         <p id="status">Loading…</p>
         <button id="start" disabled>Loading…</button>
-        <details class="menu-controls">
-          <summary>Controls</summary>
-          <dl class="controls">
-            <dt>F</dt>
-            <dd>Switch fly / ski mode</dd>
-            <dt class="controls-heading"><b>Fly</b></dt>
-            <dd></dd>
-            <dt>WASD</dt>
-            <dd>Fly</dd>
-            <dt>Ctrl</dt>
-            <dd>Sprint</dd>
-            <dt>Space / Shift</dt>
-            <dd>Up / down</dd>
-            <dt>Scroll</dt>
-            <dd>Fly speed</dd>
-            <dt class="controls-heading"><b>Ski</b></dt>
-            <dd></dd>
-            <dt>Mouse / A D</dt>
-            <dd>Steer</dd>
-            <dt>W</dt>
-            <dd>Skate</dd>
-            <dt>Ctrl</dt>
-            <dd>Tuck</dd>
-            <dt>Shift</dt>
-            <dd>Snowplough</dd>
-            <dt>S + A / D</dt>
-            <dd>Pivot skis (hockey stop)</dd>
-            <dt>Space</dt>
-            <dd>Jump</dd>
-            <dt class="controls-heading"><b>Paraglider</b></dt>
-            <dd></dd>
-            <dt>P</dt>
-            <dd>Deploy / release the wing (keeps your speed)</dd>
-            <dt>A / D</dt>
-            <dd>Bank and turn</dd>
-            <dt>W / S</dt>
-            <dd>Speed bar / brakes</dd>
-            <dt class="controls-heading"><b>Both</b></dt>
-            <dd></dd>
-            <dt>Mouse</dt>
-            <dd>Look around</dd>
-            <dt>V</dt>
-            <dd>First / third person</dd>
-            <dt>E</dt>
-            <dd>Ride a lift (at its bottom station) · hold W to fast-forward</dd>
-            <dt>M</dt>
-            <dd>Map &amp; teleport</dd>
-            <dt>L / N</dt>
-            <dd>Lift / peak names</dd>
-            <dt>K</dt>
-            <dd>Sound on / off</dd>
-            <dt>O</dt>
-            <dd>Piste colours</dd>
-            <dt>- / =</dt>
-            <dd>Minimap zoom</dd>
-            <dt>F3</dt>
-            <dd>Debug info</dd>
-            <dt>Esc</dt>
-            <dd>Release mouse</dd>
-          </dl>
-        </details>
+        <div class="menu-actions">
+          <button id="open-ski-setup" class="menu-action" type="button">
+            Ski setup <kbd>G</kbd>
+          </button>
+          <button id="open-controls" class="menu-action" type="button">Controls</button>
+        </div>
       </div>
     </div>
+
+    <dialog id="controls-modal" class="modal" aria-labelledby="controls-title">
+      <div class="modal-card">
+        <header class="modal-header">
+          <h2 id="controls-title">Controls</h2>
+          <button class="modal-close" type="button" title="Close (Esc)" aria-label="Close">
+            ✕
+          </button>
+        </header>
+        <div class="modal-body controls-sections">
+          <section>
+            <h3>Getting around</h3>
+            <dl class="controls">
+              <dt>F</dt>
+              <dd>Switch fly / ski mode</dd>
+              <dt>M</dt>
+              <dd>Map &amp; teleport</dd>
+              <dt>E</dt>
+              <dd>
+                Ride a lift (at its bottom station) · hold W to fast-forward, S to skip to the top
+              </dd>
+              <dt>Esc</dt>
+              <dd>Release the mouse (pause menu)</dd>
+            </dl>
+          </section>
+          <section>
+            <h3>Ski</h3>
+            <dl class="controls">
+              <dt>Mouse / A D</dt>
+              <dd>Steer</dd>
+              <dt>W</dt>
+              <dd>Skate, double-pole, or walk up steep slopes</dd>
+              <dt>Ctrl</dt>
+              <dd>Tuck</dd>
+              <dt>Shift</dt>
+              <dd>Snowplough</dd>
+              <dt>S + A / D</dt>
+              <dd>Pivot skis (hockey stop)</dd>
+              <dt>Space</dt>
+              <dd>Jump</dd>
+              <dt>G</dt>
+              <dd>Ski setup</dd>
+            </dl>
+          </section>
+          <section>
+            <h3>Fly</h3>
+            <dl class="controls">
+              <dt>WASD</dt>
+              <dd>Fly</dd>
+              <dt>Ctrl</dt>
+              <dd>Sprint</dd>
+              <dt>Space / Shift</dt>
+              <dd>Up / down</dd>
+              <dt>Scroll</dt>
+              <dd>Fly speed</dd>
+            </dl>
+          </section>
+          <section>
+            <h3>Paraglider</h3>
+            <dl class="controls">
+              <dt>P</dt>
+              <dd>Deploy / release the wing (keeps your speed)</dd>
+              <dt>A / D</dt>
+              <dd>Bank and turn</dd>
+              <dt>W / S</dt>
+              <dd>Speed bar / brakes</dd>
+            </dl>
+          </section>
+          <section>
+            <h3>View &amp; sound</h3>
+            <dl class="controls">
+              <dt>Mouse</dt>
+              <dd>Look around</dd>
+              <dt>V</dt>
+              <dd>First / third person</dd>
+              <dt>L / N</dt>
+              <dd>Lift / peak names</dd>
+              <dt>O</dt>
+              <dd>Piste colours</dd>
+              <dt>K</dt>
+              <dd>Sound on / off</dd>
+              <dt>- / =</dt>
+              <dd>Minimap zoom</dd>
+              <dt>F3</dt>
+              <dd>Debug info</dd>
+            </dl>
+          </section>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="ski-setup-modal" class="modal" aria-labelledby="ski-setup-title">
+      <div class="modal-card">
+        <header class="modal-header">
+          <h2 id="ski-setup-title">Ski setup</h2>
+          <button class="modal-close" type="button" title="Close (Esc)" aria-label="Close">
+            ✕
+          </button>
+        </header>
+        <div class="modal-body ski-setup"></div>
+        <footer class="modal-footer">
+          <button class="setup-reset menu-action" type="button">Reset to All-mountain</button>
+          <button class="modal-close menu-primary" type="button">Done</button>
+        </footer>
+      </div>
+    </dialog>
 
     <div id="attribution"></div>
 
