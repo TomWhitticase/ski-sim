@@ -10,8 +10,6 @@ import { type LiftLine, type LiftSystem, nextDeparture } from './lift-system';
 const UP = new Vector3(0, 1, 0);
 const FAST_FORWARD = 8;
 const CHASE_DISTANCE = 6;
-/** Walking pace on the way to the loading point after pressing E (m/s). */
-const WALK_SPEED = 3;
 /** Seconds to settle into the seat once the carrier reaches you. */
 const BOARD_BLEND = 0.5;
 /** Seconds to step in through a cabin's door and sit down (or find your spot). */
@@ -25,13 +23,13 @@ const STANDING_EYE = 1.62;
 /** Near plane inside a cabin, so walls an arm's length away aren't clipped (m). */
 const CABIN_NEAR = 0.05;
 
-export type RidePhase = 'approach' | 'waiting' | 'boarding' | 'riding';
+export type RidePhase = 'waiting' | 'boarding' | 'riding';
 
 /**
- * Getting on, riding and getting off a lift, with no teleports:
- * - approach (after pressing E): walk to the loading point;
- * - waiting: stand on the loading point until the next carrier reaches you (you can also
- *   ski into the loading zone yourself; LiftSystem.scoop() starts you at `boarding`);
+ * Getting on, riding and getting off a lift:
+ * - waiting: E puts you straight on the loading point, where you wait for the next
+ *   carrier (you can also ski into the loading zone yourself; LiftSystem.scoop() starts
+ *   you at `boarding`);
  * - boarding: settle into the seat/cabin as it carries you along;
  * - riding: until your carrier passes the unloading point, where you're released.
  * Hold W to fast-forward the lift clock; S skips straight to the top.
@@ -42,7 +40,6 @@ export class RideControls {
   carrier = 0;
   phase: RidePhase = 'waiting';
   readonly velocity = new Vector3();
-  private readonly waypoints: Vector3[] = [];
   private blend = 0;
   private moved = false;
   private readonly blendFrom = new Vector3();
@@ -108,23 +105,18 @@ export class RideControls {
   /** Teleports end the ride first (see main.ts), so there's nothing to place here. */
   place(): void {}
 
-  /** Press-E boarding: walk from `from` to the loading point, then wait there. */
-  approach(line: number, from: Vector3, lookYaw: number): void {
+  /** Press-E boarding: step straight onto the loading point, facing up the line, and wait. */
+  approach(line: number): void {
     this.setLine(line);
     const l = this.lineObj;
-    this.waypoints.length = 0;
-    this.waypoints.push(...l.entryPath());
-    if (this.cabin) {
-      // In through the door, then to your spot beside the track.
-      this.waypoints[this.waypoints.length - 1] = l.loadPoint
-        .clone()
-        .addScaledVector(l.across, 1.4);
-    }
-    this.feet.copy(from);
-    this.lastFeet.copy(from);
-    this.look.yaw = lookYaw;
+    const t = l.bottomTerminal;
+    this.feet.copy(l.loadingSpot());
+    this.feet.y = this.skier.groundAt(this.feet.x, this.feet.z);
+    this.lastFeet.copy(this.feet);
+    this.bodyYaw = Math.atan2(-t.dir[0], t.dir[1]);
+    this.look.yaw = this.bodyYaw;
     this.look.pitch = 0;
-    this.phase = 'approach';
+    this.phase = 'waiting';
     this.velocity.set(0, 0, 0);
   }
 
@@ -142,28 +134,14 @@ export class RideControls {
   update(dt: number, input: Input): boolean {
     this.look.apply(input);
     const lifts = this.lifts;
-    lifts.rate = input.down('KeyW') && this.phase !== 'approach' ? FAST_FORWARD : 1;
+    lifts.rate = input.down('KeyW') ? FAST_FORWARD : 1;
     if (input.wasPressed('KeyS')) {
       this.skipToTop();
       return true;
     }
     const line = this.lineObj;
 
-    if (this.phase === 'approach') {
-      const target = this.waypoints[0]!;
-      const step = WALK_SPEED * dt;
-      const to = target.clone().sub(this.feet).setY(0);
-      if (to.length() <= step) {
-        this.feet.copy(target);
-        this.waypoints.shift();
-        if (!this.waypoints.length) this.phase = 'waiting';
-      } else {
-        to.setLength(step);
-        this.feet.add(to);
-        this.bodyYaw = Math.atan2(-to.x, -to.z);
-      }
-      this.feet.y = this.skier.groundAt(this.feet.x, this.feet.z);
-    } else if (this.phase === 'waiting') {
+    if (this.phase === 'waiting') {
       const t = line.bottomTerminal;
       this.bodyYaw = Math.atan2(-t.dir[0], t.dir[1]);
       if (line.tracks) {

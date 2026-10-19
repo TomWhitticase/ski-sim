@@ -459,12 +459,10 @@ async function main(): Promise<void> {
   hud.setMode(mode);
   document.body.classList.toggle('skiing', mode !== 'fly');
   let nearTower = false;
-  /** E: walk to the loading point and wait for the next carrier. */
+  /** E: straight onto the loading point, to wait for the next carrier. */
   const boardLift = (line: number) => {
-    const from = whereAmI().clone();
-    const yaw = controls().look.yaw;
     setMode('ride');
-    ride.approach(line, from, yaw);
+    ride.approach(line);
   };
   /** Skied into a loading zone just as a carrier arrived: on you get. */
   const scooped = (line: number, carrier: number) => {
@@ -633,9 +631,7 @@ async function main(): Promise<void> {
   const updatePrompt = () => {
     let text = '';
     if (mode === 'ride') {
-      if (ride.phase === 'approach')
-        text = `Heading to the ${ride.name} loading point… · S to skip to the top`;
-      else if (ride.phase === 'waiting') {
+      if (ride.phase === 'waiting') {
         text = `Waiting for ${ride.name} · ${formatWait(ride.departsIn)} · hold W to fast-forward · E to step away`;
       } else {
         text = `${ride.name} · hold W to fast-forward · S to skip to the top · E to jump off`;

@@ -258,26 +258,16 @@ export class LiftLine {
   }
 
   /**
-   * Walking route (world, on the pad) from outside the bottom station's entrance to the
-   * loading spot: in through the side door/gate at the loading point, or from behind the
-   * bullwheel along the uphill track's outer side (outside the carriers' loop).
+   * Where you stand to board (world, on the pad): on the loading line for chairs and
+   * drags, beside the track for gondolas and cable cars (cabins pass alongside).
    */
-  entryPath(): Vector3[] {
+  loadingSpot(): Vector3 {
     const t = this.bottomTerminal;
     const r = t.gauge / 2;
-    const w = t.width / 2;
     const enclosed = this.op.kind === 'gondola' || this.op.kind === 'cabin';
-    const at = (u: number, v: number) =>
-      new Vector3(t.east, t.pad, -t.north)
-        .addScaledVector(new Vector3(t.dir[0], 0, -t.dir[1]), u)
-        .addScaledVector(this.across, v);
-    // Where you stand: on the loading line (chairs, drags), beside the track (cabins).
-    const spot = at(t.load, enclosed ? r + 1.4 : r);
-    if (t.entrance === 'back') {
-      const lane = r + 2.8;
-      return [at(-t.back - 6, lane), at(-t.back - 0.5, lane), at(t.load, lane), spot];
-    }
-    return [at(t.load, w + 6), at(t.load, w + 0.5), spot];
+    return new Vector3(t.east, t.pad, -t.north)
+      .addScaledVector(new Vector3(t.dir[0], 0, -t.dir[1]), t.load)
+      .addScaledVector(this.across, enclosed ? r + 1.4 : r);
   }
 
   /** Whether a world point is in this lift's loading zone (on the pad by the loading point). */

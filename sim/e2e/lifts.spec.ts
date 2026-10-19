@@ -36,7 +36,6 @@ test('ride the Cascades chairlift to the top and ski off', async ({ page }) => {
   await page.screenshot({ path: 'test-results/views/lift-chair-chase.png' });
 
   // Fast-forward up the line (285 s ride, ×8).
-  // (E first walks you round to the entrance and onto the loading point.)
   await page.keyboard.down('KeyW');
   await expect.poll(() => altitude(page), { timeout: 20_000 }).toBeGreaterThan(low + 20);
   await expect.poll(() => mode(page), { timeout: 60_000 }).toBe('SKI');
@@ -101,7 +100,7 @@ test('S on a lift skips straight to the top', async ({ page }) => {
   await page.waitForTimeout(300);
   await page.keyboard.press('KeyE');
   await page.waitForTimeout(500);
-  expect(await mode(page)).toBe('LIFT'); // walking to the loading point
+  expect(await mode(page)).toBe('LIFT'); // on the loading point
   await page.keyboard.press('KeyS'); // works at any point once you've chosen the lift
   await page.waitForTimeout(500);
   expect(await mode(page)).toBe('SKI');
@@ -129,7 +128,7 @@ test('stand on the loading point and the chair scoops you up — no E needed', a
   expect(speed).toBeGreaterThan(3); // skiing off down the ramp, not standing in the station
 });
 
-test('E walks you to the gondola loading point and you board as a cabin passes', async ({
+test('E puts you on the gondola loading point and you board as a cabin passes', async ({
   page,
 }) => {
   test.setTimeout(150_000);
@@ -138,9 +137,8 @@ test('E walks you to the gondola loading point and you board as a cabin passes',
   await expect(page.locator('#prompt')).toContainText('ride Moraine');
   const before = await page.locator('#hud [data-field="lat"]').textContent();
   await page.keyboard.press('KeyE');
-  await expect(page.locator('#prompt')).toContainText(/Heading to|Waiting for/);
-  // Walked (not teleported): position changes gradually.
-  await page.waitForTimeout(500);
+  // Straight onto the loading point: no walk there.
+  await expect(page.locator('#prompt')).toContainText('Waiting for');
   expect(await page.locator('#hud [data-field="lat"]').textContent()).not.toBe(before);
   await expect(page.locator('#prompt')).toContainText(/hold W to fast-forward · S to skip/, {
     timeout: 60_000,
