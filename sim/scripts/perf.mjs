@@ -9,6 +9,7 @@ const POSES = {
   'ski-slope': 'at=45.2830,6.5760,2600&heading=27&pitch=-10',
   // Mountain restaurants above St. Anton (Krazy Kanguruh, Mooserwirt, Sennhütte...).
   'st-anton-huts': 'resort=arlberg&at=47.129080,10.256784,1467&heading=328&pitch=-10',
+  'meribel-forest': 'at=45.3890,6.5700,1700&heading=120&pitch=-5',
 };
 
 const browser = await chromium.launch({

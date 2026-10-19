@@ -51,6 +51,12 @@ const VIEWS = [
     name: 'paradiski-plagne-centre',
     query: 'resort=paradiski&at=45.5030,6.6700,2150&heading=40&pitch=-12',
   },
+  // Land cover: Méribel's forests (pistes and lift lines cut through them), a skier's-eye
+  // view under the trees, and the Vanoise glaciers.
+  { name: 'meribel-forest', query: 'at=45.3890,6.5700,1700&heading=120&pitch=-5' },
+  { name: 'forest-floor', query: 'at=45.3890,6.5700,1502&heading=120&pitch=0' },
+  { name: 'courchevel-tree-line', query: 'at=45.4050,6.6300,1950&heading=200&pitch=-10' },
+  { name: 'glaciers', query: 'at=45.2700,6.6600,3300&heading=120&pitch=-15' },
 ];
 
 for (const view of VIEWS) {

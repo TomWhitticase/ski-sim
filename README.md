@@ -2,7 +2,7 @@
 
 A 3D immersive simulation of real-world ski resorts, built from real geospatial data: lidar elevation models, aerial imagery, OpenStreetMap piste and lift data, buildings and vegetation. The aim is for each resort to match reality as closely as the available data allows.
 
-**Status:** Les 3 Vallées (Val Thorens, Les Menuires, Méribel, Courchevel) is flyable and skiable with real lidar terrain, basic lifts and buildings, a HUD, a minimap and a bluebird sky. See [CLAUDE.md](CLAUDE.md) for architecture, principles and data sources.
+**Status:** Les 3 Vallées (Val Thorens, Les Menuires, Méribel, Courchevel) is flyable and skiable with real lidar terrain, forests, rock and glaciers from satellite land cover, basic lifts and buildings, a HUD, a minimap and a bluebird sky. See [CLAUDE.md](CLAUDE.md) for architecture, principles and data sources.
 
 ## Quick start
 
@@ -61,7 +61,7 @@ uv run ski-sim init --name "Tignes" --country FR --ski-area "Tignes"   # or --bb
 uv run ski-sim build tignes
 ```
 
-It then appears in the main menu's ski-area list. Terrain, lifts, signs, buildings, pistes and peaks are all generated from open data.
+It then appears in the main menu's ski-area list. Terrain, forests, lifts, signs, buildings, pistes and peaks are all generated from open data.
 
 Whatever else OSM has is picked up too: snow parks get a generated layout you can ski (kickers to launch flips off, boxes, and a boardercross with berms and rollers where the name says so), sledging runs, cross-country tracks, kids' areas, touring and walking routes and connections each get their own colour on the map and a name in the run display (with the run number where mapped), and floodlit runs light up after dark.
 
@@ -78,3 +78,4 @@ The site is free to host: GitHub Pages serves the sim and the resort data, and G
 - Terrain: IGN – LiDAR HD and RGE ALTI® (Licence Ouverte / Etalab 2.0)
 - © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved
 - Lifts, buildings and summit reference elevations: © OpenStreetMap contributors (ODbL)
+- Land cover (forests, rock, glaciers, water): © ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium (CC BY 4.0)

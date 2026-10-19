@@ -62,10 +62,29 @@ export interface ResortManifest {
     count: number;
     markers: number;
   };
+  landCover: {
+    /** How the texture's channels encode the layers (see landcover/land-cover.ts). */
+    channels: string;
+    near: LandCoverMeta;
+    far: LandCoverMeta;
+    trees: {
+      /** Elevation (m) below which nearly all the area's forest grows; null without forest. */
+      treeLine: number | null;
+      /** Synthetic typical heights (m): in the valleys and at the tree line. */
+      height: { valley: number; treeLine: number };
+    };
+  };
   provenance: Provenance[];
 }
 
-const SUPPORTED_VERSION = 8;
+/** A land cover image on its own grid (see landcover/land-cover.ts). */
+export interface LandCoverMeta {
+  file: string;
+  cellSize: number;
+  extent: Extent;
+}
+
+const SUPPORTED_VERSION = 9;
 
 /**
  * Where pipeline output is served from: the site's base path (dev, GitHub Pages), or
