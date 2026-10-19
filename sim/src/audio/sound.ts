@@ -262,6 +262,37 @@ export class Sound {
   }
 
   /** Landing thump; `impact` in m/s of vertical speed. */
+  /** The map teleport's camera cut (GTA-style): a filtered noise swoosh and a low hit.
+   *  `up` sweeps the swoosh upward (leaving), otherwise downward (arriving). */
+  whoosh(up: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const source = ctx.createBufferSource();
+    source.buffer = this.noise;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.Q.value = 1.2;
+    filter.frequency.setValueAtTime(up ? 400 : 2600, t);
+    filter.frequency.exponentialRampToValueAtTime(up ? 2600 : 400, t + 0.3);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.001, t);
+    gain.gain.exponentialRampToValueAtTime(0.5, t + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.38);
+    source.connect(filter).connect(gain).connect(this.master);
+    source.start(t, Math.random());
+    source.stop(t + 0.4);
+    const hit = ctx.createOscillator();
+    hit.frequency.setValueAtTime(90, t);
+    hit.frequency.exponentialRampToValueAtTime(40, t + 0.2);
+    const hitGain = ctx.createGain();
+    hitGain.gain.setValueAtTime(0.4, t);
+    hitGain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    hit.connect(hitGain).connect(this.master);
+    hit.start(t);
+    hit.stop(t + 0.26);
+  }
+
   thump(impact: number): void {
     const ctx = this.ctx;
     if (!ctx || impact < 1.5) return;

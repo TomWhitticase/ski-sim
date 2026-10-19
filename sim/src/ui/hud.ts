@@ -40,10 +40,14 @@ export class Hud {
   private readonly fields: Record<keyof HudState, HTMLElement>;
   private pisteKey: string | null = null;
 
+  private flyKey = '';
+  private bumpTimer = 0;
+
   constructor(
     private readonly root: HTMLElement,
     private readonly run: HTMLElement,
     private readonly toggles: HTMLElement,
+    private readonly flySpeed?: HTMLElement,
   ) {
     root.innerHTML = `
       <div class="hud-row"><span class="hud-label">MODE</span><span data-mode></span></div>
@@ -86,6 +90,33 @@ export class Hud {
     dot.hidden = !piste.colour;
     if (piste.colour) dot.style.background = piste.colour;
     this.run.querySelector('[data-piste] span')!.textContent = piste.name;
+  }
+
+  /**
+   * Fly mode's set speed (m/s, including any sprint) and how far along its range it is
+   * (0-1); null hides it. Changes give the readout a little bump so the wheel feels
+   * responsive.
+   */
+  setFlySpeed(speed: number | null, fill = 0, sprinting = false): void {
+    const el = this.flySpeed;
+    if (!el) return;
+    const key = speed === null ? '' : `${Math.round(speed * 3.6)}|${sprinting}`;
+    if (key === this.flyKey) return;
+    const changed = this.flyKey !== '' && key !== '';
+    this.flyKey = key;
+    el.hidden = speed === null;
+    if (speed === null) return;
+    el.classList.toggle('sprint', sprinting);
+    const width = (Math.min(1, Math.max(0, fill)) * 100).toFixed(1);
+    el.innerHTML =
+      `<span>Fly speed</span><b>${formatSpeed(speed)}</b>` +
+      `<span class="bar"><i style="width:${width}%"></i></span>` +
+      `<span class="hint">${sprinting ? 'sprinting' : 'scroll to change'}</span>`;
+    if (changed) {
+      el.classList.add('bump');
+      clearTimeout(this.bumpTimer);
+      this.bumpTimer = window.setTimeout(() => el.classList.remove('bump'), 150);
+    }
   }
 
   setMode(mode: 'fly' | 'ski' | 'glide' | 'ride' | 'sled'): void {

@@ -70,28 +70,22 @@ test('skiing leaves tracks; a hockey stop throws far more snow than running stra
   await page.screenshot({ path: 'test-results/views/snow-tracks.png' });
 });
 
-test('third-person flying shows a see-through skier, skis included', async ({ page }) => {
+test('third-person flying shows the yellow Street View man; skiing shows the skier', async ({
+  page,
+}) => {
   await start(page, 'at=45.2981,6.5803,2800&heading=0&pitch=0');
   await page.keyboard.press('KeyV');
   await page.waitForTimeout(200);
-  const visible = await page.evaluate(() => {
-    const scene = (window.__sim as unknown as { scene: import('three').Scene }).scene;
-    const ski = scene.getObjectByName('ski-left')!;
-    const material = (ski.children[0] as import('three').Mesh).material as import('three').Material;
-    return { skier: ski.parent!.visible, ski: ski.visible, opacity: material.opacity };
-  });
-  expect(visible.skier).toBe(true);
-  expect(visible.ski).toBe(true);
-  expect(visible.opacity).toBeLessThan(0.8);
-  await page.screenshot({ path: 'test-results/views/fly-ghost.png' });
+  const shown = () =>
+    page.evaluate(() => {
+      const scene = (window.__sim as unknown as { scene: import('three').Scene }).scene;
+      const ski = scene.getObjectByName('ski-left')!;
+      return { pegman: scene.getObjectByName('pegman')!.visible, skier: ski.parent!.visible };
+    });
+  expect(await shown()).toEqual({ pegman: true, skier: false });
+  await page.screenshot({ path: 'test-results/views/fly-pegman.png' });
 
-  // Back to ski mode: solid again.
   await page.keyboard.press('KeyF');
   await page.waitForTimeout(200);
-  const solid = await page.evaluate(() => {
-    const scene = (window.__sim as unknown as { scene: import('three').Scene }).scene;
-    const ski = scene.getObjectByName('ski-left')!;
-    return ((ski.children[0] as import('three').Mesh).material as import('three').Material).opacity;
-  });
-  expect(solid).toBe(1);
+  expect(await shown()).toEqual({ pegman: false, skier: true });
 });

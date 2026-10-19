@@ -23,7 +23,7 @@ const hudNumber = async (page: Page, field: string) =>
 test('P deploys a paraglider mid-run, keeping your speed', async ({ page }) => {
   await start(page, SLOPE);
   await page.keyboard.press('KeyF'); // ski
-  await page.waitForTimeout(4500); // build up speed
+  await page.waitForTimeout(7000); // from a standstill: build up speed
   const skiing = await hudNumber(page, 'speed');
   expect(skiing).toBeGreaterThan(30);
 

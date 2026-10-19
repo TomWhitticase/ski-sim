@@ -1,5 +1,6 @@
 import { MINIMAP } from '../config';
 import type { Extent } from '../resort/manifest';
+import { drawRestaurantIcon } from './map-icons';
 
 /**
  * North-up map centred on the player, drawn from the pipeline's minimap image.
@@ -10,6 +11,8 @@ export class Minimap {
   private readonly scaleLabel: HTMLElement;
   private zoomIndex: number = MINIMAP.defaultZoom;
   private lastKey = '';
+  /** Mountain restaurants (east, north), drawn as knife-and-fork badges. */
+  restaurants: { east: number; north: number }[] = [];
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -64,6 +67,13 @@ export class Minimap {
     );
 
     const c = size / 2;
+    const scale = size / span;
+    for (const r of this.restaurants) {
+      const x = c + (r.east - east) * scale;
+      const y = c - (r.north - north) * scale;
+      if (x < -10 || y < -10 || x > size + 10 || y > size + 10) continue;
+      drawRestaurantIcon(ctx, x, y, 6.5 * dpr);
+    }
     ctx.save();
     ctx.translate(c, c);
     ctx.rotate((heading * Math.PI) / 180);

@@ -22,23 +22,25 @@ const hudText = (page: Page, selector: string) =>
 const hudNumber = async (page: Page, field: string) =>
   parseFloat((await hudText(page, `[data-field="${field}"]`)).replace(/,/g, ''));
 
-test('F switches to ski mode in mid-air: you fall, land and ski on', async ({ page }) => {
-  // Flying ~29 m above a 21° slope (ground ~2571 m).
+test('F from flying puts you on the snow, standing still, then you ski off', async ({ page }) => {
+  // Flying ~29 m above a 21° slope (ground ~2571 m), at speed.
   await start(page, SLOPE);
   expect(await hudText(page, '[data-mode]')).toBe('FLY');
+  await page.keyboard.down('KeyW');
+  await page.waitForTimeout(300);
+  expect(await hudNumber(page, 'speed')).toBeGreaterThan(40); // flying fast
 
+  await page.keyboard.up('KeyW'); // (W skates in ski mode)
   await page.keyboard.press('KeyF');
   await page.waitForTimeout(100);
   expect(await hudText(page, '[data-mode]')).toBe('SKI');
-  const switchedAt = await hudNumber(page, 'altitude');
-  expect(switchedAt).toBeGreaterThan(2590); // not teleported to the ground
-
-  await page.waitForTimeout(3000); // ~2.4 s of free fall, then on the snow
+  // Straight down onto the snow, with none of the flying speed.
   const landed = await hudNumber(page, 'altitude');
-  expect(landed).toBeLessThan(2575);
+  expect(landed).toBeLessThan(2580);
+  expect(await hudNumber(page, 'speed')).toBeLessThan(5);
   await expect(page.locator('#run [data-piste]')).toBeVisible();
 
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(5000); // gravity gets you going down the slope
   const speed = await hudNumber(page, 'speed');
   expect(speed).toBeGreaterThan(20); // skiing down the slope
   expect(speed).toBeLessThan(140); // capped and sensible
@@ -153,7 +155,7 @@ test('S + A swings the skis sideways for a hockey stop while you keep facing dow
 }) => {
   await start(page, SLOPE);
   await page.keyboard.press('KeyF');
-  await page.waitForTimeout(4500); // build up speed
+  await page.waitForTimeout(5500); // from a standstill: up to ~50 km/h
   const before = await hudNumber(page, 'speed');
   expect(before).toBeGreaterThan(30);
   const camYaw = () =>

@@ -22,6 +22,8 @@ test('teleporting to a piste puts you at its top, and the HUD names the run', as
   await item.click();
   await page.waitForTimeout(300);
   await expect(run(page)).toHaveText("Col de l'Audzin");
+  // Controls are frozen while the camera flies there (GTA-style).
+  await expect(page.locator('body')).not.toHaveClass(/sky-transition/, { timeout: 10_000 });
 
   // Ski it: skate off the gentle top (W), then gravity takes over on the run. (Heading
   // straight on you'd eventually meet the summit building: now solid, so track the

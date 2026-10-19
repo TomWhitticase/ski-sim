@@ -1,6 +1,7 @@
 import { uniform } from 'three/tsl';
 import {
   ACESFilmicToneMapping,
+  Euler,
   PerspectiveCamera,
   Scene,
   Vector3,
@@ -63,6 +64,8 @@ import { SkiSetupMenu } from './ui/ski-setup-menu';
 import { TimeMenu } from './ui/time-menu';
 import { Minimap } from './ui/minimap';
 import { WorldMap } from './ui/world-map';
+import { Pegman } from './controls/pegman';
+import { SkyTransition } from './nav/sky-transition';
 
 declare global {
   interface Window {
@@ -348,12 +351,13 @@ async function main(): Promise<void> {
   nearTerrain.update(camera.position, Infinity);
   farTerrain.update(camera.position, Infinity);
 
-  const hud = new Hud($('#hud'), $('#run'), $('#toggles'));
+  const hud = new Hud($('#hud'), $('#run'), $('#toggles'), $('#fly-speed'));
   const minimap = await Minimap.load(
     $<HTMLCanvasElement>('#minimap canvas'),
     resortUrl(resortId, manifest.minimap.file),
     manifest.minimap.extent,
   );
+  minimap.restaurants = restaurants;
   const buildingsById = new Map(features.buildings.map((b) => [b.id, b]));
   const labels = new Labels(
     $('#labels'),
@@ -368,6 +372,9 @@ async function main(): Promise<void> {
     { lift: prefs.lift, peak: prefs.peak, restaurant: prefs.restaurant },
   );
   const sound = new Sound(!prefs.sound);
+  const sky = new SkyTransition($('#sky-flash'), (up) => sound.whoosh(up));
+  const pegman = new Pegman();
+  scene.add(pegman.root);
   const savePrefs = () =>
     localStorage.setItem(
       PREFS_KEY,
@@ -426,7 +433,25 @@ async function main(): Promise<void> {
     },
     (target, lookAt) => {
       if (mode === 'ride') setMode('ski');
-      // Arrive standing on the ground, not hovering above it.
+      // The cuts' heights are above the highest ground nearby, so the low ones can't end
+      // up inside a hillside.
+      const skyGround = (x: number, z: number) => {
+        let top = groundHeight(x, z);
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          top = Math.max(top, groundHeight(x + Math.cos(a) * 150, z + Math.sin(a) * 150));
+        }
+        return top;
+      };
+      // GTA-style: up into the sky from where the camera is now...
+      const from = {
+        x: camera.position.x,
+        z: camera.position.z,
+        ground: skyGround(camera.position.x, camera.position.z),
+        yaw: new Euler().setFromQuaternion(camera.quaternion, 'YXZ').y,
+      };
+      // ...and down to you, already standing on the ground there (so the terrain loads
+      // round the destination while the camera is in the air).
       const pose = groundedPose(
         target,
         (east, north) => groundHeight(east, -north),
@@ -434,6 +459,12 @@ async function main(): Promise<void> {
         lookAt,
       );
       controls().place(pose);
+      sky.start(from, {
+        x: pose.east,
+        z: -pose.north,
+        ground: skyGround(pose.east, -pose.north),
+        yaw: controls().look.yaw,
+      });
       speedReset = true;
       persistPose();
       closeMap(true);
@@ -478,8 +509,14 @@ async function main(): Promise<void> {
       velocity.copy(off.velocity);
     }
     const look = controls().look;
+    const previous = mode;
     mode = next;
     if (mode === 'ski') {
+      if (previous === 'fly') {
+        // From flying: straight down onto the snow, standing still.
+        eye.altitude = groundHeight(eye.east, -eye.north) + EYE_HEIGHT;
+        velocity.set(0, 0, 0);
+      }
       ski.place(eye, velocity);
     } else if (mode === 'glide') {
       const feet = eye.altitude - EYE_HEIGHT;
@@ -737,7 +774,9 @@ async function main(): Promise<void> {
     }
     spray.update(dt, groundHeight);
     trails.flush();
-    sound.update(soundLevels(airSpeed, contact));
+    const levels = soundLevels(airSpeed, contact);
+    if (mode === 'fly') levels.wind = 0; // flying around is silent
+    sound.update(levels);
     sound.setEngine(engineSound(sled.rpm, sled.throttle, mode === 'sled'));
     if (mode === 'sled' && sled.impact > 0) sound.thump(sled.impact);
     if (mode === 'ski' && ski.landingImpact > 0) sound.thump(ski.landingImpact);
@@ -756,20 +795,38 @@ async function main(): Promise<void> {
     if (worldMap.isOpen) return;
 
     lifts.update(dt, camera.position);
-    const landed = controls().update(dt, input);
-    if (mode === 'glide' && landed) setMode('ski');
-    if (mode === 'ride' && landed) unload();
-    if (mode !== 'sled') sled.idle(dt); // a parked sled settles where you left it
-    if (mode === 'ski' && !ski.airborne) {
-      const hit = lifts.scoop(ski.feet);
-      if (hit) scooped(hit.line, hit.carrier);
+    if (sky.active) {
+      // Map teleport: the camera's in the sky and you wait, frozen, at the destination.
+      sky.update(dt, camera);
+    } else {
+      const landed = controls().update(dt, input);
+      if (mode === 'glide' && landed) setMode('ski');
+      if (mode === 'ride' && landed) unload();
+      if (mode === 'ski' && !ski.airborne) {
+        const hit = lifts.scoop(ski.feet);
+        if (hit) scooped(hit.line, hit.carrier);
+      }
+      sky.settleCamera(dt, camera);
     }
+    if (mode !== 'sled') sled.idle(dt); // a parked sled settles where you left it
     updateLiftSound();
     if (mode === 'fly') {
-      // Third-person flying shows your skier hovering where you are.
-      if (view === 'chase') ski.showFlying(fly.position, fly.look.yaw);
-      else ski.skier.visible = false;
+      // Third-person flying shows the yellow Street View man where you are.
+      ski.skier.visible = false;
+      if (view === 'chase') {
+        const top = fly.speed * FLY.sprintMultiplier;
+        pegman.update(dt, fly.position, fly.look.yaw, fly.currentVelocity, top);
+      } else {
+        pegman.hide();
+      }
+    } else {
+      pegman.hide();
     }
+    hud.setFlySpeed(
+      mode === 'fly' ? fly.speed * (fly.sprinting ? FLY.sprintMultiplier : 1) : null,
+      Math.log(fly.speed / FLY.minSpeed) / Math.log(FLY.maxSpeed / FLY.minSpeed),
+      fly.sprinting,
+    );
     input.endFrame();
     // Your position (fly eye or skier's feet), not the camera, which may be behind you.
     const pos = whereAmI();

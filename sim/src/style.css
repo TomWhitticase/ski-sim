@@ -548,6 +548,101 @@ body.map-open #overlay {
   display: none;
 }
 
+/* Fly mode: the set speed, changed with the mouse wheel. */
+#fly-speed {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: rgba(14, 20, 30, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  font-size: 13px;
+  pointer-events: none;
+  white-space: nowrap;
+  transition: transform 0.15s;
+}
+
+#fly-speed[hidden] {
+  display: none;
+}
+
+#fly-speed b {
+  font-size: 18px;
+  min-width: 92px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#fly-speed .bar {
+  width: 110px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+
+#fly-speed .bar i {
+  display: block;
+  height: 100%;
+  background: #fbbc04;
+}
+
+#fly-speed .hint {
+  opacity: 0.6;
+}
+
+#fly-speed.bump {
+  transform: translateX(-50%) scale(1.12);
+}
+
+#fly-speed.sprint b {
+  color: #fbbc04;
+}
+
+/* Map teleport (GTA-style): washed-out sky, a flash at each cut, no HUD clutter. */
+#scene {
+  transition: filter 0.25s;
+}
+
+body.sky-transition #scene {
+  filter: saturate(0.35) contrast(1.08) brightness(1.06);
+}
+
+body.sky-transition #labels,
+body.sky-transition #hud,
+body.sky-transition #map-side,
+body.sky-transition #prompt,
+body.sky-transition #fly-speed,
+body.sky-transition #crosshair {
+  visibility: hidden;
+}
+
+#sky-flash {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.85), rgba(220, 230, 255, 0.5));
+  opacity: 0;
+}
+
+#sky-flash.flash {
+  animation: sky-flash 0.3s ease-out;
+}
+
+@keyframes sky-flash {
+  0% {
+    opacity: 0.75;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 .menu {
   width: min(760px, 92vw);
   max-height: 90vh;

@@ -28,7 +28,7 @@ export const CAMERA = {
 
 export const FLY = {
   /** Default fly speed in m/s; adjusted with the mouse wheel. */
-  speed: 25,
+  speed: 60,
   minSpeed: 2,
   maxSpeed: 500,
   sprintMultiplier: 3,

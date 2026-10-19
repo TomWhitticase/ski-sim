@@ -46,10 +46,7 @@ const MAX_BALANCE_ACCEL = 1.3 * SKI.gravity;
 /** How quickly the body's balance follows changes in acceleration (1/s). */
 const BALANCE_RATE = 6;
 const ZERO = new Vector3();
-const FLYING_STANCE = initialStance();
 const RIDING_STANCE = initialStance();
-/** In fly mode your character is shown see-through. */
-const FLYING_OPACITY = 0.45;
 
 export type SkiCamera = 'first-person' | 'chase';
 
@@ -235,17 +232,6 @@ export class SkiControls {
     this.skier.updateMatrixWorld(true);
     this.model.skiPosition('left', left);
     this.model.skiPosition('right', right);
-  }
-
-  /** Show the skier hovering upright at a fly-mode eye position (third-person flying). */
-  showFlying(eye: Vector3, yaw: number): void {
-    this.skier.visible = true;
-    this.model.setFirstPerson(false);
-    this.model.setStowed(false);
-    this.model.setOpacity(FLYING_OPACITY);
-    this.skier.position.set(eye.x, eye.y - EYE_HEIGHT, eye.z);
-    this.skier.quaternion.setFromAxisAngle(UP, yaw);
-    this.model.apply(FLYING_STANCE, UP);
   }
 
   /** First person shows only your skis and boots below you; chase shows the whole skier. */

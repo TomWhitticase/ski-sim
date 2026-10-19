@@ -82,6 +82,46 @@ test('clicking the map teleports you onto the ground there', async ({ page }) =>
   expect(await hudNumber(page, 'lon')).toBeGreaterThan(6.5803 - 0.019);
 });
 
+test('a map teleport cuts up into the sky, pans across and cuts down (GTA-style)', async ({
+  page,
+}) => {
+  await fakePointerLock(page);
+  await load(page);
+  await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
+  const cameraY = () =>
+    page.evaluate(
+      () => (window.__sim as unknown as { camera: import('three').Camera }).camera.position.y,
+    );
+  const start = await cameraY();
+  await page.keyboard.press('KeyM');
+  await page.locator('.map-search').fill('caron');
+  await page
+    .locator('.map-place:not([hidden])')
+    .filter({ hasText: 'Cime de Caron' })
+    .first()
+    .click();
+  await expect(page.locator('body')).toHaveClass(/sky-transition/);
+
+  // Up through three cuts: the camera ends up a couple of km above the ground.
+  let highest = start;
+  for (let i = 0; i < 12; i++) {
+    await page.waitForTimeout(150);
+    highest = Math.max(highest, await cameraY());
+  }
+  expect(highest - start).toBeGreaterThan(1500);
+  await expect(page.locator('#labels')).toBeHidden();
+  await page.screenshot({ path: 'test-results/views/teleport-sky.png' });
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: 'test-results/views/teleport-down.png' });
+
+  // Then down to you, standing at the viewpoint below Cime de Caron.
+  await expect(page.locator('body')).not.toHaveClass(/sky-transition/, { timeout: 10_000 });
+  await page.waitForTimeout(900); // the camera settles into your view
+  const eye = await hudNumber(page, 'altitude');
+  expect(Math.abs((await cameraY()) - eye)).toBeLessThan(1);
+  await expect(page.locator('#labels')).toBeVisible();
+});
+
 test('Esc closes the map without teleporting', async ({ page }) => {
   await load(page);
   const before = await hudNumber(page, 'lat');

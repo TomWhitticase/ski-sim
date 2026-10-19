@@ -53,15 +53,15 @@ test('Ctrl sprints while flying forward and stops when forward is released', asy
   await page.keyboard.up('Control'); // a tap is enough; sprint sticks while W is held
   await page.waitForTimeout(1200);
   const sprinting = (await hud(page)).speed;
-  expect(cruising).toBeGreaterThan(80);
-  expect(cruising).toBeLessThan(100); // 25 m/s = 90 km/h
+  expect(cruising).toBeGreaterThan(195);
+  expect(cruising).toBeLessThan(225); // 60 m/s = 216 km/h
   expect(sprinting).toBeGreaterThan(cruising * 2.5); // x3
 
   await page.keyboard.up('KeyW');
   await page.waitForTimeout(300);
   await page.keyboard.down('KeyW');
   await page.waitForTimeout(1500);
-  expect((await hud(page)).speed).toBeLessThan(100); // sprint ended with the stop
+  expect((await hud(page)).speed).toBeLessThan(230); // sprint ended with the stop
   await page.keyboard.up('KeyW');
 });
 
@@ -150,6 +150,23 @@ test('4 toggles mountain restaurant names, and the choice persists', async ({ pa
   expect(await shown().count()).toBe(0);
 });
 
+test('the fly speed is shown, and the mouse wheel changes it', async ({ page }) => {
+  await startFlying(page, 'at=45.2981,6.5803,2800&heading=0&pitch=0');
+  const shown = page.locator('#fly-speed');
+  await expect(shown).toBeVisible();
+  await expect(shown.locator('b')).toHaveText('216 km/h');
+  await page.mouse.move(800, 450);
+  await page.mouse.wheel(0, -100); // wheel up: faster
+  await page.waitForTimeout(100);
+  await expect(shown.locator('b')).toHaveText('248 km/h');
+  await page.mouse.wheel(0, 100);
+  await page.mouse.wheel(0, 100);
+  await page.waitForTimeout(100);
+  await expect(shown.locator('b')).toHaveText('188 km/h');
+  await page.keyboard.press('KeyF'); // skiing: no fly speed
+  await expect(shown).toBeHidden();
+});
+
 test('V switches fly mode to third person and back', async ({ page }) => {
   await startFlying(page, 'at=45.2981,6.5803,2800&heading=0&pitch=0');
   const state = () =>
@@ -160,16 +177,20 @@ test('V switches fly mode to third person and back', async ({ page }) => {
       };
       return {
         skier: sim.scene.getObjectByName('body')!.parent!.visible,
+        pegman: sim.scene.getObjectByName('pegman')!.visible,
         cameraZ: sim.camera.position.z,
       };
     });
   const firstPerson = await state();
   expect(firstPerson.skier).toBe(false);
+  expect(firstPerson.pegman).toBe(false);
 
   await page.keyboard.press('KeyV');
   await page.waitForTimeout(200);
   const chase = await state();
-  expect(chase.skier).toBe(true);
+  // Flying in third person you're the yellow Street View man, not the skier.
+  expect(chase.pegman).toBe(true);
+  expect(chase.skier).toBe(false);
   // Facing north (-z), the camera sits a few metres behind (south, +z).
   expect(chase.cameraZ - firstPerson.cameraZ).toBeGreaterThan(2);
   await page.screenshot({ path: 'test-results/views/fly-third-person.png' });

@@ -1,5 +1,6 @@
 import type { Lift, Peak, Restaurant } from '../features/types';
 import type { Place } from '../nav/places';
+import { RESTAURANT_COLOUR, drawRestaurantIcon } from './map-icons';
 import { DIFFICULTY, type PisteRecord, pisteTitle } from '../pistes/pistes';
 import type { Pose } from '../nav/pose';
 import type { Extent } from '../resort/manifest';
@@ -25,7 +26,6 @@ const LIFT_COLOURS: Record<string, string> = {
   chair_lift: '#1864ab',
 };
 const DRAG_COLOUR = '#7048e8';
-const RESTAURANT_COLOUR = '#963e1a';
 /** Restaurant names appear once zoomed in this far (metres per pixel); dots before that. */
 const RESTAURANT_NAMES_MPP = 5;
 
@@ -277,19 +277,14 @@ export class WorldMap {
         y > this.canvas.clientHeight + 50
       )
         continue;
-      ctx.fillStyle = RESTAURANT_COLOUR;
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(x, y, 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
+      drawRestaurantIcon(ctx, x, y, named ? 9 : 7);
       if (!named) continue;
       const width = ctx.measureText(r.name).width + 10;
-      if (!tryPlace(x, y - 22, width, 16)) continue;
-      this.pill(x - width / 2, y - 22, width, 16);
+      if (!tryPlace(x, y - 28, width, 16)) continue;
+      ctx.fillStyle = RESTAURANT_COLOUR;
+      this.pill(x - width / 2, y - 28, width, 16);
       ctx.fillStyle = '#fff';
-      ctx.fillText(r.name, x, y - 14);
+      ctx.fillText(r.name, x, y - 20);
     }
   }
 
@@ -393,7 +388,7 @@ export class WorldMap {
   // --- place list ---
 
   private buildList(): void {
-    const icons = { start: '⌂', lift: '⇡', peak: '▲', piste: '●', restaurant: '☕' };
+    const icons = { start: '⌂', lift: '⇡', peak: '▲', piste: '●', restaurant: '🍴' };
     for (const place of this.data.places) {
       const li = document.createElement('li');
       li.className = `map-place map-place-${place.kind}`;
