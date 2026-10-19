@@ -20,31 +20,29 @@ export interface LabelSpec {
   farTier?: number;
 }
 
-/** Lift label sits above the middle of the line, half way along its length. */
+/** Lift label sits just above the bottom station, where you'd board. */
 export function liftLabel(lift: Lift): LabelSpec | null {
   if (!lift.name) return null;
-  const s = lift.supports;
-  let total = 0;
-  const lengths = s.slice(1).map((b, i) => {
-    const a = s[i]!;
-    const d = Math.hypot(b.east - a.east, b.north - a.north);
-    total += d;
-    return d;
-  });
-  let remaining = total / 2;
-  let i = 0;
-  while (i < lengths.length - 1 && remaining > lengths[i]!) remaining -= lengths[i++]!;
-  const a = s[i]!;
-  const b = s[i + 1]!;
-  const t = lengths[i]! > 0 ? remaining / lengths[i]! : 0;
-  const east = a.east + (b.east - a.east) * t;
-  const north = a.north + (b.north - a.north) * t;
-  const top = a.top + (b.top - a.top) * t;
+  const station = lift.terminals.find((t) => t.end === 'bottom');
+  let east: number, north: number, top: number;
+  if (station) {
+    // Over the hall, a little in front of the bullwheel.
+    const ahead = Math.max(0, station.length / 2 - station.back / 2);
+    east = station.east + station.dir[0] * ahead;
+    north = station.north + station.dir[1] * ahead;
+    top = station.pad + station.roofTop;
+  } else {
+    // No generated terminal: the lower end of the line, above the cable.
+    const s = lift.supports;
+    const end = s[0]!.ground <= s[s.length - 1]!.ground ? s[0]! : s[s.length - 1]!;
+    ({ east, north } = end);
+    top = Math.max(end.top, end.ground);
+  }
   return {
     kind: 'lift',
     name: lift.name,
     detail: liftTypeName(lift.type),
-    position: new Vector3(east, top + 12, -north),
+    position: new Vector3(east, top + 6, -north),
     maxDistance: 7000,
     tier: 0,
     farTier: 2,

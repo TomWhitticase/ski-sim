@@ -12,7 +12,7 @@ const support = (east: number, top: number) => ({
 });
 
 describe('liftLabel', () => {
-  it('anchors above the point half way along the line', () => {
+  it('anchors above the bottom end of the line when there is no terminal', () => {
     const lift: Lift = {
       id: 1,
       name: 'Moraine',
@@ -20,14 +20,38 @@ describe('liftLabel', () => {
       gauge: 6,
       length: 400,
       vertical: 100,
-      // Uneven spans: half way (200 m) falls inside the second span.
-      supports: [support(0, 2000), support(100, 2050), support(400, 2100)],
+      // Drawn top to bottom: the bottom is the last support.
+      supports: [support(0, 2100), support(100, 2050), support(400, 2000)],
       terminals: [],
     };
     const label = liftLabel(lift)!;
     expect(label.detail).toBe('Gondola');
-    expect(label.position.x).toBeCloseTo(200);
-    expect(label.position.y).toBeCloseTo(2050 + 50 / 3 + 12);
+    expect(label.position.x).toBeCloseTo(400);
+    expect(label.position.y).toBeCloseTo(2000 + 6); // cable height at the end
+  });
+
+  it('sits over the bottom station roof', () => {
+    const terminal = {
+      end: 'bottom',
+      east: 10,
+      north: 20,
+      dir: [1, 0],
+      length: 20,
+      back: 4,
+      pad: 1990,
+      roofTop: 9,
+    };
+    const lift = {
+      id: 2,
+      name: 'Cascades',
+      type: 'chair_lift',
+      supports: [support(0, 2000), support(400, 2100)],
+      terminals: [{ ...terminal, end: 'top', east: 999 }, terminal],
+    } as unknown as Lift;
+    const label = liftLabel(lift)!;
+    expect(label.position.x).toBeCloseTo(10 + 8);
+    expect(label.position.z).toBeCloseTo(-20);
+    expect(label.position.y).toBeCloseTo(1990 + 9 + 6);
   });
 
   it('skips unnamed lifts', () => {
