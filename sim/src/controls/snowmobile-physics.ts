@@ -5,18 +5,19 @@ import type { SkiTerrain } from './ski-physics';
 /**
  * A mountain snowmobile as a point mass riding a plane fitted under its footprint (front
  * skis to the back of the track), so it bridges dips and sits on crests. Real numbers for
- * a ~150 hp, 155" track mountain sled (~220 kg) with an 85 kg rider:
+ * a ~150 hp sled (~220 kg) with an 85 kg rider, studded track and carbide ski runners:
  * - drive: engine power through a CVT, so the push is power / speed, limited by the
- *   track's grip on the snow (≈ 0.55 g groomed, 0.6 g with paddles in powder); the CVT runs
+ *   track's grip on the snow (≈ 0.7 g groomed with studs, 0.6 g in powder); the CVT runs
  *   out of ratio around 125 km/h. Holding the throttle with the track spinning sends roost
  *   flying and slides you back down a slope that's too steep
  * - rolling resistance from the track and suspension, v² air drag (CdA ~1 m², thin air)
  * - powder: the sled sinks in when slow (bogs down) and planes up on top when fast
  * - steering: the skis turn the sled like a bicycle (rate v·tan(steer) / wheelbase), but
- *   only as hard as the front skis can grip, so turns widen with speed. Leaning in adds
- *   grip; leaning uphill holds a side-hill traverse
- * - lateral grip: the track and ski keels resist sliding sideways up to ~0.5 g, so a
- *   steep traverse slips down the fall line
+ *   only as hard as the carbides can bite (~0.85 g groomed), so turns widen with speed.
+ *   The runners scrub speed while they work. Leaning in adds grip; leaning uphill holds a
+ *   side-hill traverse
+ * - lateral grip: the studs, track and ski keels hold up to ~1 g sideways on a piste, so
+ *   the sled goes where it points; only very steep traverses (or powder) slip
  * - brake: a disc on the drive shaft locks the track; S at a standstill reverses slowly
  * Forgiving like ski mode: no rollovers or crashes. Off a crest you fly; throttle in the
  * air lifts the nose (the spinning track), the brake drops it, and you always land.
@@ -32,7 +33,7 @@ export const SLED = {
   /** Hard cap downhill (m/s, ~160 km/h). */
   maxSpeed: 45,
   /** Track grip (fraction of the normal load) on groomed snow and in powder. */
-  tractionGroomed: 0.55,
+  tractionGroomed: 0.7,
   tractionPowder: 0.6,
   /** A spinning (slipping) track grips less than one that's hooked up. */
   spinTraction: 0.8,
@@ -51,18 +52,20 @@ export const SLED = {
   powderSinkResist: 0.12,
   /** Snow thrown aside by the hood, skis and track in powder (1/m). */
   powderDrag: 0.006,
-  /** Sideways grip of the track and ski keels (fraction of load). */
-  lateralGroomed: 0.5,
-  lateralPowder: 0.65,
+  /** Sideways grip of the studs, track and ski keels (fraction of load). */
+  lateralGroomed: 1.0,
+  lateralPowder: 0.85,
   /** Front skis: distance to the track's contact centre (m), and their steering lock (rad). */
   wheelbase: 1.6,
-  maxSteer: (22 * Math.PI) / 180,
+  maxSteer: (25 * Math.PI) / 180,
   /** How fast the bars swing (rad/s). */
-  steerRate: 2.5,
+  steerRate: 3,
   /** Front ski grip (fraction of load); leaning in adds up to `leanGrip` of it. */
-  frontGroomed: 0.45,
-  frontPowder: 0.35,
-  leanGrip: 0.35,
+  frontGroomed: 0.85,
+  frontPowder: 0.75,
+  leanGrip: 0.25,
+  /** Speed the runners scrub off per unit of cornering acceleration they make. */
+  turnScrub: 0.12,
   /** Weight on the uphill running board: extra side-hill grip at full lean. */
   sidehillGrip: 0.4,
   /** Locked-track braking (m/s²), never more than the snow can take. */
@@ -298,8 +301,11 @@ function substep(state: SledState, input: SledInput, h: number, terrain: SkiTerr
   const front =
     (groomed ? SLED.frontGroomed : SLED.frontPowder) * (1 + SLED.leanGrip * Math.abs(lean));
   const maxRate = (front * load) / Math.max(Math.abs(vLong), 1);
-  const yawRate = (vLong * Math.tan(state.steer)) / SLED.wheelbase;
-  state.yaw += Math.max(-maxRate, Math.min(maxRate, yawRate)) * h;
+  const yawRate = Math.max(
+    -maxRate,
+    Math.min(maxRate, (vLong * Math.tan(state.steer)) / SLED.wheelbase),
+  );
+  state.yaw += yawRate * h;
 
   // Powder: sunk in when slow, planing on top when fast. Groomed snow barely gives.
   const sinkTarget = groomed ? 0.03 : SLED.sinkDepth / (1 + (v.length() / SLED.planeSpeed) ** 2);
@@ -358,6 +364,11 @@ function substep(state: SledState, input: SledInput, h: number, terrain: SkiTerr
   } else {
     v.addScaledVector(right, -Math.sign(vLat) * lateral);
   }
+
+  // The runners dig in to turn, and that costs speed (they're ploughing a little snow).
+  const scrub = SLED.turnScrub * Math.abs(yawRate * vLong) * h;
+  const before = v.length();
+  if (before > 1e-6) v.multiplyScalar(Math.max(0, before - scrub) / before);
 
   // Air drag, and the snow powder throws aside.
   const speed = v.length();

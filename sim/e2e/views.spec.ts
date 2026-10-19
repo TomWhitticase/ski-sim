@@ -80,6 +80,24 @@ test('snowmobile', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('snowmobile-night', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  // 22:00, clock paused: the headlight lights the piste ahead.
+  await page.addInitScript(() => {
+    localStorage.setItem('ski-sim.mode', 'sled');
+    localStorage.setItem('ski-sim.view', 'chase');
+    localStorage.setItem('ski-sim.time-of-day', JSON.stringify({ seconds: 22 * 3600, rate: 0 }));
+  });
+  await page.goto('/?resort=les-3-vallees&at=45.29515,6.58412,2000&heading=140&pitch=-8');
+  await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 30, null, { timeout: 90_000 });
+  await page.evaluate(() => document.body.classList.add('flying'));
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: 'test-results/views/snowmobile-night.png' });
+  expect(errors).toEqual([]);
+});
+
 test('labels for places behind the camera stay hidden', async ({ page }) => {
   // Facing NNE from Cime de Caron: the Orelle sector (Rocher Blanc, Télécabine d'Orelle)
   // is directly behind.

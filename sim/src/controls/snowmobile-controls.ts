@@ -1,4 +1,12 @@
-import { Euler, Matrix4, type PerspectiveCamera, Quaternion, Vector3 } from 'three/webgpu';
+import {
+  Color,
+  Euler,
+  Matrix4,
+  type PerspectiveCamera,
+  Quaternion,
+  SpotLight,
+  Vector3,
+} from 'three/webgpu';
 
 import { FLY } from '../config';
 import type { SnowContact } from '../fx/intensity';
@@ -49,6 +57,19 @@ const TILT_RATE = 14;
 const VISIBLE_SINK = 0.3;
 const UP = new Vector3(0, 1, 0);
 const ZERO = new Vector3();
+/**
+ * Headlight beam. A real lamp's reflector throws more light far ahead than down at the
+ * snow just in front; a spotlight can't, so instead of inverse-square falloff (which
+ * burns out the first few metres and leaves the rest dark) it lights evenly out to
+ * `range` and fades there.
+ */
+const HEADLIGHT = { intensity: 28, range: 90, angle: 0.65, penumbra: 0.7 };
+/** Lamp lenses: brighter than white so they bloom through tone mapping; dark when off. */
+const HEADLAMP_ON = new Color(3, 3, 2.6);
+const HEADLAMP_OFF = new Color(0x26282c);
+const TAIL_ON = new Color(0.9, 0.05, 0.03);
+const TAIL_BRAKE = new Color(3.5, 0.15, 0.1);
+const TAIL_OFF = new Color(0x2a0805);
 
 /**
  * Snowmobile: W throttle, S brake (held at a standstill: reverse), A/D steer, Shift
@@ -88,6 +109,22 @@ export class SnowmobileControls {
   private trackTravel = 0;
   /** Seconds the parked sled has been still (it stops simulating once settled). */
   private still = 0;
+  /**
+   * The headlight beam. Add it (and its target) to the scene once and leave it there:
+   * it's switched by intensity, because changing the scene's lights recompiles every
+   * lit material.
+   */
+  readonly headlight = new SpotLight(
+    0xfff4e0,
+    0,
+    HEADLIGHT.range,
+    HEADLIGHT.angle,
+    HEADLIGHT.penumbra,
+    0,
+  );
+  /** 0 in daylight, 1 at night: how much the headlight beam is needed. */
+  private darkness = 0;
+  private braking = false;
   /** What the track is doing to the snow this frame (for trails, spray and sound). */
   readonly contact: SnowContact = { speed: 0, sideslip: 0, edge: 0, onSnow: false, groomed: true };
 
@@ -170,6 +207,30 @@ export class SnowmobileControls {
     this.root.visible = this.status !== 'away';
     this.rider.root.visible = this.status === 'riding';
     this.applyView();
+    this.updateLights();
+  }
+
+  /** How dark it is (0 day … 1 night); the headlight comes on as it gets dark. */
+  setDarkness(darkness: number): void {
+    if (darkness === this.darkness) return;
+    this.darkness = darkness;
+    this.updateLights();
+  }
+
+  /**
+   * Lamps glow while the engine runs (the tail light brightens under braking); the beam
+   * lights the snow ahead once it's getting dark. Parked, everything's off.
+   */
+  private updateLights(): void {
+    const on = this.status === 'riding';
+    this.parts.headlamp.color.copy(on ? HEADLAMP_ON : HEADLAMP_OFF);
+    this.parts.tailLamp.color.copy(!on ? TAIL_OFF : this.braking ? TAIL_BRAKE : TAIL_ON);
+    this.headlight.intensity = on ? HEADLIGHT.intensity * this.darkness : 0;
+    if (this.headlight.intensity > 0) {
+      this.parts.beamFrom.getWorldPosition(this.headlight.position);
+      this.parts.beamTo.getWorldPosition(this.headlight.target.position);
+      this.headlight.target.updateMatrixWorld();
+    }
   }
 
   setView(view: 'first-person' | 'chase'): void {
@@ -290,9 +351,10 @@ export class SnowmobileControls {
     const wantLean = steer * (hangOff ? 1 : AUTO_LEAN);
     this.lean += (wantLean - this.lean) * Math.min(1, 5 * dt);
 
+    this.braking = brakeHeld && !this.reverse;
     this.simulate(dt, {
       throttle: this.throttle,
-      brake: brakeHeld && !this.reverse,
+      brake: this.braking,
       reverse: this.reverse,
       steer,
       lean: this.lean,
@@ -346,10 +408,22 @@ export class SnowmobileControls {
     }
   }
 
-  /** Where the track meets the snow at its back end (for trails and roost). */
-  trackEnd(out: Vector3): Vector3 {
+  /**
+   * Where the sled marks the snow, each on the snow surface: the back of the track (its
+   * trench, and where roost flies from) and the two front skis.
+   */
+  snowMarks(track: Vector3, leftSki: Vector3, rightSki: Vector3): void {
+    const L = SLED_LAYOUT;
+    const p = this.state.position;
     heading(this.state.yaw, this.fwd);
-    return out.copy(this.state.position).addScaledVector(this.fwd, -SLED_LAYOUT.trackRear + 0.15);
+    this.right.set(-this.fwd.z, 0, this.fwd.x);
+    const onSnow = (out: Vector3, ahead: number, side: number) => {
+      out.copy(p).addScaledVector(this.fwd, ahead).addScaledVector(this.right, side);
+      out.y = this.terrain.height(out.x, out.z);
+    };
+    onSnow(track, -L.trackRear + 0.15, 0);
+    onSnow(leftSki, -L.skiZ, -L.skiX);
+    onSnow(rightSki, -L.skiZ, L.skiX);
   }
 
   /** The sled's forward direction (horizontal). */
@@ -402,12 +476,13 @@ export class SnowmobileControls {
     // Rider: leaning into turns and forward over the bars.
     this.riderUp.set(-Math.sin(0.35 * this.lean), 1, -0.22).normalize();
     this.rider.apply(this.stance, this.riderUp);
+    root.updateMatrixWorld(true);
+    this.updateLights(); // the beam follows the nose
   }
 
   private updateView(dt: number): void {
     this.updateModel(dt);
     const root = this.parts.root;
-    root.updateMatrixWorld(true);
     if (this.view === 'first-person') {
       this.camera.position.copy(SLED_LAYOUT.eye).applyMatrix4(this.parts.body.matrixWorld);
       // The view pitches and rolls with the sled; mouse look on top.

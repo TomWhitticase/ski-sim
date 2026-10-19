@@ -15,14 +15,14 @@ import { FlyControls } from './controls/fly-controls';
 import { surfaceNormal } from './controls/ski-physics';
 import { skidAmount, sprayRate, trailWidth } from './fx/intensity';
 import { SnowSpray } from './fx/snow-spray';
-import { SnowTrails } from './fx/snow-trails';
+import { SLED_TRENCH, SnowTrails } from './fx/snow-trails';
 import { GliderControls } from './controls/glider-controls';
 import { SnowmobileControls } from './controls/snowmobile-controls';
 import { SLED_LAYOUT } from './controls/snowmobile-model';
 import { Input } from './controls/input';
 import { EYE_HEIGHT, SkiControls } from './controls/ski-controls';
 import { loadSetup, saveSetup, type SkiSetup } from './controls/ski-setup';
-import { Environment } from './env/environment';
+import { daylight, Environment } from './env/environment';
 import { sunPosition } from './env/sun-position';
 import { dayPresets, formatRate, formatTime, loadTime, saveTime } from './env/time-of-day';
 import { ObstacleIndex } from './features/obstacles';
@@ -266,7 +266,7 @@ async function main(): Promise<void> {
     },
     bounds,
   );
-  scene.add(sled.root);
+  scene.add(sled.root, sled.headlight, sled.headlight.target);
   const trails = new SnowTrails();
   const spray = new SnowSpray();
   scene.add(trails.mesh, spray.mesh);
@@ -748,11 +748,17 @@ async function main(): Promise<void> {
     if (mode === 'sled' && contact?.onSnow) {
       // One wide track print, and roost thrown back when the track spins (more in powder,
       // and most of all when it's dug in and going nowhere).
-      sled.trackEnd(fxMid);
-      surfaceNormal({ height: groundHeight }, fxMid.x, fxMid.z, fxNormal);
+      sled.snowMarks(fxMid, fxLeft, fxRight);
       if (tracking) {
-        trails.extend('left', fxMid, fxNormal, SLED_LAYOUT.trackWidth, skidAmount(contact));
+        const skid = skidAmount(contact);
+        surfaceNormal({ height: groundHeight }, fxLeft.x, fxLeft.z, fxNormal);
+        trails.extend('sledLeftSki', fxLeft, fxNormal, SLED_SKI_GROOVE, skid);
+        surfaceNormal({ height: groundHeight }, fxRight.x, fxRight.z, fxNormal);
+        trails.extend('sledRightSki', fxRight, fxNormal, SLED_SKI_GROOVE, skid);
+        surfaceNormal({ height: groundHeight }, fxMid.x, fxMid.z, fxNormal);
+        trails.extend('sled', fxMid, fxNormal, SLED_LAYOUT.trackWidth, skid * 0.5, SLED_TRENCH);
       } else {
+        surfaceNormal({ height: groundHeight }, fxMid.x, fxMid.z, fxNormal);
         trails.break();
       }
       sled.forward(fxSlide).negate();
@@ -851,6 +857,7 @@ async function main(): Promise<void> {
       showClock();
     }
     environment.update(camera);
+    sled.setDarkness(daylight(environment.sun.elevation).dark); // headlights at dusk
     // A touch wider field of view at speed when skiing.
     const fov =
       CAMERA.fov +
@@ -943,6 +950,8 @@ function poseFromUrl(params: URLSearchParams, frame: LocalFrame, spawn: Pose): P
 
 type Mode = 'fly' | 'ski' | 'glide' | 'ride' | 'sled';
 const MODE_KEY = 'ski-sim.mode';
+/** Width of the groove each snowmobile ski's keel cuts (m). */
+const SLED_SKI_GROOVE = 0.1;
 const VIEW_KEY = 'ski-sim.view';
 
 function loadMode(): Mode {
