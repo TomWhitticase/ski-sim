@@ -100,8 +100,10 @@ def clearings(
     groomed: set[int],
     lifts: list[dict],
     buildings: list[dict],
+    terraces: list[list] | None = None,
 ) -> np.ndarray:
-    """True where trees must not stand: groomed pistes, lift lines and stations, buildings."""
+    """True where trees must not stand: groomed pistes, lift lines and stations, buildings
+    and restaurant terraces (`terraces`: their rings)."""
     shapes = [geom.buffer(PISTE_MARGIN) for idx, geom, _, _ in piste_shapes if idx in groomed]
     for lift in lifts:
         kind = terminals.KIND.get(lift["type"])
@@ -113,6 +115,10 @@ def clearings(
             shapes.append(Point(t["east"], t["north"]).buffer(size + STATION_MARGIN))
     for b in buildings:
         polygon = Polygon(b["footprint"])
+        if polygon.is_valid:
+            shapes.append(polygon.buffer(BUILDING_MARGIN))
+    for ring in terraces or []:
+        polygon = Polygon(ring)
         if polygon.is_valid:
             shapes.append(polygon.buffer(BUILDING_MARGIN))
     if not shapes:
@@ -176,7 +182,10 @@ def build(
     if line is not None:
         stray |= heights > line + ABOVE_TREE_LINE
     stray |= slope_degrees(heights, cell) > MAX_TREE_SLOPE
-    cleared = clearings(grid, piste_shapes, groomed, features["lifts"], features["buildings"])
+    terraces = [r["terrace"]["ring"] for r in features.get("restaurants", []) if r["terrace"]]
+    cleared = clearings(
+        grid, piste_shapes, groomed, features["lifts"], features["buildings"], terraces
+    )
     forest_before = float(tree.sum())
     tree[stray | cleared] = 0
     layers = {name: soften(values) for name, values in layers.items()}
