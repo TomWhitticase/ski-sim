@@ -14,7 +14,7 @@ import {
   roomId,
   type SharedClock,
 } from './room';
-import { NetSession, type Role } from './session';
+import { NetSession, type Role, SEND_HZ } from './session';
 import { openTransport, type TransportKind } from './transport';
 
 /** What multiplayer needs from the running sim. */
@@ -77,6 +77,9 @@ export class Multiplayer {
       },
     });
     window.addEventListener('pagehide', () => this.session?.leave());
+    // The frame loop stops while the map is open or the tab is in the background; keep
+    // sending and pinging anyway, or the host drops you after a few seconds.
+    setInterval(() => this.session?.update(), 1000 / SEND_HZ);
     this.render();
     if (autoJoin) {
       void this.start('guest', autoJoin);

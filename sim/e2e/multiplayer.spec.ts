@@ -121,6 +121,14 @@ test('host and guest see each other skiing, on the host clock', async ({ context
     await guest.screenshot({ path: `test-results/views/multiplayer-guest-${mode}.png` });
   }
 
+  // The guest studies the map (the frame loop skips the 3D work) for longer than the
+  // peer timeout: they stay in the game, and the host keeps seeing them.
+  await guest.keyboard.press('KeyM');
+  await guest.waitForTimeout(6500);
+  expect(await sim(host, (s) => s.multiplayer.debug.players.length)).toBe(2);
+  await guest.keyboard.press('KeyM');
+  expect(await sim(guest, (s) => s.multiplayer.debug.connected)).toBe(true);
+
   // Shared world: the guest follows the host's time of day and lift clock.
   await host.locator('#open-time').evaluate((b: HTMLElement) => b.click());
   await host.locator('#opt-time .setup-preset', { hasText: 'Night' }).click();
