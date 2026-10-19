@@ -144,8 +144,8 @@ sim/src/
   controls/           Shared input + mouse look; fly mode; ski mode (ski-physics.ts and ski-setup.ts are pure and unit-tested)
   nav/                Saved pose (localStorage, per resort) and teleport destinations
   ui/                 HUD, minimap, fullscreen world map (M), world-anchored name labels
-                      (HUD: mode/position/speed top left; the run underfoot and the 1/2/3
-                      display toggles under the minimap. Key help lives only in the controls modal.)
+                      (HUD: mode/position/speed top left; the time of day above the minimap; the run
+                      underfoot and the 1/2/3 display toggles under it. Key help lives only in the controls modal.)
 sim/e2e/              Playwright view screenshots and control tests
 ```
 
@@ -187,7 +187,7 @@ G (or the main/pause menu's "Ski setup" button) opens a modal (`ui/ski-setup-men
 
 ### Time of day
 
-T (or the menu's "Time of day" button) opens `ui/time-menu.ts`: a 00:00–24:00 slider, presets and the clock speed (paused, real time, ×10, ×60, ×600). Persisted as `ski-sim.time-of-day`.
+The time shows above the minimap (with the clock speed unless it's real time). T (or the menu's "Time of day" button) opens `ui/time-menu.ts`: a 00:00–24:00 slider, presets and the clock speed (paused, real time, ×10, ×60, ×600). Persisted as `ski-sim.time-of-day`.
 - `env/time-of-day.ts` (pure, unit-tested) is the clock: advance by dt × rate, wrap at midnight. Times are local clock times on `SIM_DAY` (config: date and UTC offset); `simDate` turns them into an instant for `sunPosition`.
 - Presets come from the real sun for the resort (`dayPresets`): sunrise and sunset when it's 3° up, midday at its highest, morning and afternoon halfway, night at 22:00.
 - `Environment.setTime` moves the sky's sun, the shadow-casting light and sets light levels (`daylight`, unit-tested). The light never comes from below 2°, and fades out by sunset. At night a blue hemisphere "moonlight" (0.5) keeps the slopes readable; the Preetham sky goes black.

@@ -43,6 +43,7 @@ test('time of day modal: preset, slider and speed move the sun, and persist afte
   await modal.locator('input[name="time"]').fill(String(21 * 3600));
   await expect(modal.locator('.setup-field .setup-value')).toHaveText('21:00');
   await expect(modal.locator('.setup-hint')).toContainText('below the horizon');
+  await expect(page.locator('#clock')).toHaveText('21:00'); // above the minimap
   expect(await sun(page)).toBeLessThan(-10);
 
   // ×600 runs ten minutes a second, and the open slider follows the clock.
@@ -70,6 +71,7 @@ test('time of day modal: preset, slider and speed move the sun, and persist afte
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 30, null, { timeout: 90_000 });
   expect(await clockSeconds(page)).toBe(9.5 * 3600);
   expect(await sun(page)).toBeCloseTo(morning, 3);
+  await expect(page.locator('#clock')).toHaveText('09:30Paused');
   await page.locator('#open-time').click();
   await expect(modal.locator('.setup-option.selected')).toHaveText('Paused');
   await expect(modal.locator('.setup-field .setup-value')).toHaveText('09:30');

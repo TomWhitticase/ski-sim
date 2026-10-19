@@ -39,6 +39,7 @@ body {
 }
 
 #hud,
+#clock,
 #run,
 #toggles {
   font-family: ui-monospace, 'SF Mono', Menlo, monospace;
@@ -64,7 +65,7 @@ body {
   color: var(--muted);
 }
 
-/* Minimap, the run underfoot and the display toggles stacked top right. */
+/* Time of day, minimap, the run underfoot and the display toggles stacked top right. */
 #map-side {
   position: fixed;
   top: 16px;
@@ -78,6 +79,19 @@ body {
 
 #map-side .panel {
   position: relative;
+}
+
+#clock {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 5px 12px;
+  font-size: 14px;
+}
+
+#clock [data-rate] {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 #run {

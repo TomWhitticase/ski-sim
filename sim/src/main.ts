@@ -21,7 +21,7 @@ import { EYE_HEIGHT, SkiControls } from './controls/ski-controls';
 import { loadSetup, saveSetup, type SkiSetup } from './controls/ski-setup';
 import { Environment } from './env/environment';
 import { sunPosition } from './env/sun-position';
-import { dayPresets, loadTime, saveTime } from './env/time-of-day';
+import { dayPresets, formatRate, formatTime, loadTime, saveTime } from './env/time-of-day';
 import { ObstacleIndex } from './features/obstacles';
 import { createBuildings } from './features/buildings';
 import type { ResortFeatures } from './features/types';
@@ -176,9 +176,20 @@ async function main(): Promise<void> {
     () => {
       environment.setTime(simDate(clock.seconds));
       saveTime(localStorage, clock);
+      showClock();
     },
   );
   $('#open-time').addEventListener('click', () => timeMenu.open());
+  // The time above the minimap (with the clock speed unless it's real time).
+  const clockTime = $('#clock [data-time]');
+  const clockRate = $('#clock [data-rate]');
+  const showClock = () => {
+    const time = formatTime(clock.seconds);
+    const rate = clock.rate === 1 ? '' : formatRate(clock.rate);
+    if (clockTime.textContent !== time) clockTime.textContent = time;
+    if (clockRate.textContent !== rate) clockRate.textContent = rate;
+  };
+  showClock();
   window.addEventListener('pagehide', () => saveTime(localStorage, clock));
 
   status.textContent = 'Building terrain…';
@@ -694,6 +705,7 @@ async function main(): Promise<void> {
       clock.advance(dt);
       environment.setTime(simDate(clock.seconds));
       timeMenu.sync();
+      showClock();
     }
     environment.update(camera);
     // A touch wider field of view at speed when skiing.
