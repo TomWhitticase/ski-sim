@@ -158,6 +158,11 @@ function substep(
   v.addScaledVector(gravityAlong, h);
 
   skiDirection(state.yaw, n, skis);
+  if (intent.push && !intent.brake && v.length() < SKI.pushMaxSpeed) {
+    // Skating or stepping along a traverse you set your edges: they hold the sideways
+    // slip instead of scraping all your speed away (which would pin you in place).
+    v.copy(target.copy(skis).multiplyScalar(v.dot(skis)));
+  }
   let speed = v.length();
   if (speed > 1e-4) {
     // Skis can run either way along their length (you can slide backwards).

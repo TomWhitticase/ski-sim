@@ -94,8 +94,12 @@ async function main(): Promise<void> {
     .catch((): ResortEntry[] => []);
   const known = (id: string | null) => !!id && resorts.some((r) => r.id === id);
   const lastResort = localStorage.getItem(LAST_RESORT_KEY);
+  // Last played, else the configured default, else whatever has been built.
   const resortId =
-    params.get('resort') ?? (known(lastResort) ? lastResort! : (resorts[0]?.id ?? DEFAULT_RESORT));
+    params.get('resort') ??
+    [lastResort, DEFAULT_RESORT].find(known) ??
+    resorts[0]?.id ??
+    DEFAULT_RESORT;
   localStorage.setItem(LAST_RESORT_KEY, resortId);
 
   let play: (choice: StartChoice) => void = () => {};
@@ -536,7 +540,8 @@ async function main(): Promise<void> {
   const sim = { ready: false, frames: 0 };
   window.__sim = sim;
   // Dev-only handles for profiling scripts and debugging from the console.
-  if (import.meta.env.DEV) Object.assign(sim, { scene, renderer, camera, labels, minimap, lifts });
+  if (import.meta.env.DEV)
+    Object.assign(sim, { scene, renderer, camera, labels, minimap, lifts, ski });
   let last = performance.now();
   let lastX = fly.position.x;
   let lastY = fly.position.y;

@@ -36,9 +36,9 @@ test('ride the Cascades chairlift to the top and ski off', async ({ page }) => {
   await page.screenshot({ path: 'test-results/views/lift-chair-chase.png' });
 
   // Fast-forward up the line (285 s ride, ×8).
+  // (E first walks you round to the entrance and onto the loading point.)
   await page.keyboard.down('KeyW');
-  await page.waitForTimeout(6000);
-  expect(await altitude(page)).toBeGreaterThan(low + 20); // climbing
+  await expect.poll(() => altitude(page), { timeout: 20_000 }).toBeGreaterThan(low + 20);
   await expect.poll(() => mode(page), { timeout: 60_000 }).toBe('SKI');
   await page.keyboard.up('KeyW');
   expect(await altitude(page)).toBeGreaterThan(2540); // top station ~2566 m

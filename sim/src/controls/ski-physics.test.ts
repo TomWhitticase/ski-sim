@@ -86,6 +86,15 @@ describe('stepSki', () => {
     expect(state.velocity.length()).toBeLessThan(1);
   });
 
+  it('skates along a traverse instead of being pinned by the side slope', () => {
+    for (const degrees of [8, 15]) {
+      const t = slope(degrees);
+      const state = run(skier(t, ACROSS), t, 4, { ...idle, push: true });
+      expect(state.velocity.length()).toBeGreaterThan(SKI.pushMaxSpeed * 0.8);
+      expect(Math.abs(state.velocity.z)).toBeLessThan(0.2 * state.velocity.length()); // along it
+    }
+  });
+
   it('skates on the flat up to a walking-pace limit', () => {
     const state = run(skier(slope(0), DOWNHILL), slope(0), 10, { ...idle, push: true });
     expect(state.velocity.length()).toBeGreaterThan(SKI.pushMaxSpeed * 0.9);

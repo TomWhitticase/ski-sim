@@ -169,6 +169,7 @@ There are two layers. **Near** is lidar at 4 m covering the ski area. **Far** is
 - e2e tests use a frozen lake at 45.28856, 6.5752 (under 15 cm of relief over 100 m) as flat ground.
 - Off-piste (per the piste lookup grid) uses higher friction and drag than groomed runs.
 - W by speed: below ~16 km/h it skates (or walks or climbs, with footstep sounds under 9 km/h); above that it double-poles (`ski-stance` pole cycle plus `SKI.poleAccel`, up to ~32 km/h) with pole-plant sounds. Stance animation emits `step`/`plant` events and the controller exposes them as `footstep`/`polePlant` for audio.
+- Skating (W below skating speed) holds your edges: sideways slip is cancelled, so you can skate along a traverse instead of being pinned by the side slope.
 - Walking uphill: with W held and the skis pointing up a slope too steep to skate, `stepSki` switches to climbing (herringbone): ~1.3 m/s on gentle grades, down to 0.35 m/s on steep ones, never stuck. Releasing W lets you slide back.
 - Map teleports always land you on the ground (`groundedPose`, eye height above the DEM), aimed at the summit for peak destinations.
 
@@ -239,7 +240,8 @@ P deploys a paraglider from fly or ski mode, keeping your velocity; P again drop
 `grading.py` benches pistes into the terrain the way they're built, before terminals are flattened (so station pads win) and before anything is placed on the ground:
 - **Across:** the cross-slope is limited by difficulty (`MAX_CROSS`: 4° green to 14° black). The bench narrows on steep sides (down to 8 m, like a real cat track) so its edges stay within 4 m of the slope, and it's raised so it's mostly packed-snow fill, not a cut into rock. Banks bridge the edge back to the natural slope.
 - **Along:** the centreline profile is fitted (pool-adjacent-violators) so it never climbs, preferring a 5% gliding grade, within 5 m of fill and 3 m of cut. A run that really climbs more than that keeps climbing.
-- Skipped: freeride runs, cliffs (cross-slope over ~60°, usually a loosely drawn line), and lines inside surveyed piste areas (open slopes).
+- A piste's segments are merged and then split at significant high/low points (`_legs`), so two legs meeting at a junction are each graded downhill. Where the run is also mapped as an area, the bench takes the area's width; areas wider than 50 m are open slopes and left alone. The first 30 m of a run are never dug down (a summit start would become a pit you can't skate out of).
+- Skipped: freeride runs and cliffs (cross-slope over ~60°, usually a loosely drawn line).
 - The build logs and records (`manifest.validation.pisteGrading`) how much climbing the run centrelines had before and after.
 - The near terrain is also despiked first (`grid.despike`): the IGN lidar has rings of 100–500 m deep pits in a few places.
 

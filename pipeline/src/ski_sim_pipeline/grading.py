@@ -15,8 +15,9 @@ the rock above, and graded so they keep going downhill. The lidar shows the moun
 3. Into the heightmap: the bench replaces the terrain; beyond its edges a packed-snow
    fill bank (TAN_FILL) or a cut bank (TAN_CUT) closes the gap to the natural slope.
 
-Lines inside surveyed piste areas (open slopes with their true extent) and freeride
-itineraries are left alone. Runs in before terminals are flattened, so station pads win.
+Where a run is also mapped as an area, the bench takes the area's width; areas wider
+than OPEN_SLOPE are open slopes and are left alone, as are freeride itineraries. This
+runs before terminals are flattened, so station pads win.
 """
 
 from __future__ import annotations
@@ -55,6 +56,9 @@ CROSS_SAMPLES = 9
 MAX_SIDE = 1.7  # cross-slope (tan, ~60°) beyond which a run isn't benched
 BANK_REACH = 25.0  # how far beyond the bench a bank can reach (m)
 MIN_LENGTH = 30.0
+OPEN_SLOPE = 50.0  # a mapped piste area wider than this is an open slope, not a road (m)
+AREA_STEP = 2.0
+TURN = 20.0  # a merged line rising or falling back this far is split there (m)
 
 
 def _smooth(x: np.ndarray, k: int) -> np.ndarray:
@@ -100,19 +104,31 @@ def profile(line: LineString, width: float, difficulty: int, ground, areas) -> d
     tangent /= np.maximum(np.linalg.norm(tangent, axis=1, keepdims=True), 1e-9)
     normal = np.column_stack([-tangent[:, 1], tangent[:, 0]])
 
-    offsets = np.linspace(-width / 2, width / 2, CROSS_SAMPLES)
+    # Where the run is mapped as an area, its true width there; wide areas are open
+    # slopes, not roads, and are left alone.
+    full = np.full(len(pts), width / 2)
+    open_slope = np.zeros(len(pts), dtype=bool)
+    if areas is not None:
+        mapped = _area_half_width(pts, normal, areas)
+        inside = ~np.isnan(mapped)
+        open_slope = inside & (2 * np.nan_to_num(mapped) > OPEN_SLOPE)
+        full = np.where(inside, np.clip(np.nan_to_num(mapped), MIN_HALF_WIDTH, None), full)
+    full = _smooth(full, SMOOTH)
+
+    unit = np.linspace(-1, 1, CROSS_SAMPLES)
+    offsets = full[:, None] * unit
     e = pts[:, 0:1] + normal[:, 0:1] * offsets
     n = pts[:, 1:2] + normal[:, 1:2] * offsets
     h = ground(e.ravel(), n.ravel()).reshape(e.shape)
     centre = h.mean(axis=1)
-    cross = _smooth(((h - centre[:, None]) * offsets).sum(axis=1) / (offsets**2).sum(), 5)
+    cross = _smooth(((h - centre[:, None]) * offsets).sum(axis=1) / (offsets**2).sum(axis=1), 5)
 
     tan_max = math.tan(math.radians(MAX_CROSS[difficulty]))
     excess = np.maximum(np.abs(cross) - tan_max, 0.0)
     g = np.sign(cross) * np.minimum(np.abs(cross), tan_max)
     with np.errstate(divide="ignore"):
-        half = np.where(excess > 1e-6, MAX_BENCH / np.maximum(excess, 1e-6), width / 2)
-    half = _smooth(np.clip(half, MIN_HALF_WIDTH, width / 2), SMOOTH)
+        half = np.where(excess > 1e-6, MAX_BENCH / np.maximum(excess, 1e-6), full)
+    half = _smooth(np.clip(half, MIN_HALF_WIDTH, full), SMOOTH)
     z = _smooth(centre + BUILD_UP * np.minimum(excess * half, MAX_BENCH), 3)
 
     # Along: never uphill, gliding grade where the ground allows.
@@ -126,6 +142,8 @@ def profile(line: LineString, width: float, difficulty: int, ground, areas) -> d
             chosen = np.where(np.isnan(chosen) & ok, delta, chosen)
     last = np.clip(delta, -MAX_CUT, MAX_FILL)
     chosen = np.where(np.isnan(chosen), last, chosen)
+    # Never dig the start down: on a summit plateau that leaves the run's top in a pit.
+    chosen = np.where(dist < 2 * TAPER, np.maximum(chosen, 0.0), chosen)
     z = z + _smooth(chosen, SMOOTH)
 
     end = np.minimum(dist, dist[-1] - dist)
@@ -133,8 +151,7 @@ def profile(line: LineString, width: float, difficulty: int, ground, areas) -> d
     w = w * w * (3 - 2 * w)
     # Too steep to bench (a cliff, usually a loosely drawn line): leave the terrain.
     w = w * np.clip((MAX_SIDE - np.abs(cross)) / 0.5, 0, 1)
-    if areas is not None:
-        w = w * ~contains_xy(areas, pts[:, 0], pts[:, 1])
+    w = w * ~open_slope
     w = _smooth(w.astype(float), SMOOTH)
     if w.max() < 0.05:
         return None
@@ -149,6 +166,23 @@ def profile(line: LineString, width: float, difficulty: int, ground, areas) -> d
         "w": w,
         "ground": centre,
     }
+
+
+def _area_half_width(pts: np.ndarray, normal: np.ndarray, areas) -> np.ndarray:
+    """Half the mapped area's width across each station (NaN where not inside one)."""
+    reach = np.arange(0, OPEN_SLOPE + AREA_STEP, AREA_STEP)
+    out = np.full(len(pts), np.nan)
+    sides = []
+    for sign in (1, -1):
+        e = pts[:, 0:1] + sign * normal[:, 0:1] * reach
+        n = pts[:, 1:2] + sign * normal[:, 1:2] * reach
+        inside = contains_xy(areas, e.ravel(), n.ravel()).reshape(e.shape)
+        # Distance to the first point outside (all inside: the full reach).
+        first_out = np.where(inside.all(axis=1), len(reach), np.argmin(inside, axis=1))
+        sides.append(np.where(inside[:, 0], reach[np.minimum(first_out, len(reach) - 1)], np.nan))
+    centred = ~np.isnan(sides[0])
+    out[centred] = (sides[0][centred] + sides[1][centred]) / 2
+    return out
 
 
 def stamp(heights: np.ndarray, grid: Grid, p: dict) -> None:
@@ -219,15 +253,56 @@ def _runs(pistes: list[dict], ground) -> list[tuple[LineString, int, float]]:
             continue
         merged = linemerge(MultiLineString(piste["lines"]))
         lines = list(getattr(merged, "geoms", [merged]))
-        for line in lines:
-            if line.length < MIN_LENGTH:
-                continue
-            a, b = line.coords[0], line.coords[-1]
-            ha, hb = ground(np.array([a[0], b[0]]), np.array([a[1], b[1]]))
-            if hb > ha:
-                line = LineString(line.coords[::-1])
-            out.append((line, piste["difficulty"], DEFAULT_WIDTH[piste["difficulty"]]))
+        for merged_line in lines:
+            for line in _legs(merged_line, ground):
+                if line.length < MIN_LENGTH:
+                    continue
+                a, b = line.coords[0], line.coords[-1]
+                ha, hb = ground(np.array([a[0], b[0]]), np.array([a[1], b[1]]))
+                if hb > ha:
+                    line = LineString(line.coords[::-1])
+                out.append((line, piste["difficulty"], DEFAULT_WIDTH[piste["difficulty"]]))
     return out
+
+
+def _legs(line: LineString, ground) -> list[LineString]:
+    """Split a line at its significant high and low points (TURN m of hysteresis).
+
+    Merging a piste's segments ignores direction, so two legs running down into one
+    junction become one V-shaped line; each leg must be oriented downhill on its own.
+    """
+    pts, dist = _resample(line)
+    if len(pts) < 3:
+        return [line]
+    z = _smooth(ground(pts[:, 0], pts[:, 1]), 5)
+    # Zigzag: track the highest and lowest point since the last turn; a move of TURN
+    # back from one of them confirms it as a turning point.
+    cuts: list[int] = []
+    hi = lo = 0
+    trend = 0  # +1 rising, -1 falling, 0 not yet known
+    for i in range(1, len(z)):
+        if z[i] > z[hi]:
+            hi = i
+        if z[i] < z[lo]:
+            lo = i
+        if trend >= 0 and z[hi] - z[i] > TURN:
+            if trend > 0:
+                cuts.append(hi)
+            trend, lo = -1, i
+        elif trend <= 0 and z[i] - z[lo] > TURN:
+            if trend < 0:
+                cuts.append(lo)
+            trend, hi = 1, i
+    if not cuts:
+        return [line]
+    bounds = [0.0, *(float(dist[c]) for c in cuts), line.length]
+    return [_substring(line, a, b) for a, b in zip(bounds, bounds[1:], strict=False) if b > a]
+
+
+def _substring(line: LineString, a: float, b: float) -> LineString:
+    from shapely.ops import substring
+
+    return substring(line, a, b)
 
 
 def climb(z: np.ndarray) -> float:

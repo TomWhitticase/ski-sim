@@ -47,7 +47,7 @@ def test_despike_fills_a_ring_of_pits_but_keeps_a_cliff():
     e, n = np.meshgrid(np.arange(40.0), np.arange(40.0))
     heights = (2000 + np.where(e > 20, 60.0, 0.0) + 0.1 * n).astype(np.float32)  # a 60 m cliff
     clean = heights.copy()
-    ring = (np.abs(np.hypot(e - 10, n - 20) - 4) < 0.8)
+    ring = np.abs(np.hypot(e - 10, n - 20) - 4) < 0.8
     heights[ring] -= 150
     assert despike(heights) >= ring.sum()
     assert np.abs(heights - clean).max() < 1.0
