@@ -449,7 +449,9 @@ export class SkiControls {
     this.skier.quaternion.copy(this.q).multiply(this.qYaw);
     this.grounded.copy(this.skier.quaternion);
     if (this.state.airborne) {
-      this.flip = (this.state.pitch ?? 0) - slopePitch(this.skiYaw, this.normal);
+      // Wrapped: a completed rotation looks the same as none, so on touchdown only the
+      // landing error is left to settle out (not a whole turn spun back the other way).
+      this.flip = wrapAngle((this.state.pitch ?? 0) - slopePitch(this.skiYaw, this.normal));
     }
     this.com.set(0, COM_HEIGHT, 0).applyQuaternion(this.skier.quaternion).add(p);
     if (this.flip !== 0) {

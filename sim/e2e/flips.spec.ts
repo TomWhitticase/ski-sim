@@ -113,9 +113,14 @@ test('holding ] off a big jump lands a backflip', async ({ page }) => {
   await snapshot(page, 100, 'test-results/views/flip-back-chase.png');
   await snapshot(page, 160, 'test-results/views/flip-back-side.png', true);
   const landing = await landed(page);
+  // Right after touchdown the model only settles the landing error, never unwinds the flip.
+  const settle = await page.evaluate(
+    () => (window.__sim as unknown as { ski: { flip: number } }).ski.flip,
+  );
   await page.keyboard.up('BracketRight');
   expect(landing.flips).toBe(1);
   expect(landing.outcome).not.toBe('crash');
+  expect(Math.abs(settle)).toBeLessThan(0.7);
   await page.screenshot({ path: 'test-results/views/flip-landed.png' });
   expect(
     await page.evaluate(() => (window.__sim as unknown as { ski: SkiHandle }).ski.crashed),
