@@ -199,3 +199,17 @@ test('Shift+M drops a marker where you are', async ({ page }) => {
   await expect(page.locator('#marker-hint [data-distance]')).toHaveText(/^\d+ m$/);
   await page.screenshot({ path: 'test-results/views/marker-hint.png' });
 });
+
+test('- and = zoom the minimap, but not while typing in the map search box', async ({ page }) => {
+  await load(page);
+  const scale = page.locator('#minimap .minimap-scale');
+  const before = await scale.textContent();
+  await page.keyboard.press('KeyM');
+  await page.locator('#world-map .map-search').fill('');
+  await page.locator('#world-map .map-search').pressSequentially('saint-martin');
+  await page.locator('#world-map .map-close').click();
+  await page.waitForTimeout(300);
+  expect(await scale.textContent()).toBe(before);
+  await page.keyboard.press('Minus');
+  await expect(scale).not.toHaveText(before!);
+});
