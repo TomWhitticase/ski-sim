@@ -32,6 +32,8 @@ export class WaypointMarker {
     scene: Scene,
     private readonly root: HTMLElement,
     private readonly groundHeight: (x: number, z: number) => number,
+    /** Corner panel saying a marker is set and J teleports there. */
+    private readonly hint?: HTMLElement,
   ) {
     const geometry = new CylinderGeometry(1.4, 1.4, BEAM_HEIGHT, 12, 1, true);
     geometry.translate(0, BEAM_HEIGHT / 2, 0);
@@ -67,6 +69,7 @@ export class WaypointMarker {
     this.waypoint = w;
     this.beam.visible = !!w;
     this.el.hidden = !w;
+    if (this.hint) this.hint.hidden = !w;
     if (!w) return;
     this.ground = this.groundHeight(w.east, -w.north);
     this.beam.position.set(w.east, this.ground, -w.north);
@@ -84,6 +87,9 @@ export class WaypointMarker {
     const height = Math.abs(climb) < 10 ? '' : ` · ${climb > 0 ? '▲' : '▼'} ${Math.abs(climb)} m`;
     const text = `${formatDistance(distance)}${height}`;
     if (this.info.textContent !== text) this.info.textContent = text;
+    const near = this.hint?.querySelector('[data-distance]');
+    const short = formatDistance(distance);
+    if (near && near.textContent !== short) near.textContent = short;
 
     this.view.copy(this.anchor).applyMatrix4(camera.matrixWorldInverse);
     const w2 = this.root.clientWidth || window.innerWidth;

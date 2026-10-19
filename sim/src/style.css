@@ -129,6 +129,47 @@ body {
   display: none;
 }
 
+#marker-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+#marker-hint[hidden] {
+  display: none;
+}
+
+#marker-hint [data-distance] {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.marker-dot {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid #fff;
+  border-radius: 50%;
+  background: #ff8a1f;
+}
+
+.marker-key {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+#marker-hint kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 4px;
+  margin-right: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  text-align: center;
+  color: var(--panel-text);
+}
+
 #toggles {
   padding: 5px 12px;
   font-size: 12px;

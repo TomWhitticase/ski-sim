@@ -29,6 +29,7 @@ Open http://localhost:5173, pick a ski area and where to start, then **Start ski
 | P | Paraglider: deploy / release (A/D bank, W speed bar, S brakes) |
 | E | Ride a lift: walks you to the loading point (or just stand on it and get scooped up). Hold W to fast-forward, S to skip to the top |
 | M | Map: search pistes/lifts/peaks, right click to teleport, left click to drop a guide marker (click it again to remove) |
+| Shift + M | Drop a guide marker where you are |
 | J | Teleport to the guide marker |
 | K | Sound on / off |
 | G | Ski setup: presets (slalom, GS, all-mountain, freeride, park) and length, waist, sidecut, flex, profile, wax, tune and mount, which change how the skis handle |

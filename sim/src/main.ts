@@ -482,7 +482,7 @@ async function main(): Promise<void> {
     (marker) => setWaypoint(marker),
   );
   // The guide marker placed on the map (left click): a beam and an on-screen pin.
-  const waypoint = new WaypointMarker(scene, $('#labels'), groundHeight);
+  const waypoint = new WaypointMarker(scene, $('#labels'), groundHeight, $('#marker-hint'));
   const setWaypoint = (w: { east: number; north: number } | null) => {
     waypoint.set(w);
     worldMap.marker = w;
@@ -653,7 +653,11 @@ async function main(): Promise<void> {
       return;
     }
     if (document.querySelector('dialog[open]')) return; // a menu dialog has the keyboard
-    if (e.code === 'KeyM' && !e.repeat) {
+    if (e.code === 'KeyM' && e.shiftKey && !e.repeat && !worldMap.isOpen) {
+      // Shift+M: mark where you are now (e.g. to come back to it with J).
+      const { east, north } = currentPose();
+      setWaypoint({ east, north });
+    } else if (e.code === 'KeyM' && !e.repeat) {
       if (worldMap.isOpen) closeMap(true);
       else openMap();
     } else if (e.code === 'Escape' && worldMap.isOpen) {

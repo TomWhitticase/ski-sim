@@ -157,6 +157,10 @@ test('left clicking the map drops a guide marker you can see while skiing', asyn
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10, null, { timeout: 90_000 });
   await expect(page.locator('#waypoint .waypoint-pin')).toBeVisible();
 
+  // The corner panel says a marker is set and J teleports there.
+  await expect(page.locator('#marker-hint')).toBeVisible();
+  await expect(page.locator('#marker-hint')).toContainText('J teleport');
+
   // J jumps you there (onto the ground), and the marker stays.
   const lonBefore = await hudNumber(page, 'lon');
   await page.keyboard.press('KeyJ');
@@ -172,4 +176,16 @@ test('left clicking the map drops a guide marker you can see while skiing', asyn
   await page.mouse.click(at.x, at.y - 14);
   await page.keyboard.press('KeyM');
   await expect(page.locator('#waypoint .waypoint-pin')).toBeHidden();
+  await expect(page.locator('#marker-hint')).toBeHidden();
+});
+
+test('Shift+M drops a marker where you are', async ({ page }) => {
+  await fakePointerLock(page);
+  await load(page);
+  await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
+  await page.keyboard.press('Shift+KeyM');
+  await expect(page.locator('#world-map')).toBeHidden(); // marks, doesn't open the map
+  await expect(page.locator('#marker-hint')).toBeVisible();
+  await expect(page.locator('#marker-hint [data-distance]')).toHaveText(/^\d+ m$/);
+  await page.screenshot({ path: 'test-results/views/marker-hint.png' });
 });
