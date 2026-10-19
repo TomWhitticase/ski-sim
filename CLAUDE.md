@@ -6,7 +6,7 @@ Guidance for Claude Code when working in this repository.
 
 **ski-sim** is a 3D immersive simulation of real ski resorts. The goal is fidelity: a resort in the sim should match its real-world counterpart as closely as public geospatial data allows. Terrain, pistes, lifts, buildings and tree lines all come from real data, not hand-authored approximations.
 
-Status: **playable multi-valley map.** Val Thorens (France) renders from real lidar terrain, with basic lifts and buildings from OSM, fly mode, HUD, minimap and a bluebird sky. The long-term goal is the whole Three Valleys (Val Thorens, Les Menuires, Méribel, Courchevel). Grow extents and add resorts through config.
+Status: **playable multi-valley map.** Val Thorens (France) renders from real lidar terrain, with basic lifts and buildings from OSM, forests, rock and glaciers from ESA WorldCover, fly mode, HUD, minimap and a bluebird sky. The long-term goal is the whole Three Valleys (Val Thorens, Les Menuires, Méribel, Courchevel). Grow extents and add resorts through config.
 
 ## Tech stack
 
@@ -76,7 +76,7 @@ The whole pipeline is driven by `data/resorts/<id>/resort.json`, and only `id`, 
 - spawn height (150 m above the DEM);
 - summit validation against every OSM peak with an `ele` tag.
 
-Lifts, stations, signs, buildings, pistes, peaks and sounds all come from OSM with no per-resort code. Optional overrides: `origin`, `spawn` (lat/lon/heading/altitude), `terrain.near/far`, `minimap`, `landmarks`. Then open `?resort=<id>`, or set `DEFAULT_RESORT` in `sim/src/config.ts`.
+Lifts, stations, signs, buildings, pistes, peaks and sounds all come from OSM, and forests, rock, glaciers and lakes from ESA WorldCover, with no per-resort code. Optional overrides: `origin`, `spawn` (lat/lon/heading/altitude), `terrain.near/far`, `minimap`, `landmarks`. Then open `?resort=<id>`, or set `DEFAULT_RESORT` in `sim/src/config.ts`.
 
 Current resorts: `les-3-vallees` (Val Thorens, Orelle, Les Menuires, Saint-Martin, Méribel incl. Mont Vallon, Courchevel).
 
@@ -102,7 +102,7 @@ Use the best available source for the region; fall back to global datasets.
 | Imagery | USGS NAIP, swisstopo SWISSIMAGE, IGN BD ORTHO | Sentinel-2 (10 m) |
 | Pistes, lifts, resort boundary | OpenStreetMap (`piste:type`, `piste:difficulty`, `aerialway=*`, `aerialway:*`, `landuse=winter_sports`) | OpenSkiMap (processed OSM ski data, GeoJSON exports) |
 | Buildings | swissBUILDINGS3D (CH), national 3D building datasets | OSM buildings |
-| Vegetation / tree line | Meta/WRI 1 m global canopy height, national forest inventories | ESA WorldCover (10 m), ETH global canopy height (10 m) |
+| Land cover (forest, bare rock, glaciers, water) | Meta/WRI 1 m global canopy height (not yet: no overviews, ~375 MB tiles), national forest inventories | **In use:** ESA WorldCover 10 m 2021 v200 (CC BY 4.0, global COGs on AWS, windowed reads; see ADR 0003) |
 | Lift specs (capacity, speed, manufacturer, towers) | Lift-World (lift-world.info), remontees-mecaniques.net, resort websites | OSM `aerialway:*` tags |
 | Weather / snow | Open-Meteo, national weather services | — |
 
@@ -129,15 +129,17 @@ data/
   resorts/<resort>/   resort.json: origin, spawn, terrain extents/sources, landmarks (committed)
 pipeline/src/ski_sim_pipeline/
   build.py            Orchestrates a resort build
-  sources/            One module per data provider (ign, copernicus, osm)
+  sources/            One module per data provider (ign, copernicus, osm, worldcover)
   features.py         Lifts (stations, towers, clearance-driven synthetic towers) and buildings
   frame.py, grid.py   Local projection; grid resampling, sampling and near/far stitching
+  landcover.py        Forest / rock / ice / water coverage textures, tree clearings, tree line
   export.py, minimap.py
 sim/src/
   main.ts             Bootstrap and frame loop
   config.ts           Sim-wide tunables (simulated day, fly speeds, LOD, minimap zoom)
   terrain/            Chunked LOD terrain, normal-map texture, TSL snow/rock material
   features/           Extruded buildings
+  landcover/          Land cover texture; trees placed from it (instanced LODs, collisions)
   lifts/              Lift operation model, carriers, lift system (statics + moving carriers), riding
   env/                Sky, sun position, time-of-day clock, lights, cascaded shadows, fog
   render/             Adaptive resolution (render scale follows frame time)
@@ -263,6 +265,17 @@ Both come from OSM through Overpass (`sources/osm.py`). The response is cached u
 - Lifts that leave the near terrain extent are skipped (logged), e.g. links into neighbouring valleys.
 - **Peaks:** named `natural=peak` nodes, snapped to the highest DEM sample within 30 m. Every peak in the near extent is kept. Beyond it, only peaks of at least 3500 m (`FAR_PEAK_MIN_ELE`), so the horizon shows the big names.
 
+### Land cover and trees
+
+`landcover.py` averages ESA WorldCover classes onto an 8 m grid over the near extent (`landcover-near.png`) and onto the far grid (`landcover-far.png`, from the 40 m overview). Rationale: ADR 0003.
+- **Encoding:** RGB coverage fractions: R tree, G bare rock, B 128 + 127·ice − 128·water. There's no alpha: browsers premultiply it on decode, which zeroes RGB wherever alpha is 0.
+- **Clearings:** tree cover is cut from groomed pistes, lift corridors, terminals and buildings, from slopes over 55°, and from more than 120 m above the tree line (99th percentile of forest elevation, `manifest.landCover.trees.treeLine`). The minimap is tinted green by the same cover.
+- **Terrain shader:** bare rock lowers the snow-holding slope threshold by ~7° (patchy), and forest raises it. Glaciers get bluer snow and blue ice where steep, lakes flat frozen ice. Forest beyond the drawn trees is shaded as dark crowns with snow (`canopyFade`), and the far layer always shades it.
+- **Trees (`landcover/`):** `tree-placement.ts` (pure, unit-tested) scatters trees in 80 m tiles: one candidate per 5 m cell, kept with probability cover × clumping noise, seeded per cell so every visit sees the same forest. Heights run from 26 m (valley) to 7 m (tree line), with bare larches mixed in near the tree line. All of that is synthetic; only the cover is data.
+- **Drawing (`forest.ts`):** tiles are generated around the camera (60 per frame, nearest first, LRU-cached). Each tile's trees go into one of three instanced LODs by distance (detailed 136-tri spruce with shadows < 250 m, simple < 700 m, minimal < 1.5 km), and only tiles in the view frustum are included. The instance buffer is a vec4 per tree (east, ground, north, height + 1000·species) and the vertex shader turns and scales each tree. Rebuilding on movement or turning costs ~0.5 ms.
+- **Collisions:** `Forest.resolve` pushes the skier out of trunks (0.45 m), or out of the crown at waist height for small trees (up to 1.4 m), using the same tiles as its spatial index.
+- **Cost:** ~2 ms GPU in the densest Méribel views. `pnpm perf` has a `meribel-forest` pose.
+
 ### Labels
 
 `sim/src/ui/labels.ts` draws HTML tags projected from world anchors (1 toggles lift names, 2 peak names; the choice persists in localStorage).
@@ -278,7 +291,8 @@ Measure with `pnpm perf` before and after any rendering change. In dev builds, `
 
 Known limits:
 - 4 m data looks soft at ground level, though a tiling procedural snow-detail normal map (`terrain/snow-detail.ts`) adds texture within ~400 m. Skiing will need finer tiles streamed near the camera.
-- There's no texture/imagery drape yet. Snow vs rock is decided by slope.
+- There's no texture/imagery drape yet. Snow vs rock is decided by slope, adjusted by land cover.
+- Where the near terrain is Copernicus (outside France), the DSM includes the canopy, so trees stand ~20 m high under forest.
 - Pistes use default widths, so edges are approximate where OSM has no area polygon.
 - Lift cables are straight with no sag. Terminals are a few generic designs per lift type, not the real station architecture. Building roofs are flat, and multipolygon buildings (courtyards) are skipped.
 

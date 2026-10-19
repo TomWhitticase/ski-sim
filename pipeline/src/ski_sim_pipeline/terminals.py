@@ -327,7 +327,7 @@ def _walk_rect(t: dict, side: str, length: float) -> Polygon:
 
 def _blocked(polygon: Polygon, tree, footprints: list[Polygon]) -> float:
     hits = [footprints[int(i)] for i in tree.query(polygon)]
-    if not hits:
+    if not hits or polygon.area == 0:  # degenerate terminal direction: nothing to block
         return 0.0
     return unary_union([h.intersection(polygon) for h in hits]).area / polygon.area
 

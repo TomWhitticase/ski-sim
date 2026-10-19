@@ -11,17 +11,17 @@ from pathlib import Path
 import numpy as np
 from rasterio.warp import Resampling
 
-from . import approach, features, grading, minimap, pistes, terminals
+from . import approach, features, grading, landcover, minimap, pistes, terminals
 from . import bases as base_finder
 from .config import ResortConfig, load_resort
 from .export import write_heightmap
 from .frame import LocalFrame
 from .grid import Grid, despike, reproject_into, sample_bilinear, stitch_far_to_near
-from .sources import copernicus, ign, osm
+from .sources import copernicus, ign, osm, worldcover
 
 log = logging.getLogger(__name__)
 
-MANIFEST_VERSION = 7
+MANIFEST_VERSION = 8
 LANDMARK_SEARCH_RADIUS = 30.0  # OSM summit nodes are often a few metres off the true top
 LANDMARK_TOLERANCE = 15.0
 
@@ -348,9 +348,8 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     near, near_grid, coverage = build_near(cfg, frame, raw_root, far, far_grid)
     log.info("Grading pistes into the terrain")
     piste_elements = osm.fetch_pistes(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root)
-    graded = grading.grade(
-        pistes.collect(piste_elements, frame, near_grid.extent)[0], near, near_grid
-    )
+    piste_runs, piste_shapes = pistes.collect(piste_elements, frame, near_grid.extent)
+    graded = grading.grade(piste_runs, near, near_grid)
     log.info(
         "Graded %d runs (%.0f km): climbing along them %.0f m -> %.0f m, max fill %.1f m",
         graded["runs"],
@@ -383,6 +382,19 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     pistes_meta = build_pistes(frame, raw_root, near, near_grid, out_dir)
     piste_records = json.loads((out_dir / "pistes.json").read_text())["pistes"]
 
+    log.info("Building land cover (ESA WorldCover)")
+    land_cover, land_stats, tree_cover = landcover.build(
+        frame,
+        raw_root,
+        out_dir,
+        near,
+        near_grid,
+        far_grid,
+        piste_shapes,
+        {r["index"] for r in piste_runs if r["groomed"]},
+        feature_data,
+    )
+
     log.info("Writing outputs to %s", out_dir)
     (out_dir / "features.json").write_text(json.dumps(feature_data, separators=(",", ":")))
     near_meta = write_heightmap(out_dir / "terrain-near.bin", near, near_grid)
@@ -395,6 +407,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     # Each minimap pixel covers a block of grid samples; its edges are half a sample out.
     half = near_grid.cell_size / 2
     image = minimap.render(mm_heights, mm_cell, cfg.minimap.contour_interval)
+    minimap.shade_forest(image, tree_cover, ext.west - half, ext.north + half, mm_cell)
     minimap.draw_pistes(image, piste_records, ext.west - half, ext.north + half, mm_cell)
     minimap.draw_features(image, feature_data, ext.west - half, ext.north + half, mm_cell)
     image.save(out_dir / "minimap.png", optimize=True)
@@ -434,11 +447,13 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
             "buildings": len(feature_data["buildings"]),
             "peaks": len(feature_data["peaks"]),
         },
+        "landCover": land_cover,
         "validation": {
             "landmarks": validation,
             "pisteGrading": graded,
             "nearCoverage": coverage,
             "liftClearance": clearance,
+            "landCover": land_stats,
         },
         "provenance": [
             *(
@@ -457,6 +472,11 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
                 "processedResolution": far_grid.cell_size,
             },
             {"layer": "features", **osm.PROVENANCE},
+            {
+                "layer": "landCover",
+                **worldcover.PROVENANCE,
+                "processedResolution": land_cover["near"]["cellSize"],
+            },
         ],
     }
     path = out_dir / "manifest.json"

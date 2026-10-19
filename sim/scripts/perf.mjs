@@ -7,6 +7,7 @@ const POSES = {
   village: 'at=45.3005,6.5765,2420&heading=150&pitch=-18',
   'mont-blanc-horizon': 'at=45.2632,6.5610,3210&heading=25&pitch=0',
   'ski-slope': 'at=45.2830,6.5760,2600&heading=27&pitch=-10',
+  'meribel-forest': 'at=45.3890,6.5700,1700&heading=120&pitch=-5',
 };
 
 const browser = await chromium.launch({

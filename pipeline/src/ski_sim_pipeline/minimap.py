@@ -53,6 +53,21 @@ def render(
     return Image.fromarray(np.clip(color, 0, 255).astype(np.uint8), mode="RGB")
 
 
+FOREST = np.array([62, 104, 78], dtype=np.float32)
+
+
+def shade_forest(image: Image.Image, cover, west: float, north: float, cell_size: float) -> None:
+    """Tint forest green by tree cover. `cover(east, north)` samples it (0-1) at arrays of
+    pixel centres; (west, north) is the image's top-left."""
+    rgb = np.asarray(image, dtype=np.float32)
+    h, w = rgb.shape[:2]
+    east = west + (np.arange(w) + 0.5) * cell_size
+    nrth = north - (np.arange(h) + 0.5) * cell_size
+    e, n = np.meshgrid(east, nrth)
+    k = 0.6 * np.clip(cover(e, n), 0, 1)[..., np.newaxis]
+    image.paste(Image.fromarray(np.round(rgb * (1 - k) + FOREST * k).astype(np.uint8), "RGB"))
+
+
 BUILDING = (112, 104, 100)
 LIFT = (35, 35, 40)
 

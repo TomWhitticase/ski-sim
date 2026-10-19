@@ -26,6 +26,13 @@ const SNOW = vec3(0.93, 0.95, 0.98);
 const SNOW_SHADED = vec3(0.84, 0.88, 0.95);
 const ROCK = vec3(0.26, 0.24, 0.23);
 const ROCK_LIGHT = vec3(0.4, 0.37, 0.34);
+// Land cover (winter): firn on glaciers, blue ice where they steepen, frozen lakes, and
+// forest seen from afar (dark crowns with snow between and on them).
+const GLACIER_SNOW = vec3(0.86, 0.93, 1.0);
+const SERAC_ICE = vec3(0.5, 0.7, 0.84);
+const LAKE_ICE = vec3(0.74, 0.84, 0.92);
+const CANOPY = vec3(0.07, 0.1, 0.075);
+const CANOPY_SNOW = vec3(0.6, 0.64, 0.66);
 
 // Around the hole the coarse terrain is pulled down so it always sits below the finer
 // layer's edge, whose skirts then cover the join. Without this, hairline gaps show sky.
@@ -49,6 +56,17 @@ export interface PisteShading {
   tint: UniformNode<'float', number>;
 }
 
+/** Land cover on its own grid: R tree cover, G bare rock, B 0.5 + ½ ice − ½ water. */
+export interface LandCoverShading {
+  texture: Texture;
+  extent: Extent;
+  cellSize: number;
+  width: number;
+  height: number;
+  /** Distances (m) over which drawn trees give way to shaded forest; omit to always shade. */
+  canopyFade?: [number, number];
+}
+
 export function createTerrainMaterial(
   hm: Heightmap,
   normalTexture: Texture,
@@ -56,7 +74,8 @@ export function createTerrainMaterial(
   {
     snowDetail: withSnowDetail = false,
     pistes,
-  }: { snowDetail?: boolean; pistes?: PisteShading } = {},
+    landCover,
+  }: { snowDetail?: boolean; pistes?: PisteShading; landCover?: LandCoverShading } = {},
 ): MeshStandardNodeMaterial {
   // Double-sided so chunk skirts hide LOD cracks whichever side they're seen from.
   const material = new MeshStandardNodeMaterial({ side: DoubleSide });
@@ -94,12 +113,39 @@ export function createTerrainMaterial(
   const breakup = mx_fractal_noise_float(ground.mul(0.02), 3);
   const detail = mx_fractal_noise_float(ground.mul(0.15), 2);
 
-  // 1 - n.y: ~0.18 at 35°, ~0.29 at 45°. Snow holds up to roughly 40-45° here.
-  const steepness = normal.y.oneMinus();
-  const rock = smoothstep(0.22, 0.32, steepness.add(breakup.mul(0.06)));
+  const cover = landCover
+    ? texture(
+        landCover.texture,
+        vec2(
+          positionWorld.x.sub(landCover.extent.west).div(landCover.cellSize).add(0.5),
+          positionWorld.z.add(landCover.extent.north).div(landCover.cellSize).add(0.5),
+        ).div(vec2(landCover.width, landCover.height)),
+      )
+    : null;
+  const [tree, bare, ice, water] = cover
+    ? [cover.r, cover.g, cover.b.mul(2).sub(1).max(0), cover.b.mul(-2).add(1).max(0)]
+    : [float(0), float(0), float(0), float(0)];
 
-  const snow = mix(SNOW, SNOW_SHADED, breakup.mul(0.5).add(0.5).mul(0.35));
-  const stone = mix(ROCK, ROCK_LIGHT, detail.mul(0.5).add(0.5));
+  // 1 - n.y: ~0.18 at 35°, ~0.29 at 45°. Snow holds up to roughly 40-45° here. In winter
+  // gentle "bare" ground is snow-covered too, but mapped bare rock sheds it from ~30°
+  // (patchily, wind-scoured), and forest holds it on steep slopes. Frozen lakes are flat.
+  const steepness = normal.y.oneMinus();
+  const shift = bare.mul(detail.mul(0.05).add(0.07)).sub(tree.mul(0.12));
+  const rock = smoothstep(0.22, 0.32, steepness.add(breakup.mul(0.06)).add(shift)).mul(
+    water.oneMinus(),
+  );
+
+  const snow = mix(
+    mix(SNOW, SNOW_SHADED, breakup.mul(0.5).add(0.5).mul(0.35)),
+    GLACIER_SNOW,
+    ice.mul(0.55),
+  );
+  const stone = mix(mix(ROCK, ROCK_LIGHT, detail.mul(0.5).add(0.5)), SERAC_ICE, ice);
+  const canopyFade = landCover?.canopyFade;
+  /** How much forest the terrain shades itself (where trees aren't drawn as meshes). */
+  const canopy = canopyFade
+    ? tree.mul(smoothstep(canopyFade[0], canopyFade[1], cameraPosition.distance(positionWorld)))
+    : tree;
 
   material.colorNode = Fn(() => {
     if (hole) {
@@ -113,7 +159,10 @@ export function createTerrainMaterial(
           .and(n.lessThan(hole.north)),
       );
     }
-    const base = mix(snow, stone, rock);
+    const surface = mix(mix(snow, stone, rock), LAKE_ICE.mul(detail.mul(0.04).add(1)), water);
+    // Snow under drawn trees lies in their shade; far off, crowns and snow blend.
+    const crowns = mix(CANOPY, CANOPY_SNOW, breakup.mul(0.5).add(0.5).mul(0.35).add(0.3));
+    const base = mix(surface.mul(tree.sub(canopy).mul(0.15).oneMinus()), crowns, canopy.mul(0.85));
     if (!piste || !pistes) return base;
     // Freshly groomed snow reads a touch brighter; optional difficulty-colour tint.
     const brightened = base.mul(groomed.mul(rock.oneMinus()).mul(0.05).add(1));
@@ -131,7 +180,7 @@ export function createTerrainMaterial(
       .mul(HOLE_EDGE_DIP);
     material.positionNode = positionGeometry.sub(vec3(0, dip, 0));
   }
-  material.roughnessNode = mix(0.6, 0.9, rock);
+  material.roughnessNode = mix(mix(0.6, 0.9, rock), 0.35, water);
   material.metalness = 0;
   return material;
 }

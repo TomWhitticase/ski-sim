@@ -33,6 +33,8 @@ import { AdaptiveResolution } from './render/adaptive-resolution';
 import { Terrain } from './terrain/terrain';
 import { createTerrainMaterial } from './terrain/terrain-material';
 import { buildPlaces, groundedPose, liftTypeName } from './nav/places';
+import { Forest, FOREST_DRAW_DISTANCE } from './landcover/forest';
+import { LandCover } from './landcover/land-cover';
 import { LiftSystem } from './lifts/lift-system';
 import { RideControls } from './lifts/ride';
 import { createLiftSigns } from './lifts/signs';
@@ -125,14 +127,28 @@ async function main(): Promise<void> {
   $('#attribution').textContent =
     'Terrain: ' + manifest.provenance.map((p) => p.attribution).join(' · ');
   status.textContent = 'Loading terrain…';
-  const [near, far, features, pisteData, pisteOverlay, pisteLookupPixels] = await Promise.all([
+  const [
+    near,
+    far,
+    features,
+    pisteData,
+    pisteOverlay,
+    pisteLookupPixels,
+    nearCoverPixels,
+    farCoverPixels,
+  ] = await Promise.all([
     loadHeightmap(resortId, manifest.terrain.near),
     loadHeightmap(resortId, manifest.terrain.far),
     loadFeatures(resortId, manifest.features.file),
     fetchJson<PisteData>(resortUrl(resortId, manifest.pistes.file)),
     loadPixels(resortUrl(resortId, manifest.pistes.overlay.file)),
     loadPixels(resortUrl(resortId, manifest.pistes.lookup.file)),
+    loadPixels(resortUrl(resortId, manifest.landCover.near.file)),
+    loadPixels(resortUrl(resortId, manifest.landCover.far.file)),
   ]);
+  const { near: nearCoverMeta, far: farCoverMeta, trees: treeMeta } = manifest.landCover;
+  const nearCover = new LandCover(nearCoverPixels, nearCoverMeta.cellSize, nearCoverMeta.extent);
+  const farCover = new LandCover(farCoverPixels, farCoverMeta.cellSize, farCoverMeta.extent);
   const pisteLookup = new PisteLookup(
     pisteLookupPixels,
     manifest.pistes.lookup.cellSize,
@@ -199,12 +215,28 @@ async function main(): Promise<void> {
     createTerrainMaterial(near, createNormalTexture(near), undefined, {
       snowDetail: true,
       pistes: { overlay: overlayTexture(pisteOverlay), tint: pisteTint },
+      landCover: {
+        texture: nearCover.texture(),
+        extent: nearCover.extent,
+        cellSize: nearCover.cellSize,
+        width: nearCover.width,
+        height: nearCover.height,
+        canopyFade: [FOREST_DRAW_DISTANCE * 0.55, FOREST_DRAW_DISTANCE],
+      },
     }),
     TERRAIN.near,
   );
   const farTerrain = new Terrain(
     far,
-    createTerrainMaterial(far, createNormalTexture(far), near.extent),
+    createTerrainMaterial(far, createNormalTexture(far), near.extent, {
+      landCover: {
+        texture: farCover.texture(),
+        extent: farCover.extent,
+        cellSize: farCover.cellSize,
+        width: farCover.width,
+        height: farCover.height,
+      },
+    }),
     { ...TERRAIN.far, skip: near.extent },
   );
   scene.add(
@@ -213,6 +245,16 @@ async function main(): Promise<void> {
     createBuildings(features.buildings),
     createPisteMarkers(pisteData),
   );
+  // Trees from the land cover's tree cover (none without a tree line: no forest mapped).
+  const forest =
+    treeMeta.treeLine === null
+      ? null
+      : new Forest(
+          { cover: (e, n) => nearCover.tree(e, n), ground: (e, n) => near.sample(e, n) },
+          { treeLine: treeMeta.treeLine, height: treeMeta.height },
+          near.extent,
+        );
+  if (forest) scene.add(forest.root);
 
   const farExtent = far.extent;
   const bounds = {
@@ -229,7 +271,10 @@ async function main(): Promise<void> {
       height: groundHeight,
       // World z is -north.
       groomed: (x, z) => pisteLookup.at(x, -z)?.groomed ?? false,
-      collide: (p, v) => obstacles.resolve(p, v),
+      collide: (p, v) => {
+        const building = obstacles.resolve(p, v);
+        return (forest?.resolve(p, v) ?? false) || building;
+      },
     },
     bounds,
   );
@@ -309,6 +354,7 @@ async function main(): Promise<void> {
   ski.setActive(mode === 'ski');
   nearTerrain.update(camera.position, Infinity);
   farTerrain.update(camera.position, Infinity);
+  forest?.update(camera);
 
   const hud = new Hud($('#hud'), $('#run'), $('#toggles'));
   const minimap = await Minimap.load(
@@ -584,6 +630,7 @@ async function main(): Promise<void> {
       ski,
       environment,
       clock,
+      forest,
     });
   let last = performance.now();
   let lastX = fly.position.x;
@@ -701,6 +748,7 @@ async function main(): Promise<void> {
 
     nearTerrain.update(pos, TERRAIN.buildBudgetMs);
     farTerrain.update(pos, TERRAIN.buildBudgetMs);
+    forest?.update(camera);
     if (clock.rate !== 0) {
       clock.advance(dt);
       environment.setTime(simDate(clock.seconds));
@@ -752,7 +800,8 @@ async function main(): Promise<void> {
         : 'WebGL 2';
       debug.textContent = [
         `${fps.toFixed(0)} fps · ${backend} · render scale ${resolution.ratio.toFixed(2)}`,
-        `draw calls ${info.drawCalls} · triangles ${(info.triangles / 1e6).toFixed(2)}M`,
+        `draw calls ${info.drawCalls} · triangles ${(info.triangles / 1e6).toFixed(2)}M` +
+          (forest ? ` · trees ${forest.counts.join(' / ')}` : ''),
         `E ${east.toFixed(1)}  N ${north.toFixed(1)}  ground ${groundHeight(pos.x, pos.z).toFixed(1)} m`,
         mode === 'glide'
           ? `heading ${glider.heading.toFixed(1)}° · glide ${(glider.speed * 3.6).toFixed(0)} km/h · vario ${glider.velocity.y.toFixed(1)} m/s`
