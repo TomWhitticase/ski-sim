@@ -79,6 +79,9 @@
             Ski setup <kbd>G</kbd>
           </button>
           <button id="open-time" class="menu-action" type="button">Time of day <kbd>T</kbd></button>
+          <button id="open-settings" class="menu-action" type="button">
+            Settings <kbd>O</kbd>
+          </button>
           <button id="open-controls" class="menu-action" type="button">Controls</button>
         </div>
       </div>
@@ -177,6 +180,8 @@
               <dd>Look around</dd>
               <dt>V</dt>
               <dd>First / third person</dd>
+              <dt>O</dt>
+              <dd>Settings (field of view, mouse, camera distance)</dd>
               <dt>1</dt>
               <dd>Lift names</dd>
               <dt>2</dt>
@@ -221,6 +226,22 @@
         </header>
         <div class="modal-body time-of-day"></div>
         <footer class="modal-footer">
+          <button class="modal-close menu-primary" type="button">Done</button>
+        </footer>
+      </div>
+    </dialog>
+
+    <dialog id="settings-modal" class="modal" aria-labelledby="settings-title">
+      <div class="modal-card">
+        <header class="modal-header">
+          <h2 id="settings-title">Settings</h2>
+          <button class="modal-close" type="button" title="Close (Esc)" aria-label="Close">
+            ✕
+          </button>
+        </header>
+        <div class="modal-body settings"></div>
+        <footer class="modal-footer">
+          <button class="setup-reset menu-action" type="button">Reset to defaults</button>
           <button class="modal-close menu-primary" type="button">Done</button>
         </footer>
       </div>

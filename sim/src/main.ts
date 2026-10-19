@@ -20,6 +20,8 @@ import { GliderControls } from './controls/glider-controls';
 import { SnowmobileControls } from './controls/snowmobile-controls';
 import { SLED_LAYOUT } from './controls/snowmobile-model';
 import { Input } from './controls/input';
+import { cameraSettings, loadCamera, saveCamera } from './controls/camera-settings';
+import { SettingsMenu } from './ui/settings-menu';
 import { EYE_HEIGHT, SkiControls } from './controls/ski-controls';
 import { loadSetup, saveSetup, type SkiSetup } from './controls/ski-setup';
 import { daylight, Environment } from './env/environment';
@@ -171,8 +173,9 @@ async function main(): Promise<void> {
   await renderer.init();
 
   const scene = new Scene();
+  loadCamera(localStorage);
   const camera = new PerspectiveCamera(
-    CAMERA.fov,
+    cameraSettings.fov,
     window.innerWidth / window.innerHeight,
     CAMERA.near,
     CAMERA.far,
@@ -193,6 +196,8 @@ async function main(): Promise<void> {
     },
   );
   $('#open-time').addEventListener('click', () => timeMenu.open());
+  const settingsMenu = new SettingsMenu($('#settings-modal'), () => saveCamera(localStorage));
+  $('#open-settings').addEventListener('click', () => settingsMenu.open());
   // The time above the minimap (with the clock speed unless it's real time).
   const clockTime = $('#clock [data-time]');
   const clockRate = $('#clock [data-rate]');
@@ -600,14 +605,37 @@ async function main(): Promise<void> {
   document.addEventListener('visibilitychange', persistPose);
   document.addEventListener('keydown', (e) => {
     if (e.target instanceof HTMLInputElement) return; // typing in the map search box
-    if (e.code === 'KeyG' && !e.repeat && !worldMap.isOpen && !timeMenu.isOpen) {
+    if (
+      e.code === 'KeyG' &&
+      !e.repeat &&
+      !worldMap.isOpen &&
+      !timeMenu.isOpen &&
+      !settingsMenu.isOpen
+    ) {
       if (document.pointerLockElement) document.exitPointerLock();
       skiSetup.toggle();
       return;
     }
-    if (e.code === 'KeyT' && !e.repeat && !worldMap.isOpen && !skiSetup.isOpen) {
+    if (
+      e.code === 'KeyT' &&
+      !e.repeat &&
+      !worldMap.isOpen &&
+      !skiSetup.isOpen &&
+      !settingsMenu.isOpen
+    ) {
       if (document.pointerLockElement) document.exitPointerLock();
       timeMenu.toggle();
+      return;
+    }
+    if (
+      e.code === 'KeyO' &&
+      !e.repeat &&
+      !worldMap.isOpen &&
+      !skiSetup.isOpen &&
+      !timeMenu.isOpen
+    ) {
+      if (document.pointerLockElement) document.exitPointerLock();
+      settingsMenu.toggle();
       return;
     }
     if (document.querySelector('dialog[open]')) return; // a menu dialog has the keyboard
@@ -858,14 +886,15 @@ async function main(): Promise<void> {
     }
     environment.update(camera);
     sled.setDarkness(daylight(environment.sun.elevation).dark); // headlights at dusk
-    // A touch wider field of view at speed when skiing.
+    // A touch wider field of view at speed when skiing or sledding (settings: O).
     const fov =
-      CAMERA.fov +
-      (mode === 'ski'
-        ? Math.min(ski.speed / 30, 1) * 10
-        : mode === 'sled'
-          ? Math.min(sled.speed / 35, 1) * 10
-          : 0);
+      cameraSettings.fov +
+      cameraSettings.speedFov *
+        (mode === 'ski'
+          ? Math.min(ski.speed / 30, 1)
+          : mode === 'sled'
+            ? Math.min(sled.speed / 35, 1)
+            : 0);
     if (Math.abs(fov - camera.fov) > 0.05) {
       camera.fov += (fov - camera.fov) * Math.min(1, dt * 3);
       camera.updateProjectionMatrix();

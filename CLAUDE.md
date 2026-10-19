@@ -190,7 +190,11 @@ G (or the main/pause menu's "Ski setup" button) opens a modal (`ui/ski-setup-men
 - `controls/ski-setup.ts` (pure, unit-tested) turns a setup into `SkiHandling`: friction, powder float, carve rate, hard-snow grip, skid deceleration, stable speed (chatter above it), speed cap, and multipliers for A/D turning, S-pivots and edge-to-edge speed. `stepSki` takes the handling as an argument; there are no globals.
 - The All-mountain preset is the reference: it maps onto the base physics (handling multipliers of 1; only the chatter above ~100 km/h is new), so tuning `BASE_HANDLING` moves every ski together. Keep extremes playable: `ski-setup.test.ts` checks the speed cap, minimum carving and turn rates at both ends of every slider.
 - The model's skis follow the setup (`skiDimensions`): length, waist, tip/tail widths from the sidecut radius, rocker rise, and the mount point (~3.5% of the length behind centre). The default 178 cm ski is about chin height on the 1.83 m skier.
-- The controls list is also a modal (`#controls-modal`). Both use `ui/modal.ts`, a native `<dialog>` (Esc and backdrop clicks close it). While a dialog is open, game keys other than G and T are ignored.
+- The controls list is also a modal (`#controls-modal`). Both use `ui/modal.ts`, a native `<dialog>` (Esc and backdrop clicks close it). While a dialog is open, game keys other than G, T and O are ignored.
+
+### Settings
+
+O (or the menu's "Settings" button) opens `ui/settings-menu.ts`: field of view (default 70° vertical), speed widening (+10° at full speed skiing/sledding; 0 turns it off), mouse sensitivity, invert Y and third-person distance. `controls/camera-settings.ts` (unit-tested) holds the live `cameraSettings` every controller reads (`Look.apply`, each chase camera), clamps stored values and persists them as `ski-sim.camera`. Add new camera/view preferences there.
 
 ### Time of day
 

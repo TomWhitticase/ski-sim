@@ -1,3 +1,5 @@
+import { cameraSettings } from './camera-settings';
+
 /**
  * Keyboard and mouse state shared by the fly and ski controllers. Keys only register
  * while the pointer is locked to the canvas; mouse motion, wheel and key presses are
@@ -114,8 +116,9 @@ export class Look {
   }
 
   apply(input: Input, pitchLimit = Math.PI / 2 - 0.001): void {
-    this.yaw -= input.mouseX * this.sensitivity;
-    this.pitch -= input.mouseY * this.sensitivity;
+    const k = this.sensitivity * cameraSettings.sensitivity;
+    this.yaw -= input.mouseX * k;
+    this.pitch -= input.mouseY * k * (cameraSettings.invertY ? -1 : 1);
     this.pitch = Math.min(Math.max(this.pitch, -pitchLimit), pitchLimit);
   }
 }

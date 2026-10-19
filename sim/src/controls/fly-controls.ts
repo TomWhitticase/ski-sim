@@ -1,4 +1,5 @@
 import { Euler, type PerspectiveCamera, Vector3 } from 'three/webgpu';
+import { cameraSettings } from './camera-settings';
 
 import { FLY } from '../config';
 import type { Pose } from '../nav/pose';
@@ -107,12 +108,13 @@ export class FlyControls {
       return;
     }
     // Orbit behind and above you; looking down raises the camera.
+    const chase = CHASE_DISTANCE * cameraSettings.chaseDistance;
     const elevation = 0.25 - this.look.pitch;
-    const back = CHASE_DISTANCE * Math.cos(elevation);
+    const back = chase * Math.cos(elevation);
     const p = this.position;
     cam.position.set(
       p.x + Math.sin(this.look.yaw) * back,
-      p.y - 0.5 + CHASE_DISTANCE * Math.sin(elevation),
+      p.y - 0.5 + chase * Math.sin(elevation),
       p.z + Math.cos(this.look.yaw) * back,
     );
     cam.position.y = Math.max(

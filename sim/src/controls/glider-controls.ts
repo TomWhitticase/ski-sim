@@ -1,3 +1,4 @@
+import { cameraSettings } from './camera-settings';
 import {
   BufferAttribute,
   BufferGeometry,
@@ -244,13 +245,14 @@ export class GliderControls {
       this.euler.set(this.look.pitch, this.look.yaw, this.state.bank * 0.6);
       this.camera.quaternion.setFromEuler(this.euler);
     } else {
+      const chase = CHASE_DISTANCE * cameraSettings.chaseDistance;
       const elevation = 0.2 - this.look.pitch;
-      const back = CHASE_DISTANCE * Math.cos(elevation);
+      const back = chase * Math.cos(elevation);
       const target = new Vector3(p.x, p.y + 3, p.z);
       const cam = this.camera.position;
       cam.set(
         target.x + Math.sin(this.look.yaw) * back,
-        target.y + CHASE_DISTANCE * Math.sin(elevation),
+        target.y + chase * Math.sin(elevation),
         target.z + Math.cos(this.look.yaw) * back,
       );
       cam.y = Math.max(cam.y, this.groundHeight(cam.x, cam.z) + 1);

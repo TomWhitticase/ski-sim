@@ -1,3 +1,4 @@
+import { cameraSettings } from '../controls/camera-settings';
 import { Euler, Matrix4, type PerspectiveCamera, Quaternion, Vector3 } from 'three/webgpu';
 
 import { CAMERA, FLY } from '../config';
@@ -341,7 +342,7 @@ export class RideControls {
       this.camera.quaternion.setFromEuler(this.euler);
     } else {
       // Far enough back to frame the whole cabin you're in.
-      const distance = CHASE_DISTANCE + (inside ? this.cabin!.d : 0);
+      const distance = CHASE_DISTANCE * cameraSettings.chaseDistance + (inside ? this.cabin!.d : 0);
       const elevation = 0.25 - this.look.pitch;
       const back = distance * Math.cos(elevation);
       this.camera.position.set(

@@ -1,3 +1,4 @@
+import { cameraSettings } from './camera-settings';
 import {
   Color,
   Euler,
@@ -491,12 +492,13 @@ export class SnowmobileControls {
       this.camera.quaternion.setFromEuler(this.euler).premultiply(this.tilt);
     } else {
       const p = root.position;
+      const chase = CHASE_DISTANCE * cameraSettings.chaseDistance;
       const elevation = 0.18 - this.look.pitch;
-      const back = CHASE_DISTANCE * Math.cos(elevation);
+      const back = chase * Math.cos(elevation);
       const cam = this.camera.position;
       cam.set(
         p.x + Math.sin(this.look.yaw) * back,
-        p.y + CHASE_HEIGHT + CHASE_DISTANCE * Math.sin(elevation),
+        p.y + CHASE_HEIGHT + chase * Math.sin(elevation),
         p.z + Math.cos(this.look.yaw) * back,
       );
       cam.y = Math.max(cam.y, this.terrain.height(cam.x, cam.z) + 1);

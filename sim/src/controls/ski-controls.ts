@@ -1,4 +1,5 @@
 import { Euler, type PerspectiveCamera, Quaternion, Vector3 } from 'three/webgpu';
+import { cameraSettings } from './camera-settings';
 
 import { FLY } from '../config';
 import type { Pose } from '../nav/pose';
@@ -408,12 +409,13 @@ export class SkiControls {
       }
     } else {
       // Orbit behind the skier; looking down raises the camera.
+      const chase = CHASE_DISTANCE * cameraSettings.chaseDistance;
       const elevation = 0.25 - this.look.pitch;
-      const back = CHASE_DISTANCE * Math.cos(elevation);
+      const back = chase * Math.cos(elevation);
       const cam = this.camera.position;
       cam.set(
         p.x + Math.sin(this.look.yaw) * back,
-        p.y + 1.2 + CHASE_DISTANCE * Math.sin(elevation),
+        p.y + 1.2 + chase * Math.sin(elevation),
         p.z + Math.cos(this.look.yaw) * back,
       );
       cam.y = Math.max(cam.y, this.terrain.height(cam.x, cam.z) + 1);
