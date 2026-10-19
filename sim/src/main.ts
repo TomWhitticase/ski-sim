@@ -734,7 +734,9 @@ async function main(): Promise<void> {
   document.addEventListener('visibilitychange', persistPose);
   document.addEventListener('keydown', (e) => {
     // Typing in the map search box or a name field (a focused checkbox or slider isn't).
-    if (e.target instanceof HTMLInputElement && !NON_TEXT_INPUTS.has(e.target.type)) return;
+    // Esc still closes the map from its search box.
+    const typing = e.target instanceof HTMLInputElement && !NON_TEXT_INPUTS.has(e.target.type);
+    if (typing && !(e.code === 'Escape' && worldMap.isOpen)) return;
     if (
       e.code === 'KeyN' &&
       !e.repeat &&

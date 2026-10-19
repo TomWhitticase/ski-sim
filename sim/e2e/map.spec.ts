@@ -143,6 +143,17 @@ test('M and Esc still close the map after clicking a filter checkbox', async ({ 
   }
 });
 
+test('Esc closes the map while typing in its search box (M still types)', async ({ page }) => {
+  await load(page);
+  await page.keyboard.press('KeyM');
+  const search = page.locator('#world-map .map-search');
+  await search.pressSequentially('mont');
+  await expect(search).toHaveValue('mont');
+  await expect(page.locator('#world-map')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#world-map')).toBeHidden();
+});
+
 test('left clicking the map drops a guide marker you can see while skiing', async ({ page }) => {
   await load(page);
   await page.keyboard.press('KeyM');
