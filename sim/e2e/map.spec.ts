@@ -133,6 +133,16 @@ test('Esc closes the map without teleporting', async ({ page }) => {
   expect(await hudNumber(page, 'lat')).toBe(before);
 });
 
+test('M and Esc still close the map after clicking a filter checkbox', async ({ page }) => {
+  await load(page);
+  for (const key of ['KeyM', 'Escape']) {
+    await page.keyboard.press('KeyM');
+    await page.locator('#world-map [data-show="lift"]').click(); // focuses the checkbox
+    await page.keyboard.press(key);
+    await expect(page.locator('#world-map')).toBeHidden();
+  }
+});
+
 test('left clicking the map drops a guide marker you can see while skiing', async ({ page }) => {
   await load(page);
   await page.keyboard.press('KeyM');

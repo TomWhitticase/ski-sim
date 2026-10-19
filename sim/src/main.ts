@@ -733,7 +733,8 @@ async function main(): Promise<void> {
   window.addEventListener('pagehide', persistPose);
   document.addEventListener('visibilitychange', persistPose);
   document.addEventListener('keydown', (e) => {
-    if (e.target instanceof HTMLInputElement) return; // typing in the map search box
+    // Typing in the map search box or a name field (a focused checkbox or slider isn't).
+    if (e.target instanceof HTMLInputElement && !NON_TEXT_INPUTS.has(e.target.type)) return;
     if (
       e.code === 'KeyN' &&
       !e.repeat &&
@@ -1145,6 +1146,7 @@ const MODE_KEY = 'ski-sim.mode';
 /** Width of the groove each snowmobile ski's keel cuts (m). */
 const SLED_SKI_GROOVE = 0.1;
 const VIEW_KEY = 'ski-sim.view';
+const NON_TEXT_INPUTS = new Set(['checkbox', 'radio', 'range']);
 
 function loadMode(): Mode {
   // A reload mid-flight drops you into ski mode (you fall and land); sledders keep the sled.
