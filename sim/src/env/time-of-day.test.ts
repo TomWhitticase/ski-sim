@@ -109,6 +109,13 @@ describe('daylight', () => {
     expect(daylight(-20).ambient).toBeGreaterThan(0.1);
   });
 
+  it('calls for headlights from around sunset, not in the day', () => {
+    expect(daylight(20).dark).toBe(0);
+    expect(daylight(4).dark).toBe(0);
+    expect(daylight(0).dark).toBeGreaterThan(0.3);
+    expect(daylight(-3).dark).toBe(1);
+  });
+
   it('fades smoothly through dusk', () => {
     let prev = Infinity;
     for (let e = 40; e >= -20; e -= 1) {

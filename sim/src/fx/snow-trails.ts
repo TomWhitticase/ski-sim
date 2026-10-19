@@ -20,21 +20,29 @@ const FADE: [number, number] = [70, 160];
 
 const CARVE = new Color(0.6, 0.66, 0.77); // compacted groove, catches a little shadow
 const SKID = new Color(0.76, 0.81, 0.89); // scraped smear, lighter
+/** A snowmobile track's trench: packed down and in its own shadow, so darker. */
+export const SLED_TRENCH = new Color(0.42, 0.48, 0.6);
 
 interface Track {
   last: Vector3 | null;
 }
 
+/** Skis leave one mark each; a snowmobile leaves its track's trench and two ski grooves. */
+export type TrackName = 'left' | 'right' | 'sled' | 'sledLeftSki' | 'sledRightSki';
+
 /**
- * Tracks left in the snow by each ski: a ring buffer of thin quads laid along the path,
+ * Tracks left in the snow by each ski (or a snowmobile): a ring buffer of thin quads laid along the path,
  * thin when carving and wide when skidding. The oldest marks are recycled, so cost is
  * fixed; only the instances written each frame are uploaded to the GPU.
  */
 export class SnowTrails {
   readonly mesh: InstancedMesh;
-  private readonly tracks: Record<'left' | 'right', Track> = {
+  private readonly tracks: Record<TrackName, Track> = {
     left: { last: null },
     right: { last: null },
+    sled: { last: null },
+    sledLeftSki: { last: null },
+    sledRightSki: { last: null },
   };
   private next = 0;
   private written: number[] = [];
@@ -72,16 +80,22 @@ export class SnowTrails {
 
   /** Forget the current tracks (e.g. after a teleport or leaving the snow). */
   break(): void {
-    this.tracks.left.last = null;
-    this.tracks.right.last = null;
+    for (const track of Object.values(this.tracks)) track.last = null;
   }
 
   /**
-   * Extend a ski's track to `at` on a surface with normal `normal`. `width` in metres,
-   * `skid` 0..1 shades it from groove to smear.
+   * Extend a track to `at` on a surface with normal `normal`. `width` in metres,
+   * `skid` 0..1 shades it from `base` (a carved groove by default) to a smear.
    */
-  extend(ski: 'left' | 'right', at: Vector3, normal: Vector3, width: number, skid: number) {
-    const track = this.tracks[ski];
+  extend(
+    name: TrackName,
+    at: Vector3,
+    normal: Vector3,
+    width: number,
+    skid: number,
+    base: Color = CARVE,
+  ) {
+    const track = this.tracks[name];
     if (!track.last) {
       track.last = at.clone();
       return;
@@ -106,7 +120,7 @@ export class SnowTrails {
 
     const i = this.next;
     this.mesh.setMatrixAt(i, this.m);
-    this.mesh.setColorAt(i, this.colour.copy(CARVE).lerp(SKID, skid));
+    this.mesh.setColorAt(i, this.colour.copy(base).lerp(SKID, skid));
     this.written.push(i);
     this.next = (this.next + 1) % CAPACITY;
     this.mesh.count = Math.max(this.mesh.count, i + 1);

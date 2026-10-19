@@ -148,3 +148,32 @@ test('snowmobile mode is remembered after a reload', async ({ page }) => {
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10);
   expect(await mode(page)).toBe('SNOWMOBILE');
 });
+
+test('the headlight comes on after dark and is off by day', async ({ page }) => {
+  const beam = () =>
+    page.evaluate(
+      () =>
+        (window.__sim as unknown as { sled: { headlight: { intensity: number } } }).sled.headlight
+          .intensity,
+    );
+  await start(page, LAKE); // the default 11:00
+  await page.keyboard.press('KeyB');
+  await page.waitForTimeout(300);
+  expect(await beam()).toBe(0);
+
+  await page.addInitScript(() =>
+    localStorage.setItem('ski-sim.time-of-day', JSON.stringify({ seconds: 22 * 3600, rate: 0 })),
+  );
+  await page.reload();
+  await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10);
+  expect(await page.locator('#hud [data-mode]').textContent()).toBe('SNOWMOBILE');
+  await page.waitForTimeout(300);
+  expect(await beam()).toBeGreaterThan(10);
+  await page.screenshot({ path: 'test-results/views/snowmobile-night-lake.png' });
+
+  // Step off: the parked sled's lights go out.
+  await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
+  await page.keyboard.press('KeyB');
+  await page.waitForTimeout(200);
+  expect(await beam()).toBe(0);
+});

@@ -53,8 +53,8 @@ describe('stepSled', () => {
       stepSled(s, throttle, 1 / 60, flat);
       t += 1 / 60;
     }
-    expect(t).toBeGreaterThan(4);
-    expect(t).toBeLessThan(8);
+    expect(t).toBeGreaterThan(3.5);
+    expect(t).toBeLessThan(6);
   });
 
   it('is slower in powder than on the piste, and bogs down from a standstill', () => {
@@ -143,8 +143,8 @@ describe('stepSled', () => {
     expect(slow).toBeGreaterThan(3);
     expect(slow).toBeLessThan(8);
     const fast = radius(25);
-    expect(fast).toBeGreaterThan(60);
-    expect(fast).toBeLessThan(300);
+    expect(fast).toBeGreaterThan(55);
+    expect(fast).toBeLessThan(100);
   });
 
   it('leaning into the turn tightens it at speed', () => {
@@ -172,19 +172,48 @@ describe('stepSled', () => {
     expect(back).toBeLessThan(SLED.reverseSpeed + 0.05);
   });
 
-  it('slides down a steep traverse, holds a gentle one, and leaning uphill helps', () => {
+  it('holds a steep piste traverse, slips on steeper powder, and leaning uphill helps', () => {
     // Facing west (yaw 90°) across slopes rising to the north: the fall line is +z.
-    const slide = (angle: number, lean = 0) => {
-      const hill = slope(angle);
+    const slide = (angle: number, groomed: boolean, lean = 0) => {
+      const hill = slope(angle, groomed);
       const s = sled(hill, 0, deg(90));
       run(s, { ...coast, lean }, 3, hill);
       return s.position.z;
     };
-    expect(slide(15)).toBeLessThan(0.05);
-    expect(slide(35)).toBeGreaterThan(3);
-    // 28°: just past the keels' grip; weight on the uphill (right, north) board holds it.
-    expect(slide(28)).toBeGreaterThan(1);
-    expect(slide(28, -1)).toBeLessThan(0.05);
+    expect(slide(30, true)).toBeLessThan(0.05); // studs and keels hold on a piste
+    expect(slide(55, true)).toBeGreaterThan(3);
+    // 44° of powder: past the keels' grip; weight on the uphill (right, north) board holds it.
+    expect(slide(44, false)).toBeGreaterThan(1);
+    expect(slide(44, false, -1)).toBeLessThan(0.05);
+  });
+
+  it('corners hard on a piste without sliding: ~0.85 g, going where it points', () => {
+    const s = sled(flat, 20);
+    let worstSlip = 0;
+    for (let t = 0; t < 2; t += 1 / 120) {
+      stepSled(
+        s,
+        { throttle: s.velocity.length() < 20 ? 1 : 0, brake: false, steer: 1 },
+        1 / 120,
+        flat,
+      );
+      const along = new Vector3(-Math.sin(s.yaw), 0, -Math.cos(s.yaw));
+      worstSlip = Math.max(worstSlip, Math.abs(s.velocity.clone().projectOnPlane(along).length()));
+    }
+    const yaw = s.yaw;
+    const v = s.velocity.length();
+    run(s, { throttle: 1, brake: false, steer: 1 }, 0.25, flat);
+    const lateral = (v * (s.yaw - yaw)) / 0.25;
+    expect(lateral / SLED.gravity).toBeGreaterThan(0.75);
+    expect(worstSlip).toBeLessThan(0.3); // hooked up, not skidding round like skis
+  });
+
+  it('turning hard scrubs speed, unlike a free glide', () => {
+    const straight = sled(flat, 20);
+    const turning = sled(flat, 20);
+    run(straight, coast, 2, flat);
+    run(turning, { ...coast, steer: 1 }, 2, flat);
+    expect(turning.velocity.length()).toBeLessThan(straight.velocity.length() - 1.5);
   });
 
   it('flies off a kicker, pitches with the throttle, and lands on the snow', () => {

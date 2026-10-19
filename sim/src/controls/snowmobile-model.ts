@@ -12,6 +12,7 @@ import {
   Matrix4,
   Mesh,
   MeshBasicNodeMaterial,
+  Object3D,
   MeshStandardNodeMaterial,
   PlaneGeometry,
   Quaternion,
@@ -282,6 +283,12 @@ export interface SnowmobileParts {
   bars: Group;
   /** Bottom and top runs of track paddles (scrolled as the track turns). */
   lugs: [Mesh, Mesh];
+  /** Lamp lenses (unlit: set their colour to switch them on and off). */
+  headlamp: MeshBasicNodeMaterial;
+  tailLamp: MeshBasicNodeMaterial;
+  /** Where the headlight beam starts (on the nose), and a point it aims at. */
+  beamFrom: Object3D;
+  beamTo: Object3D;
 }
 
 /** The sled, as a few draw calls: body, bars, skis, track and its paddles, windshield, lights. */
@@ -320,20 +327,27 @@ export function createSnowmobile(): SnowmobileParts {
 
   // Head and tail lights: unlit materials so they glow in any light.
   const lamp = (
-    colour: number,
     w: number,
     h: number,
     at: [number, number, number],
     rotation: [number, number, number],
   ) => {
-    const m = new Mesh(new PlaneGeometry(w, h), new MeshBasicNodeMaterial({ color: colour }));
+    const material = new MeshBasicNodeMaterial();
+    const m = new Mesh(new PlaneGeometry(w, h), material);
     m.position.set(...at);
     m.rotation.set(...rotation);
     body.add(m);
+    return material;
   };
   // Planes face +z (backwards): the headlight is turned round to face forward and up.
-  lamp(0xfff6d8, 0.28, 0.05, [0, 0.52, -1.62], [0.9, Math.PI, 0]); // LED strip on the nose
-  lamp(0xff1a10, 0.2, 0.045, [0, 0.47, 1.567], [0, 0, 0]); // tail light
+  const headlamp = lamp(0.28, 0.05, [0, 0.52, -1.62], [0.9, Math.PI, 0]); // LED strip on the nose
+  const tailLamp = lamp(0.2, 0.045, [0, 0.47, 1.567], [0, 0, 0]);
+  // The beam leaves the nose aimed just below level, at the snow ~40 m ahead.
+  const beamFrom = new Object3D();
+  beamFrom.position.set(0, 0.55, -1.66);
+  const beamTo = new Object3D();
+  beamTo.position.set(0, -0.5, -40);
+  body.add(beamFrom, beamTo);
 
   const seat = new Group();
   seat.position.set(0, L.boardHeight, 0);
@@ -357,5 +371,16 @@ export function createSnowmobile(): SnowmobileParts {
     return g;
   }) as [Group, Group];
 
-  return { root, body, seat, skis, bars, lugs: [bottom, top] };
+  return {
+    root,
+    body,
+    seat,
+    skis,
+    bars,
+    lugs: [bottom, top],
+    headlamp,
+    tailLamp,
+    beamFrom,
+    beamTo,
+  };
 }
