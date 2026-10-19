@@ -2,8 +2,23 @@
 
 export const DEFAULT_RESORT = 'les-3-vallees';
 
-/** Bluebird mid-February morning; sun position is computed for the resort's location. */
-export const SIM_TIME = new Date('2026-02-15T11:00:00+01:00');
+/**
+ * Bluebird mid-February day; the sun is placed for the resort's location. Clock times are
+ * Central European Time (UTC+1), the zone of the current resorts. The time of day itself
+ * comes from the time-of-day menu (T); `startTime` is its default.
+ */
+export const SIM_DAY = {
+  date: '2026-02-15',
+  utcOffsetHours: 1,
+  /** Seconds after midnight. */
+  startTime: 11 * 3600,
+};
+
+/** The instant for a time of day (seconds after local midnight) on `SIM_DAY`. */
+export function simDate(seconds: number): Date {
+  const midnight = Date.parse(`${SIM_DAY.date}T00:00:00Z`) - SIM_DAY.utcOffsetHours * 3_600_000;
+  return new Date(midnight + seconds * 1000);
+}
 
 export const CAMERA = {
   fov: 70,

@@ -725,7 +725,8 @@ kbd {
 }
 
 /* Ski setup */
-.ski-setup {
+.ski-setup,
+.time-of-day {
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -857,4 +858,8 @@ kbd {
   .setup-columns {
     grid-template-columns: 1fr;
   }
+}
+
+#time-modal .modal-card {
+  width: min(640px, 94vw);
 }

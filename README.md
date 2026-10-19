@@ -32,6 +32,7 @@ Open http://localhost:5173, pick a ski area and where to start, then **Start ski
 | O | Piste colours on the snow |
 | K | Sound on / off |
 | G | Ski setup: presets (slalom, GS, all-mountain, freeride, park) and length, waist, sidecut, flex, profile, wax, tune and mount, which change how the skis handle |
+| T | Time of day: slider and presets (sunrise to night) that move the sun, and the clock speed (paused, real time, ×10, ×60, ×600) |
 | **Ski mode** | Mouse or A/D steer · W skate (or walk up steep slopes) · Ctrl tuck · Shift snowplough · hold S + A/D to pivot the skis (hockey stop) · Space jump · V camera |
 | Scroll | Fly speed |
 | - / = | Minimap zoom |
