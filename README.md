@@ -48,6 +48,14 @@ uv run ski-sim build tignes
 
 It then appears in the main menu's ski-area list. Terrain, lifts, signs, buildings, pistes and peaks are all generated from open data.
 
+## Deployment
+
+The site is free to host: GitHub Pages serves the sim and the resort data, and GitHub Actions builds it.
+
+- **CI** (`.github/workflows/ci.yml`) runs lint, typecheck and unit tests for the sim, and ruff and pytest for the pipeline, on every push and pull request. The Playwright e2e tests need a real GPU, so run those locally.
+- **Deploy** (`.github/workflows/deploy.yml`) runs on every push to `main`: it downloads the resort data from the `data` release, builds the sim and publishes it to Pages.
+- **Resort data** is built locally (the pipeline downloads ~1.5 GB of sources) and published with `scripts/publish-data.sh [resort ids]`. That packs `data/processed/<id>` for every resort with a committed config (or the ids given) into the `data` release and triggers a redeploy.
+
 ## Data attribution
 
 - Terrain: IGN – LiDAR HD and RGE ALTI® (Licence Ouverte / Etalab 2.0)

@@ -65,8 +65,15 @@ export interface ResortManifest {
 
 const SUPPORTED_VERSION = 7;
 
+/**
+ * Where pipeline output is served from: the site's base path (dev, GitHub Pages), or
+ * `VITE_DATA_URL` at build time when the data lives elsewhere (e.g. object storage).
+ */
+export const DATA_URL =
+  (import.meta.env.VITE_DATA_URL as string | undefined) ?? import.meta.env.BASE_URL;
+
 export function resortUrl(resortId: string, file: string): string {
-  return `/${resortId}/${file}`;
+  return `${DATA_URL}${resortId}/${file}`;
 }
 
 export async function loadManifest(resortId: string): Promise<ResortManifest> {

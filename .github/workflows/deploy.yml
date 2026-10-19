@@ -1,0 +1,58 @@
+name: Deploy
+
+# Builds the sim and publishes it to GitHub Pages with the resort data from the `data`
+# release (uploaded by scripts/publish-data.sh: the pipeline needs ~1.5 GB of source
+# downloads, so resorts are built locally, not in CI).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch resort data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p data/processed
+          gh release download data --pattern resorts.tar.gz --output - | tar -xz -C data/processed
+          ls data/processed
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: sim/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: sim
+      - run: pnpm build
+        working-directory: sim
+        env:
+          SIM_BASE: /${{ github.event.repository.name }}/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: sim/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

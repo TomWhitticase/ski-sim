@@ -58,6 +58,12 @@ Accuracy checks belong in automated tests, not eyeballing. The pipeline compares
 
 When something renders wrong, isolate it before guessing. Tinting each terrain layer a flat colour (near vs far) quickly shows which layer, or which gap, is at fault.
 
+## Deployment
+
+GitHub Pages, all free. `ci.yml` runs lint/typecheck/unit tests (sim) and ruff/pytest (pipeline); e2e needs a GPU, so it stays local. `deploy.yml` (push to `main`, or manual) downloads `resorts.tar.gz` from the `data` release into `data/processed`, builds with `SIM_BASE=/<repo>/` and publishes `sim/dist` to Pages.
+- Resort data is built locally and published with `scripts/publish-data.sh [ids]` (default: every resort with a committed `resort.json`), which also writes a `resorts.json` listing only those and triggers a deploy.
+- Asset URLs must go through `resortUrl` / `DATA_URL` (`resort/manifest.ts`), never a leading `/`: the site lives under `/<repo>/`. `VITE_DATA_URL` at build time can point the data at other storage (e.g. Cloudflare R2) if Pages' 1 GB site limit or bandwidth becomes a problem.
+
 ## Core principles
 
 1. **Real data first.** Every placed feature should trace back to a source dataset. When data is missing or too coarse, fill the gap procedurally, and record that it is synthetic. Never silently invent geography.

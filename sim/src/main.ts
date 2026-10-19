@@ -31,7 +31,7 @@ import { createRestaurants, terraceSolids } from './features/restaurants';
 import type { ResortFeatures } from './features/types';
 import { Heightmap } from './geo/heightmap';
 import { LocalFrame, worldToEnu } from './geo/local-frame';
-import { type HeightmapMeta, loadManifest, resortUrl } from './resort/manifest';
+import { DATA_URL, type HeightmapMeta, loadManifest, resortUrl } from './resort/manifest';
 import { createNormalTexture } from './terrain/normals';
 import { AdaptiveResolution } from './render/adaptive-resolution';
 import { Terrain } from './terrain/terrain';
@@ -106,7 +106,7 @@ async function main(): Promise<void> {
   const params = new URLSearchParams(location.search);
   // Ski areas come from the pipeline's index; pick the URL's, else the last one played,
   // else the default (if it's been built).
-  const resorts = await fetchJson<{ resorts: ResortEntry[] }>('/resorts.json')
+  const resorts = await fetchJson<{ resorts: ResortEntry[] }>(`${DATA_URL}resorts.json`)
     .then((r) => r.resorts)
     .catch((): ResortEntry[] => []);
   const known = (id: string | null) => !!id && resorts.some((r) => r.id === id);
