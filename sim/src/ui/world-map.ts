@@ -61,6 +61,8 @@ export class WorldMap {
   private frameRequested = false;
   /** The guide marker, if one is placed. */
   marker: { east: number; north: number } | null = null;
+  /** Other players in a multiplayer game (set every frame; redrawn while the map is open). */
+  private others: { east: number; north: number; colour: string; name: string }[] = [];
 
   constructor(
     private readonly root: HTMLElement,
@@ -95,6 +97,19 @@ export class WorldMap {
     this.canvas.addEventListener('pointerleave', () => (this.cursorInfo.hidden = true));
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('resize', () => this.isOpen && this.requestDraw());
+  }
+
+  /** Other players' positions; redraws an open map when anyone has moved on screen. */
+  setPlayers(players: { east: number; north: number; colour: string; name: string }[]): void {
+    const moved =
+      players.length !== this.others.length ||
+      players.some((p, i) => {
+        const o = this.others[i]!;
+        return o.name !== p.name || Math.hypot(o.east - p.east, o.north - p.north) > this.mpp;
+      });
+    if (!moved) return;
+    this.others = players.map((p) => ({ ...p }));
+    if (this.isOpen) this.requestDraw();
   }
 
   open(player: Pose): void {
@@ -200,6 +215,7 @@ export class WorldMap {
     if (this.show.piste && this.mpp < 6) this.drawPisteNames(tryPlace);
     if (this.show.peak) this.drawPeaks(tryPlace);
     if (this.show.restaurant) this.drawRestaurants(tryPlace);
+    this.drawOthers();
     if (this.hoverPlace) this.drawHighlight(this.hoverPlace.pose);
     this.updateScaleBar();
   }
@@ -355,6 +371,31 @@ export class WorldMap {
     ctx.closePath();
     ctx.stroke();
     ctx.fill();
+    ctx.restore();
+  }
+
+  /** Other players: a dot in their colour with their name, always on top. */
+  private drawOthers(): void {
+    const { ctx } = this;
+    ctx.save();
+    ctx.font = '600 12px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    for (const p of this.others) {
+      const [x, y] = this.toScreen(p.east, p.north);
+      ctx.beginPath();
+      ctx.arc(x, y, 7, 0, Math.PI * 2);
+      ctx.fillStyle = p.colour;
+      ctx.fill();
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = '#fff';
+      ctx.stroke();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
+      ctx.strokeText(p.name, x, y - 10);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(p.name, x, y - 10);
+    }
     ctx.restore();
   }
 

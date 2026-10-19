@@ -161,6 +161,21 @@ describe('NetSession', () => {
     expect(b.log.ended).toEqual(['Lost connection to the host']);
   });
 
+  it('a dropped guest that can still hear the host joins again', () => {
+    clockNow = 1000;
+    const hub = createHub();
+    const host = player(hub, 'host', 'Host');
+    const a = player(hub, 'guest', 'Ana');
+    run(hub, [host.session, a.session], 300);
+    // Ana's tab is frozen long enough to be dropped, then she comes back.
+    run(hub, [host.session], PEER_TIMEOUT + 500);
+    expect(host.session.players.size).toBe(0);
+    run(hub, [host.session, a.session], 500);
+    expect(host.session.names().map((p) => p.name)).toEqual(['Host', 'Ana']);
+    expect(a.session.connected).toBe(true);
+    expect(a.session.ended).toBe(false);
+  });
+
   it('reports a code nobody is hosting', () => {
     clockNow = 1000;
     const hub = createHub();

@@ -79,10 +79,12 @@ export class NetSession {
   /** Guest: the host's transport id once found. */
   private host: string | null = null;
   private heardHost = 0;
-  private readonly started: number;
+  private started: number;
   private lastSend = -Infinity;
   private lastSync = -Infinity;
   private lastPing = -Infinity;
+  /** Guest: the host dropped us; say hello again on the next update. */
+  private rejoin = false;
   /** Guest: last measured round trip to the host (ms). */
   rtt = 0;
   private over = false;
@@ -131,6 +133,11 @@ export class NetSession {
     if (this.over) return;
     const now = this.now();
     if (this.role === 'guest') {
+      if (this.rejoin && this.host) {
+        this.rejoin = false;
+        this.started = now; // the find timeout counts from the new hello
+        this.sendHello(this.host);
+      }
       if (!this.connected) {
         if (now - this.started > FIND_TIMEOUT) this.end(`No game found with code ${this.code}`);
         return;
@@ -254,6 +261,13 @@ export class NetSession {
       this.events.roster();
     } else if (m.t === 'roster') {
       const listed = new Set(m.players.map((p) => p.player));
+      if (this.self !== null && !listed.has(this.self)) {
+        // The host dropped us (we went quiet, e.g. a backgrounded tab) but we can still
+        // hear it: ask to be let back in once we're running again (update), rather than
+        // ski on unseen.
+        this.self = null;
+        this.rejoin = true;
+      }
       for (const n of this.players.keys()) if (!listed.has(n)) this.players.delete(n);
       for (const { player, name } of m.players) {
         if (player === this.self) continue;

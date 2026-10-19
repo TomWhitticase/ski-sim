@@ -35,9 +35,25 @@ export function loadName(storage: Pick<Storage, 'getItem'>): string {
   return cleanName(storage.getItem(NAME_KEY) ?? '');
 }
 
-/** Invite link: this page with `?resort=` and `?join=` (and nothing else from the URL). */
+/** The public site, for invites from a page friends can't open (a local dev server). */
+export const PUBLIC_SITE = 'https://tomwhitticase.github.io/ski-sim/';
+
+/** Only reachable from this machine or its LAN: an invite must point elsewhere. */
+function isLocal(hostname: string): boolean {
+  return (
+    hostname === 'localhost' ||
+    hostname.endsWith('.local') ||
+    /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[::1\]$)/.test(hostname)
+  );
+}
+
+/**
+ * Invite link: this page with `?resort=` and `?join=` (and nothing else from the URL),
+ * or the public site when hosting from a local server (the code works on either).
+ */
 export function inviteLink(href: string, resort: string, code: string): string {
-  const url = new URL(href);
+  const here = new URL(href);
+  const url = isLocal(here.hostname) ? new URL(PUBLIC_SITE) : here;
   url.search = `?resort=${encodeURIComponent(resort)}&join=${code}`;
   url.hash = '';
   return url.toString();

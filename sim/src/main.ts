@@ -1089,6 +1089,7 @@ async function main(): Promise<void> {
             : { name: 'Off-piste', colour: null },
     );
     minimap.players = multiplayer.dots;
+    worldMap.setPlayers(multiplayer.dots);
     minimap.draw(east, north, controls().heading);
     updatePrompt();
     labels.update(camera);

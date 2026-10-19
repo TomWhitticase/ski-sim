@@ -80,6 +80,10 @@ class RemoteAvatar {
     this.rename(name);
   }
 
+  get name(): string {
+    return this.tag.querySelector('.label-name')!.textContent ?? '';
+  }
+
   rename(name: string): void {
     const el = this.tag.querySelector('.label-name')!;
     if (el.textContent !== name) el.textContent = name;
@@ -189,13 +193,13 @@ export class RemotePlayers {
     private readonly groundHeight: (x: number, z: number) => number,
   ) {}
 
-  /** Positions for the minimap: (east, north) and colour. */
-  get dots(): { east: number; north: number; colour: string }[] {
-    const out: { east: number; north: number; colour: string }[] = [];
+  /** Positions for the minimap and world map: (east, north), colour and name. */
+  get dots(): { east: number; north: number; colour: string; name: string }[] {
+    const out: { east: number; north: number; colour: string; name: string }[] = [];
     for (const a of this.avatars.values()) {
       if (!a.visible) continue;
       const p = a.state.pose;
-      out.push({ east: p[0]!, north: -p[2]!, colour: playerColour(a.player) });
+      out.push({ east: p[0]!, north: -p[2]!, colour: playerColour(a.player), name: a.name });
     }
     return out;
   }

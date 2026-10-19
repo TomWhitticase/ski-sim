@@ -5,6 +5,7 @@ import {
   CODE_LENGTH,
   cleanName,
   inviteLink,
+  PUBLIC_SITE,
   liftCorrection,
   makeRoomCode,
   parseRoomCode,
@@ -32,6 +33,14 @@ describe('room codes', () => {
     expect(inviteLink('http://x.test/ski/?at=1,2,3&resort=a#h', 'arlberg', 'ABCDEF')).toBe(
       'http://x.test/ski/?resort=arlberg&join=ABCDEF',
     );
+  });
+
+  it('points invites from a local dev server at the public site', () => {
+    for (const host of ['localhost:5173', '127.0.0.1:5173', '192.168.1.20:5173', '[::1]:5173']) {
+      expect(inviteLink(`http://${host}/?at=1,2,3`, 'paradiski', 'ABCDEF')).toBe(
+        `${PUBLIC_SITE}?resort=paradiski&join=ABCDEF`,
+      );
+    }
   });
 
   it('cleans names', () => {
