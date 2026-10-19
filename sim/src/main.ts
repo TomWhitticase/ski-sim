@@ -9,13 +9,15 @@ import {
 
 import { CAMERA, DEFAULT_RESORT, FLY, SIM_DAY, simDate, TERRAIN } from './config';
 import { Sound } from './audio/sound';
-import { liftHumLevel, soundLevels } from './audio/levels';
+import { engineSound, liftHumLevel, soundLevels } from './audio/levels';
 import { FlyControls } from './controls/fly-controls';
 import { surfaceNormal } from './controls/ski-physics';
 import { skidAmount, sprayRate, trailWidth } from './fx/intensity';
 import { SnowSpray } from './fx/snow-spray';
 import { SnowTrails } from './fx/snow-trails';
 import { GliderControls } from './controls/glider-controls';
+import { SnowmobileControls } from './controls/snowmobile-controls';
+import { SLED_LAYOUT } from './controls/snowmobile-model';
 import { Input } from './controls/input';
 import { EYE_HEIGHT, SkiControls } from './controls/ski-controls';
 import { loadSetup, saveSetup, type SkiSetup } from './controls/ski-setup';
@@ -248,6 +250,20 @@ async function main(): Promise<void> {
   scene.add(ski.skier);
   const glider = new GliderControls(camera, groundHeight, bounds);
   scene.add(glider.root);
+  const sled = new SnowmobileControls(
+    camera,
+    {
+      height: groundHeight,
+      groomed: (x, z) => pisteLookup.at(x, -z)?.groomed ?? false,
+      // Buildings and terminals like the skier, and lift towers too.
+      collideSled: (p, v, radius) => {
+        const hitBuilding = obstacles.resolve(p, v, radius, 1.2);
+        return towers.resolve(p, v, radius, 1.2) || hitBuilding;
+      },
+    },
+    bounds,
+  );
+  scene.add(sled.root);
   const trails = new SnowTrails();
   const spray = new SnowSpray();
   scene.add(trails.mesh, spray.mesh);
@@ -267,12 +283,21 @@ async function main(): Promise<void> {
     ...lifts.obstacles,
     ...terraceSolids(restaurants, (east, north) => groundHeight(east, -north)),
   ]);
+  const towers = new ObstacleIndex(lifts.towerObstacles());
   scene.add(lifts.root, createLiftSigns(lifts.lines, lifts.signMounts));
   const ride = new RideControls(camera, lifts, ski);
   let mode: Mode = loadMode();
   const controls = () =>
-    mode === 'ski' ? ski : mode === 'glide' ? glider : mode === 'ride' ? ride : fly;
-  /** Where you are: fly eye, or skier's / pilot's / rider's feet. */
+    mode === 'ski'
+      ? ski
+      : mode === 'glide'
+        ? glider
+        : mode === 'ride'
+          ? ride
+          : mode === 'sled'
+            ? sled
+            : fly;
+  /** Where you are: fly eye, or skier's / pilot's / rider's feet, or the sled's track. */
   const whereAmI = () =>
     mode === 'ski'
       ? ski.feet
@@ -280,7 +305,9 @@ async function main(): Promise<void> {
         ? glider.position
         : mode === 'ride'
           ? ride.position
-          : fly.position;
+          : mode === 'sled'
+            ? sled.position
+            : fly.position;
   const spawn: Pose = { ...manifest.spawn, pitch: -8 };
   const inBounds = (p: Pose) =>
     p.east > farExtent.west + 500 &&
@@ -420,6 +447,7 @@ async function main(): Promise<void> {
     fly.view = view;
     ski.setView(view);
     glider.setView(view);
+    sled.setView(view);
     document.body.classList.toggle('chase', view === 'chase');
     localStorage.setItem(VIEW_KEY, view);
   };
@@ -436,9 +464,19 @@ async function main(): Promise<void> {
           ? glider.velocity
           : mode === 'ride'
             ? ride.velocity
-            : fly.currentVelocity
+            : mode === 'sled'
+              ? sled.velocity
+              : fly.currentVelocity
     ).clone();
     if (mode === 'ride') ride.leave();
+    if (mode === 'sled') {
+      // Step off beside the sled (it stays parked there), keeping most of its momentum.
+      const off = sled.dismount();
+      eye.east = off.feet.x;
+      eye.north = -off.feet.z;
+      eye.altitude = off.feet.y + EYE_HEIGHT;
+      velocity.copy(off.velocity);
+    }
     const look = controls().look;
     mode = next;
     if (mode === 'ski') {
@@ -448,9 +486,16 @@ async function main(): Promise<void> {
       glider.launch(new Vector3(eye.east, feet, -eye.north), velocity, look.yaw, look.pitch);
     } else if (mode === 'fly') {
       fly.place(eye);
+    } else if (mode === 'sled') {
+      // Back on the parked sled if it's right here; otherwise one comes to you.
+      const feet = new Vector3(eye.east, eye.altitude - EYE_HEIGHT, -eye.north);
+      if (sled.canRemount(feet)) sled.remount(look.pitch);
+      else sled.mount(feet, velocity, look.yaw, look.pitch);
     }
     ski.setActive(mode === 'ski' || mode === 'ride');
     glider.setActive(mode === 'glide');
+    sled.setActive(mode === 'sled');
+    trails.break(); // don't join this mode's tracks to the last one's
     hud.setMode(mode);
     document.body.classList.toggle('skiing', mode !== 'fly');
     speedReset = true;
@@ -537,7 +582,7 @@ async function main(): Promise<void> {
     } else if (e.code === 'KeyE' && !e.repeat && !worldMap.isOpen) {
       if (mode === 'ride') {
         setMode('ski'); // step off (or jump!) where you are
-      } else if (mode !== 'glide') {
+      } else if (mode !== 'glide' && mode !== 'sled') {
         const p = whereAmI();
         const line = lifts.boardingNear(p.x, p.z);
         if (line !== null) boardLift(line);
@@ -547,6 +592,9 @@ async function main(): Promise<void> {
     } else if (e.code === 'KeyP' && !e.repeat && !worldMap.isOpen) {
       // Deploy the paraglider (keeping your momentum), or drop it and ski.
       setMode(mode === 'glide' ? 'ski' : 'glide');
+    } else if (e.code === 'KeyB' && !e.repeat && !worldMap.isOpen && mode !== 'ride') {
+      // Get on a snowmobile (keeping your momentum), or step off it onto your skis.
+      setMode(mode === 'sled' ? 'ski' : 'sled');
     } else if (e.code === 'KeyV' && !e.repeat) {
       setView(view === 'first-person' ? 'chase' : 'first-person');
     } else if (e.code === 'F3') {
@@ -602,6 +650,7 @@ async function main(): Promise<void> {
       minimap,
       lifts,
       ski,
+      sled,
       environment,
       clock,
     });
@@ -636,7 +685,7 @@ async function main(): Promise<void> {
       } else {
         text = `${ride.name} · hold W to fast-forward · S to skip to the top · E to jump off`;
       }
-    } else if (mode !== 'glide') {
+    } else if (mode !== 'glide' && mode !== 'sled') {
       const p = whereAmI();
       const line = lifts.boardingNear(p.x, p.z);
       if (line !== null) {
@@ -644,6 +693,8 @@ async function main(): Promise<void> {
         text = l.inLoadingZone(p)
           ? `${l.name} loading point · wait here to be picked up (or press E)`
           : `E — ride ${l.name} (${liftTypeName(l.lift.type)}, ${Math.round(l.lift.vertical)} m up)`;
+      } else if (mode === 'ski' && sled.canRemount(p)) {
+        text = 'B — get back on the snowmobile';
       }
     }
     if (text !== promptText) {
@@ -655,8 +706,22 @@ async function main(): Promise<void> {
 
   /** Tracks, spray and sound from what the skis are doing this frame. */
   const updateSnowFx = (dt: number, airSpeed: number) => {
-    const contact = mode === 'ski' ? ski.contact : null;
-    if (contact && contact.onSnow && contact.speed > 0.5) {
+    const contact = mode === 'ski' ? ski.contact : mode === 'sled' ? sled.contact : null;
+    const tracking = contact && contact.onSnow && contact.speed > 0.5;
+    if (mode === 'sled' && contact?.onSnow) {
+      // One wide track print, and roost thrown back when the track spins (more in powder,
+      // and most of all when it's dug in and going nowhere).
+      sled.trackEnd(fxMid);
+      surfaceNormal({ height: groundHeight }, fxMid.x, fxMid.z, fxNormal);
+      if (tracking) {
+        trails.extend('left', fxMid, fxNormal, SLED_LAYOUT.trackWidth, skidAmount(contact));
+      } else {
+        trails.break();
+      }
+      sled.forward(fxSlide).negate();
+      const powder = contact.groomed ? 0 : 160 * Math.min(1, contact.speed / 10);
+      spray.emit(fxMid, fxSlide, sled.velocity, 700 * sled.slip + powder + sprayRate(contact), dt);
+    } else if (tracking) {
       ski.skiPositions(fxLeft, fxRight);
       fxMid.copy(fxLeft).add(fxRight).multiplyScalar(0.5);
       surfaceNormal({ height: groundHeight }, fxMid.x, fxMid.z, fxNormal);
@@ -673,6 +738,8 @@ async function main(): Promise<void> {
     spray.update(dt, groundHeight);
     trails.flush();
     sound.update(soundLevels(airSpeed, contact));
+    sound.setEngine(engineSound(sled.rpm, sled.throttle, mode === 'sled'));
+    if (mode === 'sled' && sled.impact > 0) sound.thump(sled.impact);
     if (mode === 'ski' && ski.landingImpact > 0) sound.thump(ski.landingImpact);
     if (mode === 'ski' && ski.footstep) sound.step();
     if (mode === 'ski' && ski.polePlant) sound.polePlant();
@@ -692,6 +759,7 @@ async function main(): Promise<void> {
     const landed = controls().update(dt, input);
     if (mode === 'glide' && landed) setMode('ski');
     if (mode === 'ride' && landed) unload();
+    if (mode !== 'sled') sled.idle(dt); // a parked sled settles where you left it
     if (mode === 'ski' && !ski.airborne) {
       const hit = lifts.scoop(ski.feet);
       if (hit) scooped(hit.line, hit.carrier);
@@ -727,7 +795,13 @@ async function main(): Promise<void> {
     }
     environment.update(camera);
     // A touch wider field of view at speed when skiing.
-    const fov = CAMERA.fov + (mode === 'ski' ? Math.min(ski.speed / 30, 1) * 10 : 0);
+    const fov =
+      CAMERA.fov +
+      (mode === 'ski'
+        ? Math.min(ski.speed / 30, 1) * 10
+        : mode === 'sled'
+          ? Math.min(sled.speed / 35, 1) * 10
+          : 0);
     if (Math.abs(fov - camera.fov) > 0.05) {
       camera.fov += (fov - camera.fov) * Math.min(1, dt * 3);
       camera.updateProjectionMatrix();
@@ -744,7 +818,9 @@ async function main(): Promise<void> {
           ? glider.speed
           : mode === 'ride'
             ? ride.velocity.length()
-            : speed;
+            : mode === 'sled'
+              ? sled.speed
+              : speed;
     updateSnowFx(dt, ownSpeed);
     hud.update({ altitude: here.y, lat, lon, speed: ownSpeed });
     // Which run is underfoot (only meaningful near the snow).
@@ -774,9 +850,11 @@ async function main(): Promise<void> {
         `E ${east.toFixed(1)}  N ${north.toFixed(1)}  ground ${groundHeight(pos.x, pos.z).toFixed(1)} m`,
         mode === 'glide'
           ? `heading ${glider.heading.toFixed(1)}° · glide ${(glider.speed * 3.6).toFixed(0)} km/h · vario ${glider.velocity.y.toFixed(1)} m/s`
-          : mode === 'ski'
-            ? `heading ${ski.heading.toFixed(1)}° · ski ${(ski.speed * 3.6).toFixed(0)} km/h${ski.airborne ? ' (air)' : ''} · ${ski.view}`
-            : `heading ${fly.heading.toFixed(1)}° · fly speed ${fly.speed.toFixed(0)} m/s${fly.sprinting ? ' (sprint)' : ''}`,
+          : mode === 'sled'
+            ? `heading ${sled.sledHeading.toFixed(1)}° · sled ${(sled.speed * 3.6).toFixed(0)} km/h · ${Math.round(sled.rpm)} rpm${sled.airborne ? ' (air)' : ''}${sled.inPowder ? ' · powder' : ''}`
+            : mode === 'ski'
+              ? `heading ${ski.heading.toFixed(1)}° · ski ${(ski.speed * 3.6).toFixed(0)} km/h${ski.airborne ? ' (air)' : ''} · ${ski.view}`
+              : `heading ${fly.heading.toFixed(1)}° · fly speed ${fly.speed.toFixed(0)} m/s${fly.sprinting ? ' (sprint)' : ''}`,
         `sun az ${environment.sun.azimuth.toFixed(1)}° el ${environment.sun.elevation.toFixed(1)}°`,
       ].join('\n');
     }
@@ -806,13 +884,14 @@ function poseFromUrl(params: URLSearchParams, frame: LocalFrame, spawn: Pose): P
   };
 }
 
-type Mode = 'fly' | 'ski' | 'glide' | 'ride';
+type Mode = 'fly' | 'ski' | 'glide' | 'ride' | 'sled';
 const MODE_KEY = 'ski-sim.mode';
 const VIEW_KEY = 'ski-sim.view';
 
 function loadMode(): Mode {
-  // A reload mid-flight drops you into ski mode (you fall and land).
+  // A reload mid-flight drops you into ski mode (you fall and land); sledders keep the sled.
   const saved = localStorage.getItem(MODE_KEY);
+  if (saved === 'sled') return 'sled';
   return saved === 'ski' || saved === 'glide' || saved === 'ride' ? 'ski' : 'fly';
 }
 

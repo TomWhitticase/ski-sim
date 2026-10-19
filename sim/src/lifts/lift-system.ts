@@ -334,6 +334,11 @@ interface CarrierGroup {
   members: [number, number][];
 }
 
+/** Tower columns' size: stout for cabins, slim for drags. */
+function towerScale(op: Operation): number {
+  return op.kind === 'cabin' ? 1.6 : op.kind === 'platter' || op.kind === 'tbar' ? 0.35 : 0.6;
+}
+
 const m = new Matrix4();
 const q = new Quaternion();
 const pos = new Vector3();
@@ -571,6 +576,28 @@ export class LiftSystem {
     return null;
   }
 
+  /**
+   * Every tower's column as a solid (an octagon around its base), for things that collide
+   * with towers (the snowmobile). The skier doesn't, so they aren't in `obstacles`.
+   */
+  towerObstacles(): Obstacle[] {
+    const solids: Obstacle[] = [];
+    for (const line of this.lines) {
+      // The column tapers out to 0.85 × its scale at the foot (towerGeometry).
+      const r = 0.85 * towerScale(line.op);
+      for (const s of line.lift.supports) {
+        if (s.kind === 'station') continue;
+        const ring: [number, number][] = [];
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          ring.push([s.east + r * Math.cos(a), s.north + r * Math.sin(a)]);
+        }
+        solids.push({ ring, base: s.ground - BURY, top: s.top });
+      }
+    }
+    return solids;
+  }
+
   /** Distances up the line of each tower on a lift (for the sheave clack). */
   towerPoints(li: number): Vector3[] {
     return this.lines[li]!.towers;
@@ -624,7 +651,7 @@ export class LiftSystem {
       const heavy = op.kind === 'cabin';
       const yaw = Math.atan2(-(line.top.x - line.bottom.x), -(line.top.z - line.bottom.z));
       q.setFromAxisAngle(UP, yaw);
-      const radius = heavy ? 1.6 : op.kind === 'platter' || op.kind === 'tbar' ? 0.35 : 0.6;
+      const radius = towerScale(op);
       const r = lift.gauge / 2;
 
       lift.supports.forEach((s) => {
