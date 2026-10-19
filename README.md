@@ -63,6 +63,8 @@ uv run ski-sim build tignes
 
 It then appears in the main menu's ski-area list. Terrain, lifts, signs, buildings, pistes and peaks are all generated from open data.
 
+Whatever else OSM has is picked up too: snow parks get a generated layout you can ski (kickers to launch flips off, boxes, and a boardercross with berms and rollers where the name says so), sledging runs, cross-country tracks, kids' areas, touring and walking routes and connections each get their own colour on the map and a name in the run display (with the run number where mapped), and floodlit runs light up after dark.
+
 ## Deployment
 
 The site is free to host: GitHub Pages serves the sim and the resort data, and GitHub Actions builds it.

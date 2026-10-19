@@ -56,6 +56,8 @@ export interface ResortManifest {
     file: string;
     overlay: { file: string; cellSize: number };
     lookup: { file: string; cellSize: number };
+    /** Night glow mask for floodlit runs, on its own grid (absent if none are lit). */
+    lit?: { file: string; cellSize: number; extent: Extent } | null;
     extent: Extent;
     count: number;
     markers: number;
@@ -63,7 +65,7 @@ export interface ResortManifest {
   provenance: Provenance[];
 }
 
-const SUPPORTED_VERSION = 7;
+const SUPPORTED_VERSION = 8;
 
 /**
  * Where pipeline output is served from: the site's base path (dev, GitHub Pages), or

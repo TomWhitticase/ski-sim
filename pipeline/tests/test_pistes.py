@@ -70,6 +70,79 @@ def test_named_centrelines_win_over_unnamed_areas():
     assert fine[10, 10] == 1
 
 
+def _way(tags, coords, closed=False):
+    pts = [{"lon": 6.0 + e / 78_000, "lat": 45.0 + n / 111_000} for e, n in coords]
+    if closed:
+        pts.append(pts[0])
+    return {"type": "way", "tags": tags, "geometry": pts}
+
+
+def _collect(elements):
+    from ski_sim_pipeline.config import GeoPoint
+    from ski_sim_pipeline.frame import LocalFrame
+    from ski_sim_pipeline.pistes import collect
+
+    return collect(elements, LocalFrame(GeoPoint(45.0, 6.0)), Extent(-1000, 1000, -1000, 1000))
+
+
+def test_other_run_types_are_kept_with_their_own_colour_and_lookup_code():
+    from ski_sim_pipeline.pistes import RUN_TYPES, TYPE_COLOURS, colour_of
+
+    pistes, shapes = _collect(
+        [
+            _way({"piste:type": "nordic;hike", "name": "Loop"}, [(0, 0), (300, 0)]),
+            _way({"piste:type": "sled"}, [(0, 100), (300, 100)]),
+            _way({"piste:type": "skitour"}, [(0, 200), (300, 200)]),
+            _way({"piste:type": "connection"}, [(0, 300), (300, 300)]),
+            _way({"piste:type": "ski_jump"}, [(0, 400), (300, 400)]),  # not kept
+        ]
+    )
+    assert [p["type"] for p in pistes] == ["nordic", "sled", "skitour", "connection"]
+    assert [p["difficulty"] for p in pistes] == [0, 0, 0, 0]  # untagged: none
+    assert pistes[2]["groomed"] is False  # touring: powder
+    assert colour_of(pistes[1]) == TYPE_COLOURS["sled"]
+
+    grid = Grid(Extent(-20, 320, -20, 320), 2)
+    fine = rasterise(shapes, grid, pistes)
+    lookup = np.asarray(lookup_image(fine, pistes, 4))  # 8 m cells
+    row = round(320 / 8)  # north = 0
+    assert lookup[row, 10, 2] == RUN_TYPES["nordic"] << 4
+    overlay = np.asarray(overlay_image(fine, pistes, 1))
+    assert overlay[round((320 - 200) / 2), 50, 3] == 0  # touring route: no overlay
+    assert overlay[round((320 - 100) / 2), 50, 3] == 255  # sledging run: drawn
+
+
+def test_bridges_tunnels_and_floodlights():
+    from ski_sim_pipeline.pistes import floodlights, lit_mask
+
+    pistes, shapes = _collect(
+        [
+            _way({"piste:type": "downhill", "name": "A"}, [(0, 0), (200, 0)]),
+            _way({"piste:type": "downhill", "name": "A", "bridge": "yes"}, [(200, 0), (240, 0)]),
+            _way({"piste:type": "downhill", "name": "A", "layer": "-1"}, [(240, 0), (300, 0)]),
+            _way(
+                {"piste:type": "downhill", "name": "B", "piste:lit": "yes", "piste:ref": "12"},
+                [(0, 200), (400, 200)],
+            ),
+        ]
+    )
+    a, b = pistes
+    assert len(a["lines"]) == 1 and len(a["bridges"]) == 1 and len(a["tunnels"]) == 1
+    assert len(shapes) == 3  # the tunnel isn't on the snow surface
+    assert b["ref"] == "12" and len(b["lit"]) == 1
+
+    lamps = floodlights(pistes, lambda e, n: np.full(len(e), 1000.0))
+    assert len(lamps) == 10  # every ~40 m along 400 m
+    offsets = [n - 200 for _, n, _ in lamps]  # (degrees above are approximate: ±1 m)
+    assert all(abs(abs(d) - 20.5) < 1.5 for d in offsets)  # just outside the 35 m wide run
+    assert offsets[0] * offsets[1] < 0  # alternating sides
+    image, extent = lit_mask(pistes, lamps)
+    glow = np.asarray(image)
+    row = round((extent.north - 200) / 4)
+    assert glow[row, round((200 - extent.west) / 4)] > 200  # on the run between masts
+    assert glow[round((extent.north - 150) / 4), round((100 - extent.west) / 4)] == 0  # off it
+
+
 def test_pistes_mostly_outside_the_resort_are_left_out():
     from ski_sim_pipeline.config import GeoPoint
     from ski_sim_pipeline.frame import LocalFrame

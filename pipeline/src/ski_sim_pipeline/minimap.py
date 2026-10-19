@@ -78,8 +78,10 @@ def draw_features(
 def draw_pistes(
     image: Image.Image, records: list[dict], west: float, north: float, cell_size: float
 ) -> None:
-    """Translucent piste areas and centrelines in piste colours (drawn under lifts)."""
-    from .pistes import DIFFICULTY_COLOURS, FREERIDE
+    """Translucent piste areas and centrelines in piste colours (drawn under lifts).
+    Other run types get their own colour and line: parks as orange areas, thin
+    cross-country tracks, dashed touring/walking routes and tunnels."""
+    from .pistes import FREERIDE, colour_of
 
     overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
@@ -87,18 +89,26 @@ def draw_pistes(
     def px(points: list) -> list[tuple[float, float]]:
         return [((e - west) / cell_size, (north - n) / cell_size) for e, n in points]
 
+    def dashed(points, colour, width):
+        for a, b in zip(points[::2], points[1::2], strict=False):
+            draw.line([a, b], fill=colour, width=width)
+
     for r in records:
-        colour = DIFFICULTY_COLOURS[r["difficulty"]]
+        colour = colour_of(r)
+        alpha = 150 if r["type"] == "snow_park" else 70
         for area in r["areas"]:
-            draw.polygon(px(area), fill=(*colour, 70))
+            draw.polygon(px(area), fill=(*colour, alpha))
     for r in records:
-        colour = DIFFICULTY_COLOURS[r["difficulty"]]
+        colour = (*colour_of(r), 230)
+        kind = r["type"]
         for line in r["lines"]:
             points = px(line)
-            if r["difficulty"] == FREERIDE:
-                # Dashed: itinerary, not a groomed run.
-                for a, b in zip(points[::2], points[1::2], strict=False):
-                    draw.line([a, b], fill=(*colour, 230), width=2)
+            if r["difficulty"] == FREERIDE or kind in ("skitour", "hike"):
+                dashed(points, colour, 2)  # itinerary or route, not a groomed run
+            elif kind in ("nordic", "connection"):
+                draw.line(points, fill=colour, width=2)
             else:
-                draw.line(points, fill=(*colour, 230), width=3)
+                draw.line(points, fill=colour, width=3)
+        for line in r.get("tunnels", []):
+            dashed(px(line), (90, 90, 90, 200), 2)
     image.paste(Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB"))

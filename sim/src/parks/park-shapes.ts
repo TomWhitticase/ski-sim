@@ -1,0 +1,199 @@
+import type { Vector3 } from 'three/webgpu';
+
+/**
+ * Snow park features laid out by the pipeline (pipeline/parks.py) as analytic surfaces in
+ * the local ENU frame. The snow you ski on is max(terrain, features); a feature dipping
+ * below the snow just vanishes. Line profiles start and end on the hill, tangent to it,
+ * and their last `END_DIVE` metres sink under the snow so nothing steps up at the join.
+ *
+ * - Line features (kicker, ramp, box, roller): a profile along `heading` of heights
+ *   above `y` at the origin, level across `width`, with sides falling at `side` (tan).
+ * - Berms: a banked wall outside an arc (centre, radius, compass `start` + `sweep`),
+ *   above a plane through `y` with gradient `grad`; it tapers in and out along the arc.
+ */
+export interface LineFeature {
+  kind: 'kicker' | 'ramp' | 'box' | 'roller';
+  east: number;
+  north: number;
+  y: number;
+  /** Compass bearing of travel (deg). */
+  heading: number;
+  width: number;
+  side: number;
+  /** [u along heading (m), height above y (m)], u ascending. */
+  profile: [number, number][];
+}
+
+export interface BermFeature {
+  kind: 'berm';
+  east: number;
+  north: number;
+  y: number;
+  /** Plane gradient: d(height)/d(east), d(height)/d(north). */
+  grad: [number, number];
+  radius: number;
+  /** Compass bearing (deg) from the centre where the arc starts, and its extent (deg). */
+  start: number;
+  sweep: number;
+  /** Bank width from the riding line to the crest, and the crest height (m). */
+  width: number;
+  height: number;
+  side: number;
+}
+
+export type ParkFeature = LineFeature | BermFeature;
+
+export interface ParkLayout {
+  /** The piste record this park belongs to. */
+  index: number;
+  style: 'jumps' | 'course';
+  synthetic: boolean;
+  features: ParkFeature[];
+}
+
+const RAD = Math.PI / 180;
+/** Line features sink `DIVE` m under the snow over their first and last `END_DIVE` m. */
+const END_DIVE = 1.5;
+const DIVE = 0.5;
+/** Berms start this far under the plane so their ends and inner edge tuck under the snow. */
+export const BERM_SINK = 0.25;
+const BUCKET = 32;
+/** Normal sampling step: fine on features, the terrain's usual 2 m elsewhere. */
+const FINE_STEP = 0.05;
+const COARSE_STEP = 2;
+
+export function profileAt(profile: [number, number][], u: number): number {
+  let lo = 0;
+  let hi = profile.length - 1;
+  if (u <= profile[0]![0]) return profile[0]![1];
+  if (u >= profile[hi]![0]) return profile[hi]![1];
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (profile[mid]![0] <= u) lo = mid;
+    else hi = mid;
+  }
+  const [u0, h0] = profile[lo]!;
+  const [u1, h1] = profile[hi]!;
+  return h0 + ((h1 - h0) * (u - u0)) / (u1 - u0);
+}
+
+const smoothstep = (a: number, b: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/** Local (u along, v across to the left) coordinates of a line feature. */
+export function lineCoords(f: LineFeature, east: number, north: number): [number, number] {
+  const de = east - f.east;
+  const dn = north - f.north;
+  const s = Math.sin(f.heading * RAD);
+  const c = Math.cos(f.heading * RAD);
+  return [de * s + dn * c, -de * c + dn * s];
+}
+
+/** Absolute height of a line feature's surface at (u, v); -Infinity off its ends. */
+export function lineHeight(f: LineFeature, u: number, v: number): number {
+  const p = f.profile;
+  const end = Math.min(u - p[0]![0], p[p.length - 1]![0] - u);
+  if (end < 0) return -Infinity;
+  const over = Math.abs(v) - f.width / 2;
+  const dive = DIVE * (1 - smoothstep(0, END_DIVE, end));
+  return f.y + profileAt(p, u) - (over > 0 ? over * f.side : 0) - dive;
+}
+
+/** Berm: arc fraction (0..1, NaN off the arc) and distance out from the riding line. */
+export function bermCoords(f: BermFeature, east: number, north: number): [number, number] {
+  const de = east - f.east;
+  const dn = north - f.north;
+  const bearing = Math.atan2(de, dn) / RAD;
+  let a = (((bearing - f.start) % 360) + 360) % 360;
+  if (f.sweep < 0) a = 360 - a;
+  const along = a <= Math.abs(f.sweep) ? a / Math.abs(f.sweep) : NaN;
+  return [along, Math.sqrt(de * de + dn * dn) - f.radius];
+}
+
+/** Absolute berm height at arc fraction `along` and distance `out`; -Infinity off it. */
+export function bermHeight(f: BermFeature, east: number, north: number): number {
+  const [along, out] = bermCoords(f, east, north);
+  if (Number.isNaN(along) || out < -1) return -Infinity;
+  const plane = f.y + f.grad[0] * (east - f.east) + f.grad[1] * (north - f.north);
+  const taper = smoothstep(0, 0.3, along) * smoothstep(0, 0.3, 1 - along);
+  const t = Math.max(0, out) / f.width;
+  const lift = t <= 1 ? f.height * t ** 1.8 : f.height - (out - f.width) * f.side;
+  return plane - BERM_SINK + Math.max(lift * taper, -2);
+}
+
+export function featureHeight(f: ParkFeature, east: number, north: number): number {
+  if (f.kind === 'berm') return bermHeight(f, east, north);
+  const [u, v] = lineCoords(f, east, north);
+  return lineHeight(f, u, v);
+}
+
+/** Ground-plane bounding box of a feature (with its sides). */
+export function featureBounds(f: ParkFeature): [number, number, number, number] {
+  if (f.kind === 'berm') {
+    const r = f.radius + f.width + f.height / f.side + 1;
+    return [f.east - r, f.north - r, f.east + r, f.north + r];
+  }
+  const p = f.profile;
+  const top = Math.max(...p.map(([, h]) => Math.abs(h)));
+  const half = f.width / 2 + top / f.side + 1;
+  const s = Math.sin(f.heading * RAD);
+  const c = Math.cos(f.heading * RAD);
+  const corners = [p[0]![0], p[p.length - 1]![0]].flatMap((u) =>
+    [-half, half].map((v) => [f.east + u * s - v * c, f.north + u * c + v * s]),
+  );
+  const es = corners.map((q) => q[0]!);
+  const ns = corners.map((q) => q[1]!);
+  return [Math.min(...es), Math.min(...ns), Math.max(...es), Math.max(...ns)];
+}
+
+/** All parks' features, bucketed for quick height queries. */
+export class SnowParks {
+  readonly features: ParkFeature[];
+  private readonly buckets = new Map<string, ParkFeature[]>();
+
+  constructor(layouts: ParkLayout[]) {
+    this.features = layouts.flatMap((p) => p.features);
+    for (const f of this.features) {
+      const [w, s, e, n] = featureBounds(f);
+      for (let i = Math.floor(w / BUCKET); i <= Math.floor(e / BUCKET); i++) {
+        for (let j = Math.floor(s / BUCKET); j <= Math.floor(n / BUCKET); j++) {
+          const key = `${i},${j}`;
+          const list = this.buckets.get(key);
+          if (list) list.push(f);
+          else this.buckets.set(key, [f]);
+        }
+      }
+    }
+  }
+
+  private near(east: number, north: number): ParkFeature[] | undefined {
+    return this.buckets.get(`${Math.floor(east / BUCKET)},${Math.floor(north / BUCKET)}`);
+  }
+
+  /** Highest feature surface at (east, north); -Infinity if none. */
+  featureAt(east: number, north: number): number {
+    const list = this.near(east, north);
+    if (!list) return -Infinity;
+    let best = -Infinity;
+    for (const f of list) best = Math.max(best, featureHeight(f, east, north));
+    return best;
+  }
+
+  /** Snow height at world (x, z) given the terrain height there. */
+  height(x: number, z: number, ground: number): number {
+    const top = this.featureAt(x, -z);
+    return Math.max(ground, top);
+  }
+
+  /**
+   * Upward unit normal of the snow surface at world (x, z): finely sampled on features
+   * (a kicker's transition is only a few metres long), as coarsely as before elsewhere.
+   */
+  normal(x: number, z: number, ground: (x: number, z: number) => number, out: Vector3): Vector3 {
+    const h = this.near(x, -z) ? FINE_STEP : COARSE_STEP;
+    const s = (px: number, pz: number) => this.height(px, pz, ground(px, pz));
+    return out.set(s(x - h, z) - s(x + h, z), 2 * h, s(x, z - h) - s(x, z + h)).normalize();
+  }
+}

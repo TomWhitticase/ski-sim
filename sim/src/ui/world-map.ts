@@ -1,7 +1,7 @@
 import type { Lift, Peak, Restaurant } from '../features/types';
 import type { Place } from '../nav/places';
 import { RESTAURANT_COLOUR, drawRestaurantIcon } from './map-icons';
-import { DIFFICULTY, type PisteRecord, pisteTitle } from '../pistes/pistes';
+import { type PisteRecord, pisteColour, pisteTitle } from '../pistes/pistes';
 import type { Pose } from '../nav/pose';
 import type { Extent } from '../resort/manifest';
 
@@ -257,7 +257,7 @@ export class WorldMap {
       const name = pisteTitle(piste);
       const width = ctx.measureText(name).width + 10;
       if (!tryPlace(x, y - 8, width, 16)) continue;
-      ctx.fillStyle = DIFFICULTY[piste.difficulty].colour;
+      ctx.fillStyle = pisteColour(piste);
       ctx.globalAlpha = 0.9;
       this.pill(x - width / 2, y - 8, width, 16);
       ctx.globalAlpha = 1;
