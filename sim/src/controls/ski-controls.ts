@@ -55,7 +55,7 @@ export type SkiCamera = 'first-person' | 'chase';
 
 /**
  * Ski mode: mouse looks and steers (skis point where you look), A/D also turn,
- * W skates, Ctrl tucks, Shift snowploughs, Space jumps, V swaps camera.
+ * W skates, Ctrl toggles a tuck, Shift snowploughs, Space jumps, V swaps camera.
  * Holding S locks the upper body to where you face and lets A/D swing just the skis,
  * e.g. sideways across your path for a hockey stop. [ and ] lean forward and back; in
  * the air they flip you (front flip / backflip).
@@ -89,6 +89,8 @@ export class SkiControls {
    * Whatever's left at touchdown settles out over a few frames.
    */
   private flip = 0;
+  /** Ctrl toggles the tuck; skating, ploughing or a crash stand you back up. */
+  tucked = false;
   /** Smoothed rate the direction of travel is turning (rad/s, > 0 = left). */
   private turnRate = 0;
   private travelYaw = 0;
@@ -183,6 +185,7 @@ export class SkiControls {
     this.state.pitchRate = 0;
     this.state.crash = 0;
     this.flip = 0;
+    this.tucked = false;
     this.prevVelocity.copy(this.state.velocity);
     this.accel.set(0, 0, 0);
     this.updateCamera();
@@ -272,9 +275,18 @@ export class SkiControls {
     }
     if (!this.crashed) this.state.yaw = this.skiYaw;
 
-    const tuck = input.down('ControlLeft', 'ControlRight');
     const plough = input.down('ShiftLeft', 'ShiftRight');
-    const forward = input.down('KeyW') && !tuck && !plough;
+    if (input.wasPressed('ControlLeft', 'ControlRight')) this.tucked = !this.tucked;
+    if (
+      plough ||
+      input.wasPressed('KeyW', 'ShiftLeft', 'ShiftRight') ||
+      input.down('KeyW') ||
+      this.crashed
+    ) {
+      this.tucked = false;
+    }
+    const tuck = this.tucked;
+    const forward = input.down('KeyW') && !plough;
     const flatSpeed = Math.hypot(this.state.velocity.x, this.state.velocity.z);
     const skate = forward && (flatSpeed < SKATE_MAX || this.climbing);
     const pole = forward && !skate;

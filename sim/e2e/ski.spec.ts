@@ -99,7 +99,9 @@ test('looking down in first person shows your skis', async ({ page }) => {
 // A frozen lake: under 15 cm of height change across 100 m (ground ~2415.5 m).
 const FLAT = 'at=45.28856,6.5752,2417.2&heading=90&pitch=-20';
 
-test('W skates you up to speed on the flat; Ctrl tucks; Shift ploughs', async ({ page }) => {
+test('W skates you up to speed on the flat; Ctrl toggles a tuck; Shift ploughs', async ({
+  page,
+}) => {
   await start(page, FLAT);
   await page.keyboard.press('KeyF');
   await page.waitForTimeout(500);
@@ -121,10 +123,18 @@ test('W skates you up to speed on the flat; Ctrl tucks; Shift ploughs', async ({
   expect(await hudNumber(page, 'speed')).toBeLessThan(4);
   await page.keyboard.up('Shift');
 
-  await page.keyboard.down('Control');
+  const tucked = () =>
+    page.evaluate(() => (window.__sim as unknown as { ski: { tucked: boolean } }).ski.tucked);
+  await page.keyboard.press('Control'); // a tap: the tuck stays on
   await page.waitForTimeout(700);
+  await expect.poll(tucked).toBe(true);
   await page.screenshot({ path: 'test-results/views/ski-tuck-chase.png' });
-  await page.keyboard.up('Control');
+  await page.keyboard.press('Control');
+  await expect.poll(tucked).toBe(false);
+  await page.keyboard.press('Control');
+  await expect.poll(tucked).toBe(true);
+  await page.keyboard.press('KeyW'); // skating stands you up
+  await expect.poll(tucked).toBe(false);
 });
 
 test('carving tilts the skis onto their edges', async ({ page }) => {
