@@ -7,6 +7,8 @@ const POSES = {
   village: 'at=45.3005,6.5765,2420&heading=150&pitch=-18',
   'mont-blanc-horizon': 'at=45.2632,6.5610,3210&heading=25&pitch=0',
   'ski-slope': 'at=45.2830,6.5760,2600&heading=27&pitch=-10',
+  // Mountain restaurants above St. Anton (Krazy Kanguruh, Mooserwirt, Sennhütte...).
+  'st-anton-huts': 'resort=arlberg&at=47.129080,10.256784,1467&heading=328&pitch=-10',
 };
 
 const browser = await chromium.launch({

@@ -13,6 +13,28 @@ const VIEWS = [
   { name: 'village', query: 'at=45.3005,6.5765,2420&heading=150&pitch=-18' },
   { name: 'lifts-moraine', query: 'at=45.2770,6.5880,2750&heading=55&pitch=-12' },
   { name: 'cime-caron-cable-car', query: 'at=45.2760,6.5680,2900&heading=215&pitch=-5' },
+  { name: 'arlberg-st-anton', query: 'resort=arlberg&at=47.1255,10.2720,1750&heading=305&pitch=4' },
+  { name: 'arlberg-lech', query: 'resort=arlberg&at=47.1930,10.1650,2250&heading=320&pitch=-14' },
+  {
+    name: 'arlberg-valluga',
+    query: 'resort=arlberg&at=47.1600,10.2180,2900&heading=200&pitch=-10',
+  },
+  {
+    name: 'restaurant-krazy-kanguruh',
+    query: 'resort=arlberg&at=47.129080,10.256784,1467&heading=328&pitch=-10',
+  },
+  {
+    name: 'restaurant-mooserwirt',
+    query: 'resort=arlberg&at=47.127399,10.257507,1423&heading=327&pitch=-10',
+  },
+  {
+    name: 'restaurant-ulmer-huette',
+    query: 'resort=arlberg&at=47.146937,10.208493,2299&heading=73&pitch=-12',
+  },
+  {
+    name: 'arlberg-sonnenkopf',
+    query: 'resort=arlberg&at=47.0960,10.0560,2200&heading=0&pitch=-12',
+  },
 ];
 
 for (const view of VIEWS) {
@@ -21,7 +43,9 @@ for (const view of VIEWS) {
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
 
-    await page.goto(`/?resort=les-3-vallees&${view.query}`);
+    // Views are of the 3 Vallées unless they pick a resort.
+    const resort = view.query.includes('resort=') ? '' : 'resort=les-3-vallees&';
+    await page.goto(`/?${resort}${view.query}`);
     await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 30, null, { timeout: 90_000 });
     // Hide the start overlay so the scene is visible.
     await page.evaluate(() => document.body.classList.add('flying'));

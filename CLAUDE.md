@@ -76,9 +76,9 @@ The whole pipeline is driven by `data/resorts/<id>/resort.json`, and only `id`, 
 - spawn height (150 m above the DEM);
 - summit validation against every OSM peak with an `ele` tag.
 
-Lifts, stations, signs, buildings, pistes, peaks and sounds all come from OSM with no per-resort code. Optional overrides: `origin`, `spawn` (lat/lon/heading/altitude), `terrain.near/far`, `minimap`, `landmarks`. Then open `?resort=<id>`, or set `DEFAULT_RESORT` in `sim/src/config.ts`.
+Lifts, stations, signs, buildings, mountain restaurants, pistes, peaks and sounds all come from OSM with no per-resort code. Optional overrides: `origin`, `spawn` (lat/lon/heading/altitude), `terrain.near/far`, `minimap`, `landmarks`. Then open `?resort=<id>`, or set `DEFAULT_RESORT` in `sim/src/config.ts`.
 
-Current resorts: `les-3-vallees` (Val Thorens, Orelle, Les Menuires, Saint-Martin, Méribel incl. Mont Vallon, Courchevel).
+Current resorts: `les-3-vallees` (Val Thorens, Orelle, Les Menuires, Saint-Martin, Méribel incl. Mont Vallon, Courchevel) and `arlberg` (St. Anton, St. Christoph, Stuben, Zürs, Lech, Warth, Schröcken, plus Sonnenkopf; Copernicus terrain until an Austrian lidar source exists).
 
 ### Main menu
 
@@ -263,9 +263,17 @@ Both come from OSM through Overpass (`sources/osm.py`). The response is cached u
 - Lifts that leave the near terrain extent are skipped (logged), e.g. links into neighbouring valleys.
 - **Peaks:** named `natural=peak` nodes, snapped to the highest DEM sample within 30 m. Every peak in the near extent is kept. Beyond it, only peaks of at least 3500 m (`FAR_PEAK_MIN_ELE`), so the horizon shows the big names.
 
+### Mountain restaurants
+
+`pipeline/restaurants.py` picks OSM restaurants, bars, pubs, cafés, fast food and alpine huts (all shown as "restaurants") that are out on the ski area: within 150 m of a piste and either 60 m+ above the nearest start village, or within 30 m of a piste outside a village centre (under 30 buildings within 100 m). Village places are deliberately left out to avoid clutter. Each is attached to its OSM building (or the nearest footprint within 12 m) and written to `features.json` as `restaurants`.
+- The building is restyled as a hut (`use: "restaurant"`): its site is levelled into the slope like a real cut platform (`level_site`, skipped next to lift towers; station pads are protected), neighbours are re-seated, the estimated height is hut-sized (`HUT_HEIGHTS`), the roof is 22° with 1.3 m eaves, and any remaining downhill drop is a stone `footing`.
+- Terrace: the OSM `leisure=outdoor_seating` area if mapped, else a deck on the sunny/downhill side clear of pistes and buildings (`source: "synthetic"`); `outdoor_seating=no` means none. A name board goes on the real wall facing the terrace or piste.
+- Sim: `features/buildings.ts` draws huts in larch boards with painted shutters, a stone footing (height carried in the `facade` attribute's w), soffit and fascia under the eaves. `features/restaurants.ts` builds decks (stone wall below, railing), parasol tables and loungers (`layoutTerrace`, pure) and the boards (canvas atlas): two static meshes for the whole resort. Decks are collision solids.
+- Labels show within 2.2 km and yield to lifts and local peaks. Restaurants are on the world map (names when zoomed in) and in the teleport list.
+
 ### Labels
 
-`sim/src/ui/labels.ts` draws HTML tags projected from world anchors (1 toggles lift names, 2 peak names; the choice persists in localStorage).
+`sim/src/ui/labels.ts` draws HTML tags projected from world anchors (1 toggles lift names, 2 peak names, 4 restaurant names; the choice persists in localStorage).
 - Labels are hidden when terrain occludes them. A ray-march against the heightmap runs on a rolling budget, so not every label is checked every frame.
 - Labels are also hidden beyond a per-kind distance, or when they'd overlap a higher-priority tag. Lifts and local peaks win; distant peaks are ranked by elevation.
 

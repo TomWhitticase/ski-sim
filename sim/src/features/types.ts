@@ -81,13 +81,35 @@ export interface Building {
   heightSource: 'osm-height' | 'osm-levels' | 'estimate';
   /** A piece left above a cut (station, walkway, cable): needs an underside. */
   raised?: boolean;
+  /** What it's used for, where that changes how it's drawn (mountain restaurants). */
+  use?: 'restaurant';
+  /** Stone basement height above `base` (huts on a slope: up to the uphill ground). */
+  footing?: number;
   /** Gable roof (null = flat). Faces are the footprint split along the ridge. */
   roof?: {
     ridge: [[number, number], [number, number]];
     halfWidth: number;
     rise: number;
     faces: [number, number][][];
+    /** Overhang beyond the walls (m); the faces then cover the eaves too. */
+    eaves?: number;
   } | null;
+}
+
+/** A mountain restaurant (or bar, café, hut) out on the ski area, from pipeline/restaurants.py. */
+export interface Restaurant {
+  id: number;
+  name: string;
+  /** The OSM point (or footprint centre). */
+  east: number;
+  north: number;
+  ground: number;
+  /** Id of its building in `buildings`, if it has one. */
+  building: number | null;
+  /** Sun deck: OSM outdoor seating, or placed on the sunny, downhill side. */
+  terrace: { ring: [number, number][]; top: number; source: 'osm' | 'synthetic' } | null;
+  /** Name board on the wall: centre position, facing `heading` (deg from north). */
+  sign: { east: number; north: number; height: number; heading: number; width: number } | null;
 }
 
 export interface Peak {
@@ -105,4 +127,6 @@ export interface ResortFeatures {
   lifts: Lift[];
   buildings: Building[];
   peaks: Peak[];
+  /** Missing in builds from before restaurants were added. */
+  restaurants?: Restaurant[];
 }

@@ -24,6 +24,7 @@ import { sunPosition } from './env/sun-position';
 import { dayPresets, formatRate, formatTime, loadTime, saveTime } from './env/time-of-day';
 import { ObstacleIndex } from './features/obstacles';
 import { createBuildings } from './features/buildings';
+import { createRestaurants, terraceSolids } from './features/restaurants';
 import type { ResortFeatures } from './features/types';
 import { Heightmap } from './geo/heightmap';
 import { LocalFrame, worldToEnu } from './geo/local-frame';
@@ -47,7 +48,14 @@ import {
 } from './pistes/pistes';
 import { loadPose, type Pose, savePose } from './nav/pose';
 import { Hud } from './ui/hud';
-import { type LabelKind, type LabelSpec, Labels, liftLabel, peakLabel } from './ui/labels';
+import {
+  type LabelKind,
+  type LabelSpec,
+  Labels,
+  liftLabel,
+  peakLabel,
+  restaurantLabel,
+} from './ui/labels';
 import { LAST_RESORT_KEY, MainMenu, type ResortEntry, type StartChoice } from './ui/main-menu';
 import { SkiSetupMenu } from './ui/ski-setup-menu';
 import { TimeMenu } from './ui/time-menu';
@@ -207,10 +215,12 @@ async function main(): Promise<void> {
     createTerrainMaterial(far, createNormalTexture(far), near.extent),
     { ...TERRAIN.far, skip: near.extent },
   );
+  const restaurants = features.restaurants ?? [];
   scene.add(
     nearTerrain.object,
     farTerrain.object,
     createBuildings(features.buildings),
+    createRestaurants(restaurants, features.buildings, (east, north) => groundHeight(east, -north)),
     createPisteMarkers(pisteData),
   );
 
@@ -255,6 +265,7 @@ async function main(): Promise<void> {
       top: b.top + (b.roof?.rise ?? 0),
     })),
     ...lifts.obstacles,
+    ...terraceSolids(restaurants, (east, north) => groundHeight(east, -north)),
   ]);
   scene.add(lifts.root, createLiftSigns(lifts.lines, lifts.signMounts));
   const ride = new RideControls(camera, lifts, ski);
@@ -316,14 +327,18 @@ async function main(): Promise<void> {
     resortUrl(resortId, manifest.minimap.file),
     manifest.minimap.extent,
   );
+  const buildingsById = new Map(features.buildings.map((b) => [b.id, b]));
   const labels = new Labels(
     $('#labels'),
     [
       ...features.lifts.map(liftLabel).filter((l): l is LabelSpec => l !== null),
       ...features.peaks.map((p) => peakLabel(p, near.extent)),
+      ...restaurants.map((r) =>
+        restaurantLabel(r, r.building !== null ? buildingsById.get(r.building) : undefined),
+      ),
     ],
     groundHeight,
-    { lift: prefs.lift, peak: prefs.peak },
+    { lift: prefs.lift, peak: prefs.peak, restaurant: prefs.restaurant },
   );
   const sound = new Sound(!prefs.sound);
   const savePrefs = () =>
@@ -332,6 +347,7 @@ async function main(): Promise<void> {
       JSON.stringify({
         lift: labels.isVisible('lift'),
         peak: labels.isVisible('peak'),
+        restaurant: labels.isVisible('restaurant'),
         pistes: pisteTint.value > 0,
         sound: !sound.isMuted,
       }),
@@ -352,6 +368,7 @@ async function main(): Promise<void> {
   };
   hud.setToggle('lift', labels.isVisible('lift'));
   hud.setToggle('peak', labels.isVisible('peak'));
+  hud.setToggle('restaurant', labels.isVisible('restaurant'));
   hud.setToggle('pistes', pisteTint.value > 0);
   const debug = $('#debug');
 
@@ -372,8 +389,11 @@ async function main(): Promise<void> {
         features.peaks,
         near.extent,
         pisteData.pistes,
+        restaurants,
+        features.buildings,
       ),
       pistes: pisteData.pistes,
+      restaurants,
       groundHeight: (east, north) => groundHeight(east, -north),
       toLatLon: (east, north) => frame.toLatLon(east, north),
     },
@@ -540,6 +560,8 @@ async function main(): Promise<void> {
       toggleLabels('peak');
     } else if ((e.code === 'Digit3' || e.code === 'Numpad3') && !e.repeat) {
       togglePisteColours();
+    } else if ((e.code === 'Digit4' || e.code === 'Numpad4') && !e.repeat) {
+      toggleLabels('restaurant');
     } else if (e.code === 'KeyK' && !e.repeat) {
       toggleSound();
     }
@@ -803,12 +825,13 @@ const PREFS_KEY = 'ski-sim.labels';
 interface Prefs {
   lift: boolean;
   peak: boolean;
+  restaurant: boolean;
   pistes: boolean;
   sound: boolean;
 }
 
 function loadPrefs(): Prefs {
-  const defaults = { lift: true, peak: true, pistes: true, sound: true };
+  const defaults = { lift: true, peak: true, restaurant: true, pistes: true, sound: true };
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') };
   } catch {

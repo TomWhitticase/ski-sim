@@ -1,10 +1,10 @@
 import { type PerspectiveCamera, Vector3 } from 'three/webgpu';
 
 import type { Extent } from '../resort/manifest';
-import type { Lift, Peak } from '../features/types';
+import type { Building, Lift, Peak, Restaurant } from '../features/types';
 import { liftTypeName } from '../nav/places';
 
-export type LabelKind = 'lift' | 'peak';
+export type LabelKind = 'lift' | 'peak' | 'restaurant';
 
 export interface LabelSpec {
   kind: LabelKind;
@@ -67,6 +67,31 @@ export function peakLabel(peak: Peak, resortExtent: Extent): LabelSpec {
     // Among them, the higher summit wins an overlap (Mont Blanc over its satellites).
     tier: ele >= 4000 && !local ? -1 - (ele - 4000) / 1000 : local ? 0 : 1 + (5000 - ele) / 10_000,
   };
+}
+
+/**
+ * Restaurant tags float over the roof and only show up close (you see the hut you're
+ * heading for, not every one in the valley). Lifts and local peaks win overlaps.
+ */
+export function restaurantLabel(r: Restaurant, building?: Building): LabelSpec {
+  const top = building ? building.top + (building.roof?.rise ?? 0) : r.ground + 6;
+  // Over the middle of the building, not wherever its OSM point happens to be.
+  const [east, north] = building ? centroid(building.footprint) : [r.east, r.north];
+  return {
+    kind: 'restaurant',
+    name: r.name,
+    detail: 'Restaurant',
+    position: new Vector3(east, top + 3, -north),
+    maxDistance: 2200,
+    tier: 0.5,
+  };
+}
+
+function centroid(ring: [number, number][]): [number, number] {
+  let e = 0;
+  let n = 0;
+  for (const [x, y] of ring) [e, n] = [e + x, n + y];
+  return [e / ring.length, n / ring.length];
 }
 
 interface Label extends LabelSpec {

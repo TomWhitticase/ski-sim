@@ -218,6 +218,14 @@ body {
   border-top-color: rgba(30, 30, 36, 0.72);
 }
 
+.label-restaurant {
+  background: rgba(150, 62, 26, 0.85);
+}
+
+.label-restaurant::after {
+  border-top-color: rgba(150, 62, 26, 0.85);
+}
+
 .label-lift {
   background: rgba(23, 92, 196, 0.82);
 }

@@ -27,6 +27,7 @@ export const DISPLAY_TOGGLES = [
   { name: 'lift', key: '1', label: 'Lift names' },
   { name: 'peak', key: '2', label: 'Peak names' },
   { name: 'pistes', key: '3', label: 'Piste colours' },
+  { name: 'restaurant', key: '4', label: 'Restaurants' },
 ] as const;
 
 export type DisplayToggle = (typeof DISPLAY_TOGGLES)[number]['name'];

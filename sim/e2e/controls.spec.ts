@@ -7,7 +7,8 @@ async function startFlying(page: Page, query: string) {
       get: () => document.querySelector('#scene'),
     });
   });
-  await page.goto(`/?resort=les-3-vallees&${query}`);
+  const resort = query.includes('resort=') ? '' : 'resort=les-3-vallees&';
+  await page.goto(`/?${resort}${query}`);
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10, null, { timeout: 90_000 });
   await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
 }
@@ -128,6 +129,25 @@ test('1 and 2 toggle lift and peak names, and the choice persists', async ({ pag
   await expect(toggle('lift')).toHaveText('OFF');
   await expect(toggle('peak')).toHaveText('OFF');
   expect(await shown('lift')).toBe(0);
+});
+
+test('4 toggles mountain restaurant names, and the choice persists', async ({ page }) => {
+  // Looking at Krazy Kanguruh and Mooserwirt above St. Anton.
+  await startFlying(page, 'resort=arlberg&at=47.129080,10.256784,1467&heading=328&pitch=-10');
+  const shown = () => page.locator('#labels .label-restaurant:not([hidden])');
+  const toggle = page.locator('#toggles [data-toggle="restaurant"] b');
+  await page.waitForTimeout(500);
+  await expect(toggle).toHaveText('ON');
+  await expect(shown().filter({ hasText: 'Krazy Kanguruh' })).toHaveCount(1);
+  await page.keyboard.press('Digit4');
+  await page.waitForTimeout(200);
+  await expect(toggle).toHaveText('OFF');
+  expect(await shown().count()).toBe(0);
+  expect(await page.locator('#labels .label-lift:not([hidden])').count()).toBeGreaterThan(0);
+  await page.reload();
+  await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10);
+  await expect(toggle).toHaveText('OFF');
+  expect(await shown().count()).toBe(0);
 });
 
 test('V switches fly mode to third person and back', async ({ page }) => {

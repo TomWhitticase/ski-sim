@@ -96,6 +96,36 @@ def test_peaks_snap_to_summit_and_filter_far_minor_peaks():
     assert by_name["Near"]["ele"] == 2501
 
 
+def test_closed_aerialway_ways_are_not_lifts():
+    from ski_sim_pipeline.config import Extent, GeoPoint
+    from ski_sim_pipeline.features import extract_lifts
+    from ski_sim_pipeline.frame import LocalFrame
+
+    frame = LocalFrame(GeoPoint(45.0, 6.0))
+
+    def way(i, corners):
+        geometry = []
+        for east, north in corners:
+            lon, lat = frame.to_lonlat(east, north)
+            geometry.append({"lat": lat, "lon": lon})
+        return {"type": "way", "id": i, "tags": {"aerialway": "chair_lift"}, "geometry": geometry}
+
+    def ground(east, north):
+        return 2000.0 + np.asarray(north) * 0.3
+
+    lifts = extract_lifts(
+        [
+            way(1, [(0, 0), (0, 800)]),
+            way(2, [(100, 0), (110, 0), (110, 10), (100, 10), (100, 0)]),  # station outline
+        ],
+        frame,
+        Extent(-1000, 1000, -1000, 1000),
+        ground,
+        [],
+    )
+    assert [lift["id"] for lift in lifts] == [1]
+
+
 @pytest.mark.parametrize(
     ("value", "seconds"),
     [("04:45", 285), ("3", 180), ("12", 720), ("1:02:00", 3720), ("abc", None), (None, None)],

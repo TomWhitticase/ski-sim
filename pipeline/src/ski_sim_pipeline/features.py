@@ -143,6 +143,10 @@ def extract_lifts(
         profile = LIFT_PROFILES.get(kind or "")
         if el["type"] != "way" or profile is None or len(el.get("geometry", [])) < 2:
             continue
+        # A closed ring is a station outline mistagged as the lift, not a cable line.
+        if el["geometry"][0] == el["geometry"][-1]:
+            log.info("Skipping lift %s (%s): closed way", tags.get("name"), el["id"])
+            continue
         points = _project(frame, el["geometry"])
         if not _inside(extent, points):
             log.info("Skipping lift %s (%s): outside terrain extent", tags.get("name"), el["id"])
@@ -322,13 +326,21 @@ DEFAULT_PITCH = 24.0
 MAX_RIDGE_RISE = 7.0
 
 
-def gable_roof(polygon: Polygon, kind: str | None, shape: str | None) -> dict | None:
+def gable_roof(
+    polygon: Polygon,
+    kind: str | None,
+    shape: str | None,
+    pitch: float | None = None,
+    eaves: float = 0.0,
+) -> dict | None:
     """A gable roof over the footprint: ridge along the long axis of its oriented
     bounding box, one planar face each side. Returns None for flat roofs.
 
     The footprint is split along the ridge so each piece is a single plane, which keeps
-    irregular (e.g. L-shaped) footprints watertight. Height above the eaves at a point is
-    rise * (1 - |distance to ridge| / halfWidth).
+    irregular (e.g. L-shaped) footprints watertight. Height above the wall tops at a point
+    is rise * (1 - |distance to ridge| / halfWidth). With `eaves`, the faces are the
+    footprint grown by that much, so the roof overhangs the walls (and dips below their
+    tops beyond them, continuing the same planes).
     """
     if shape == "flat" or (kind in FLAT_ROOF_TYPES and polygon.area > 600):
         return None
@@ -346,17 +358,22 @@ def gable_roof(polygon: Polygon, kind: str | None, shape: str | None) -> dict | 
     reach = float(np.hypot(*long_axis)) + 10
     a = centre - direction * reach
     b = centre + direction * reach
-    pitch = ROOF_PITCH.get(kind or "", DEFAULT_PITCH)
+    if pitch is None:
+        pitch = ROOF_PITCH.get(kind or "", DEFAULT_PITCH)
     rise = min(half_width * math.tan(math.radians(pitch)), MAX_RIDGE_RISE)
 
-    pieces = [g for g in split(polygon, LineString([a, b])).geoms if g.area > 0.05]
+    cover = polygon.buffer(eaves, join_style="mitre") if eaves > 0 else polygon
+    pieces = [g for g in split(cover, LineString([a, b])).geoms if g.area > 0.05]
     halves = [np.round(np.asarray(g.exterior.coords)[:-1], 2).tolist() for g in pieces]
-    return {
+    roof = {
         "ridge": [np.round(a, 2).tolist(), np.round(b, 2).tolist()],
         "halfWidth": round(half_width, 2),
         "rise": round(rise, 2),
         "faces": halves,
     }
+    if eaves > 0:
+        roof["eaves"] = eaves
+    return roof
 
 
 def _round(support: dict) -> dict:

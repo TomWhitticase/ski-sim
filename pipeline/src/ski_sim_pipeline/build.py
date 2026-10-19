@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 from rasterio.warp import Resampling
 
-from . import approach, features, grading, minimap, pistes, terminals
+from . import approach, features, grading, minimap, pistes, restaurants, terminals
 from . import bases as base_finder
 from .config import ResortConfig, load_resort
 from .export import write_heightmap
@@ -382,6 +382,17 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     log.info("Building pistes (OpenStreetMap)")
     pistes_meta = build_pistes(frame, raw_root, near, near_grid, out_dir)
     piste_records = json.loads((out_dir / "pistes.json").read_text())["pistes"]
+    feature_data["restaurants"] = restaurants.extract(
+        osm.fetch_restaurants(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root),
+        frame,
+        near_grid.extent,
+        near,
+        near_grid,
+        feature_data["buildings"],
+        feature_data["lifts"],
+        piste_records,
+        start_bases,
+    )
 
     log.info("Writing outputs to %s", out_dir)
     (out_dir / "features.json").write_text(json.dumps(feature_data, separators=(",", ":")))
@@ -433,6 +444,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
             "lifts": len(feature_data["lifts"]),
             "buildings": len(feature_data["buildings"]),
             "peaks": len(feature_data["peaks"]),
+            "restaurants": len(feature_data["restaurants"]),
         },
         "validation": {
             "landmarks": validation,

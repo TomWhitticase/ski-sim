@@ -1,9 +1,9 @@
-import type { Lift, Peak } from '../features/types';
+import type { Building, Lift, Peak, Restaurant } from '../features/types';
 import { DIFFICULTY, type PisteRecord, pisteTitle } from '../pistes/pistes';
 import type { Extent } from '../resort/manifest';
 import type { Pose } from './pose';
 
-export type PlaceKind = 'start' | 'peak' | 'lift' | 'piste';
+export type PlaceKind = 'start' | 'peak' | 'lift' | 'piste' | 'restaurant';
 
 export interface Place {
   kind: PlaceKind;
@@ -77,6 +77,48 @@ export function pisteViewpoint(piste: PisteRecord): Pose {
   };
 }
 
+/**
+ * Out on the snow in front of a restaurant, looking at it: in front of its terrace or
+ * name board, else a little way down from the hut.
+ */
+export function restaurantViewpoint(r: Restaurant, building?: Building): Pose {
+  let fromEast = r.east;
+  let fromNorth = r.north - 1;
+  if (r.terrace) {
+    const ring = r.terrace.ring;
+    fromEast = ring.reduce((s, p) => s + p[0], 0) / ring.length;
+    fromNorth = ring.reduce((s, p) => s + p[1], 0) / ring.length;
+  } else if (r.sign) {
+    fromEast = r.sign.east;
+    fromNorth = r.sign.north;
+  }
+  let dx = fromEast - r.east;
+  let dy = fromNorth - r.north;
+  const len = Math.hypot(dx, dy);
+  [dx, dy] = len > 0.5 ? [dx / len, dy / len] : [0, -1];
+  const distance = 26 + (building ? Math.sqrt(Math.abs(footprintArea(building))) / 2 : 0);
+  const east = r.east + dx * distance;
+  const north = r.north + dy * distance;
+  return {
+    east,
+    north,
+    altitude: r.ground,
+    heading: bearing(east, north, r.east, r.north),
+    pitch: 2,
+  };
+}
+
+function footprintArea(b: Building): number {
+  let sum = 0;
+  const ring = b.footprint;
+  for (let i = 0; i < ring.length; i++) {
+    const [x0, y0] = ring[i]!;
+    const [x1, y1] = ring[(i + 1) % ring.length]!;
+    sum += x0 * y1 - x1 * y0;
+  }
+  return sum / 2;
+}
+
 const LIFT_TYPES: Record<string, string> = {
   cable_car: 'Cable car',
   gondola: 'Gondola',
@@ -107,6 +149,8 @@ export function buildPlaces(
   peaks: Peak[],
   extent: Extent,
   pistes: PisteRecord[] = [],
+  restaurants: Restaurant[] = [],
+  buildings: Building[] = [],
 ): Place[] {
   const centre = { east: spawn.east, north: spawn.north };
   const places: Place[] = [{ kind: 'start', name: resortName, detail: 'Start', pose: spawn }];
@@ -132,6 +176,18 @@ export function buildPlaces(
       detail: `${d.name} · ${size}`,
       pose: pisteViewpoint(piste),
       colour: d.colour,
+    });
+  }
+  const byId = new Map(buildings.map((b) => [b.id, b]));
+  for (const r of restaurants) {
+    const building = r.building !== null ? byId.get(r.building) : undefined;
+    const top = building ? building.top + (building.roof?.rise ?? 0) : r.ground + 6;
+    places.push({
+      kind: 'restaurant',
+      name: r.name,
+      detail: `Restaurant · ${Math.round(r.ground).toLocaleString('en-GB')} m`,
+      pose: restaurantViewpoint(r, building),
+      lookAt: { east: r.east, north: r.north, altitude: (r.ground + top) / 2 },
     });
   }
   for (const peak of peaks) {

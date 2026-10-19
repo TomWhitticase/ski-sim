@@ -1,4 +1,4 @@
-import type { Lift, Peak } from '../features/types';
+import type { Lift, Peak, Restaurant } from '../features/types';
 import type { Place } from '../nav/places';
 import { DIFFICULTY, type PisteRecord, pisteTitle } from '../pistes/pistes';
 import type { Pose } from '../nav/pose';
@@ -12,6 +12,7 @@ export interface WorldMapData {
   lifts: Lift[];
   peaks: Peak[];
   pistes: PisteRecord[];
+  restaurants: Restaurant[];
   places: Place[];
   groundHeight: (east: number, north: number) => number;
   toLatLon: (east: number, north: number) => { lat: number; lon: number };
@@ -24,6 +25,9 @@ const LIFT_COLOURS: Record<string, string> = {
   chair_lift: '#1864ab',
 };
 const DRAG_COLOUR = '#7048e8';
+const RESTAURANT_COLOUR = '#963e1a';
+/** Restaurant names appear once zoomed in this far (metres per pixel); dots before that. */
+const RESTAURANT_NAMES_MPP = 5;
 
 const MIN_MPP = 0.5; // metres per CSS pixel, fully zoomed in
 const MAX_MPP = 40;
@@ -45,7 +49,7 @@ export class WorldMap {
   private readonly search: HTMLInputElement;
   private readonly here: HTMLElement;
   private readonly scaleBar: HTMLElement;
-  private readonly show = { lift: true, peak: true, piste: true };
+  private readonly show = { lift: true, peak: true, piste: true, restaurant: true };
 
   private centerEast = 0;
   private centerNorth = 0;
@@ -75,7 +79,7 @@ export class WorldMap {
     root.querySelector('.map-close')!.addEventListener('click', () => this.onClose());
     for (const box of root.querySelectorAll<HTMLInputElement>('[data-show]')) {
       box.addEventListener('change', () => {
-        this.show[box.dataset.show as 'lift' | 'peak' | 'piste'] = box.checked;
+        this.show[box.dataset.show as keyof typeof this.show] = box.checked;
         this.requestDraw();
       });
     }
@@ -189,6 +193,7 @@ export class WorldMap {
     if (this.show.lift) this.drawLifts(tryPlace);
     if (this.show.piste && this.mpp < 6) this.drawPisteNames(tryPlace);
     if (this.show.peak) this.drawPeaks(tryPlace);
+    if (this.show.restaurant) this.drawRestaurants(tryPlace);
     if (this.hoverPlace) this.drawHighlight(this.hoverPlace.pose);
     this.updateScaleBar();
   }
@@ -252,6 +257,39 @@ export class WorldMap {
       ctx.globalAlpha = 1;
       ctx.fillStyle = '#fff';
       ctx.fillText(name, x, y);
+    }
+  }
+
+  private drawRestaurants(
+    tryPlace: (cx: number, top: number, w: number, h: number) => boolean,
+  ): void {
+    const { ctx } = this;
+    const named = this.mpp < RESTAURANT_NAMES_MPP;
+    ctx.font = '600 11px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const r of this.data.restaurants) {
+      const [x, y] = this.toScreen(r.east, r.north);
+      if (
+        x < -50 ||
+        y < -50 ||
+        x > this.canvas.clientWidth + 50 ||
+        y > this.canvas.clientHeight + 50
+      )
+        continue;
+      ctx.fillStyle = RESTAURANT_COLOUR;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      if (!named) continue;
+      const width = ctx.measureText(r.name).width + 10;
+      if (!tryPlace(x, y - 22, width, 16)) continue;
+      this.pill(x - width / 2, y - 22, width, 16);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(r.name, x, y - 14);
     }
   }
 
@@ -355,7 +393,7 @@ export class WorldMap {
   // --- place list ---
 
   private buildList(): void {
-    const icons = { start: '⌂', lift: '⇡', peak: '▲', piste: '●' };
+    const icons = { start: '⌂', lift: '⇡', peak: '▲', piste: '●', restaurant: '☕' };
     for (const place of this.data.places) {
       const li = document.createElement('li');
       li.className = `map-place map-place-${place.kind}`;

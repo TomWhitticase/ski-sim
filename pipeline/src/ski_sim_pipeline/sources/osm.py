@@ -59,6 +59,19 @@ def fetch_pistes(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict
     return _query(query, cache_dir, "pistes")
 
 
+def fetch_restaurants(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict]:
+    """Food and drink places (nodes, and ways with geometry) and mapped outdoor seating."""
+    bbox = _bbox(lonlat_bounds)
+    query = (
+        "[out:json][timeout:180];"
+        f'(nwr["amenity"~"^(restaurant|bar|cafe|pub|fast_food|biergarten)$"]({bbox});'
+        f'nwr["tourism"="alpine_hut"]({bbox});'
+        f'way["leisure"="outdoor_seating"]({bbox}););'
+        "out tags geom;"
+    )
+    return _query(query, cache_dir, "restaurants")
+
+
 def fetch_places(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict]:
     """Named settlements (towns, villages, hamlets, suburbs) within the bounds."""
     query = (
