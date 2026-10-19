@@ -344,6 +344,8 @@ export class LiftSystem {
   previousTime = 0;
   /** Time multiplier for the lift clock. */
   rate = 1;
+  /** [line, carrier] left out of the instanced carriers (the rider draws its own cabin). */
+  hidden: [number, number] | null = null;
   /** Problems found by the load-time checks (also logged as console errors). */
   readonly problems: string[] = [];
   private readonly groups = new Map<string, CarrierGroup>();
@@ -440,7 +442,7 @@ export class LiftSystem {
     for (const g of this.groups.values()) {
       let k = 0;
       for (const [li, ci] of g.members) {
-        if (!near[li]) continue;
+        if (!near[li] || (li === this.hidden?.[0] && ci === this.hidden[1])) continue;
         this.carrierMatrix(li, ci, m);
         if (!close(pos)) continue;
         g.mesh.setMatrixAt(k++, m);

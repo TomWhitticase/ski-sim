@@ -17,7 +17,7 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 
 for (const [name, query] of Object.entries(POSES)) {
   const start = Date.now();
-  await page.goto(`http://localhost:5173/?${query}`);
+  await page.goto(`http://localhost:${process.env.SIM_PORT ?? 5173}/?${query}`);
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 0, null, { timeout: 90_000 });
   const firstFrame = Date.now() - start;
   await page.evaluate(() => document.body.classList.add('flying'));

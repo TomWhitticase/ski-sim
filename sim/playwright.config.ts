@@ -1,5 +1,8 @@
 import { defineConfig } from '@playwright/test';
 
+// Another worktree's dev server may own 5173; SIM_PORT picks a different one.
+const port = process.env.SIM_PORT ?? '5173';
+
 export default defineConfig({
   testDir: 'e2e',
   // One browser at a time: each renders the whole resort on the GPU, and parallel
@@ -8,7 +11,7 @@ export default defineConfig({
   timeout: 120_000,
   outputDir: 'test-results',
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: `http://localhost:${port}`,
     viewport: { width: 1600, height: 900 },
     launchOptions: {
       // Use the real GPU in headless Chromium so WebGPU is available.
@@ -21,8 +24,8 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: 'pnpm dev --strictPort',
-    url: 'http://localhost:5173',
+    command: `pnpm dev --port ${port} --strictPort`,
+    url: `http://localhost:${port}`,
     reuseExistingServer: true,
   },
 });

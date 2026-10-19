@@ -6,7 +6,7 @@ import type { Bounds } from './fly-controls';
 import { type Input, Look } from './input';
 import { SkierModel } from './ski-model';
 import { SKI, type SkiState, type SkiTerrain, stepSki, surfaceNormal } from './ski-physics';
-import { initialStance, updateStance } from './ski-stance';
+import { initialStance, type Stance, updateStance } from './ski-stance';
 import type { SnowContact } from '../fx/intensity';
 
 export const EYE_HEIGHT = 1.7;
@@ -147,6 +147,7 @@ export class SkiControls {
   setActive(active: boolean): void {
     this.skier.visible = active;
     this.model.setOpacity(1);
+    this.model.setStowed(false);
     this.applyView();
   }
 
@@ -159,15 +160,20 @@ export class SkiControls {
     return this.terrain.height(x, z);
   }
 
-  /** Pose the skier riding a lift: `crouch` ~0.6 seated on a chair, ~0.15 standing. */
-  showRiding(feet: Vector3, yaw: number, crouch: number): void {
+  /**
+   * Pose the skier riding a lift: `crouch` ~0.6 seated on a chair, ~0.15 standing.
+   * In a cabin the skis and poles are stowed, and `sit` seats you on a bench.
+   */
+  showRiding(feet: Vector3, yaw: number, crouch: number, cabin?: { sit?: Stance['sit'] }): void {
     this.skier.visible = true;
     this.model.setOpacity(1);
-    this.model.setFirstPerson(this.view === 'first-person');
+    this.model.setFirstPerson(this.view === 'first-person', (cabin?.sit?.amount ?? 0) > 0.5);
+    this.model.setStowed(!!cabin);
     this.skier.position.copy(feet);
     this.skier.quaternion.setFromAxisAngle(UP, yaw);
     RIDING_STANCE.crouch = crouch;
     RIDING_STANCE.poleSweep = crouch > 0.5 ? 1.1 : 0.4;
+    RIDING_STANCE.sit = cabin?.sit;
     this.model.apply(RIDING_STANCE, UP);
   }
 
@@ -182,6 +188,7 @@ export class SkiControls {
   showFlying(eye: Vector3, yaw: number): void {
     this.skier.visible = true;
     this.model.setFirstPerson(false);
+    this.model.setStowed(false);
     this.model.setOpacity(FLYING_OPACITY);
     this.skier.position.set(eye.x, eye.y - EYE_HEIGHT, eye.z);
     this.skier.quaternion.setFromAxisAngle(UP, yaw);

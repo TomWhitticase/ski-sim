@@ -159,6 +159,9 @@ export class SkierModel {
     cuff: Mesh;
   }[] = [];
   private readonly skis: { left: SkiRig; right: SkiRig };
+  /** Skis and bindings without the boots (stowed in a cabin's rack). */
+  private readonly skiParts: Mesh[] = [];
+  private stowed = false;
 
   constructor() {
     const mat = (color: number, roughness: number, metalness = 0) =>
@@ -205,8 +208,9 @@ export class SkierModel {
       add(toe, binding, 0, top + 0.035, -0.2);
       add(heel, binding, 0, top + 0.042, 0.19);
       add(brake, bindingMetal, 0, top + 0.02, 0.13);
+      this.skiParts.push(...parts);
       // Boot: sole, lower shell, then a forward-leaning cuff with buckles.
-      const bootBase = top + 0.026;
+      const bootBase = BOOT_SOLE;
       add(sole, shell, 0, bootBase + 0.015, 0);
       add(lower, shell, 0, bootBase + 0.085, 0.015);
       const c = add(upperCuff, cuff, 0, bootBase + 0.215, 0.045);
@@ -373,14 +377,29 @@ export class SkierModel {
     this.skis.right.group.visible = visible;
   }
 
+  /** Skis and poles stowed (riding inside a cabin): just the boots stay on. */
+  setStowed(stowed: boolean): void {
+    this.stowed = stowed;
+    for (const p of this.skiParts) p.visible = !stowed;
+    for (const p of this.poles) p.visible = !stowed;
+  }
+
   /** World position of a ski's centre on the snow. Call after the root's matrices update. */
   skiPosition(side: 'left' | 'right', out: Vector3): Vector3 {
     return this.skis[side].group.getWorldPosition(out);
   }
 
-  /** In first person the camera sits in the head: hide the body, keep skis and poles. */
-  setFirstPerson(firstPerson: boolean): void {
-    this.figure.visible = !firstPerson;
+  /**
+   * In first person the camera sits in the head: hide the body, keep skis and poles.
+   * `legs` keeps your legs in view too (seated, where you'd see your knees).
+   */
+  setFirstPerson(firstPerson: boolean, legs = false): void {
+    this.figure.visible = !firstPerson || legs;
+    const upper = !firstPerson;
+    this.chest.visible = upper;
+    for (const limb of this.limbs) {
+      for (const m of [limb.upperArm, limb.forearm, limb.elbow, limb.cuff]) m.visible = upper;
+    }
   }
 
   /** `up`: the direction the body balances along, in the skier's (slope-aligned) frame. */
@@ -394,24 +413,36 @@ export class SkierModel {
     };
     place(this.skis.left, stance.left);
     place(this.skis.right, stance.right);
+    if (this.stowed) {
+      // Skis off: boot soles down on the floor.
+      for (const rig of [this.skis.left, this.skis.right]) {
+        rig.group.position.y -= BOOT_SOLE;
+        rig.group.updateMatrix();
+      }
+    }
 
     // Ankles sit inside the boots, so they follow the skis (plough, skating, edging).
     const ankles = [this.skis.left, this.skis.right].map((rig) =>
       new Vector3(0, ANKLE_HEIGHT, 0.03).applyMatrix4(rig.group.matrix),
     );
     const c = stance.crouch;
+    const sit = stance.sit?.amount ?? 0;
     const feet = ankles[0]!.clone().add(ankles[1]!).multiplyScalar(0.5);
     // The body stands along `up` (its balance line, which needn't be the slope normal),
     // dropping and sitting back as you crouch.
     const align = new Quaternion().setFromUnitVectors(Y_AXIS, up);
     const hipHeight = (THIGH + SHIN) * (0.95 - 0.36 * c);
     const pelvis = new Vector3(0, hipHeight, 0.04 + 0.16 * c).applyQuaternion(align).add(feet);
+    if (stance.sit) {
+      // Hips on the seat (measured from the floor the boots stand on), sitting up straight.
+      const { height, back } = stance.sit;
+      pelvis.lerp(new Vector3(0, height, back), sit);
+    }
+    const bend = (0.12 + 0.85 * c) * (1 - sit) - 0.06 * sit; // seated: leaning back a touch
     this.chest.position.copy(pelvis);
     this.chest.quaternion
       .copy(align)
-      .multiply(
-        new Quaternion().setFromEuler(new Euler(-(0.12 + 0.85 * c), stance.twist, 0, 'YXZ')),
-      );
+      .multiply(new Quaternion().setFromEuler(new Euler(-bend, stance.twist, 0, 'YXZ')));
     this.chest.updateMatrix();
 
     const pelvisTurn = align
@@ -434,7 +465,7 @@ export class SkierModel {
         side * (0.3 - 0.16 * c),
         0.08 + 0.18 * c + 0.22 * Math.max(r, 0),
         -0.3 - 0.12 * c - 0.3 * r,
-      );
+      ).lerp(new Vector3(side * 0.17, 0.06, -0.3), sit); // seated: hands on the thighs
       const hand = handLocal.applyMatrix4(this.chest.matrix);
       const elbow = solveJoint(shoulder, hand, UPPER_ARM, FOREARM, new Vector3(side, -0.3, 0.6));
       stretch(limb.upperArm, shoulder, elbow);
@@ -450,6 +481,8 @@ export class SkierModel {
   }
 }
 
+/** Boot sole above the base of the ski. */
+const BOOT_SOLE = UNDERFOOT + 0.026;
 const ANKLE_HEIGHT = 0.2; // ankle joint above the base of the ski, inside the boot
 const THIGH = 0.43;
 const SHIN = 0.42;

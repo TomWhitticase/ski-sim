@@ -388,7 +388,7 @@ async function main(): Promise<void> {
             ? ride.velocity
             : fly.currentVelocity
     ).clone();
-    if (mode === 'ride') ride.releaseClock();
+    if (mode === 'ride') ride.leave();
     const look = controls().look;
     mode = next;
     if (mode === 'ski') {
@@ -427,7 +427,7 @@ async function main(): Promise<void> {
   /** Released at the unloading point, moving: off the chair and down the ramp. */
   const unload = () => {
     const { feet, velocity, heading } = ride.release();
-    ride.releaseClock();
+    ride.leave();
     sound.thump(2.5);
     mode = 'ski';
     ski.place(
