@@ -135,11 +135,11 @@ pipeline/src/ski_sim_pipeline/
   export.py, minimap.py
 sim/src/
   main.ts             Bootstrap and frame loop
-  config.ts           Sim-wide tunables (time of day, fly speeds, LOD, minimap zoom)
+  config.ts           Sim-wide tunables (simulated day, fly speeds, LOD, minimap zoom)
   terrain/            Chunked LOD terrain, normal-map texture, TSL snow/rock material
   features/           Extruded buildings
   lifts/              Lift operation model, carriers, lift system (statics + moving carriers), riding
-  env/                Sky, sun position, lights, cascaded shadows, fog
+  env/                Sky, sun position, time-of-day clock, lights, cascaded shadows, fog
   render/             Adaptive resolution (render scale follows frame time)
   controls/           Shared input + mouse look; fly mode; ski mode (ski-physics.ts and ski-setup.ts are pure and unit-tested)
   nav/                Saved pose (localStorage, per resort) and teleport destinations
@@ -183,7 +183,14 @@ G (or the main/pause menu's "Ski setup" button) opens a modal (`ui/ski-setup-men
 - `controls/ski-setup.ts` (pure, unit-tested) turns a setup into `SkiHandling`: friction, powder float, carve rate, hard-snow grip, skid deceleration, stable speed (chatter above it), speed cap, and multipliers for A/D turning, S-pivots and edge-to-edge speed. `stepSki` takes the handling as an argument; there are no globals.
 - The All-mountain preset is the reference: it maps onto the base physics (handling multipliers of 1; only the chatter above ~100 km/h is new), so tuning `BASE_HANDLING` moves every ski together. Keep extremes playable: `ski-setup.test.ts` checks the speed cap, minimum carving and turn rates at both ends of every slider.
 - The model's skis follow the setup (`skiDimensions`): length, waist, tip/tail widths from the sidecut radius, rocker rise, and the mount point (~3.5% of the length behind centre). The default 178 cm ski is about chin height on the 1.83 m skier.
-- The controls list is also a modal (`#controls-modal`). Both use `ui/modal.ts`, a native `<dialog>` (Esc and backdrop clicks close it). While a dialog is open, game keys other than G are ignored.
+- The controls list is also a modal (`#controls-modal`). Both use `ui/modal.ts`, a native `<dialog>` (Esc and backdrop clicks close it). While a dialog is open, game keys other than G and T are ignored.
+
+### Time of day
+
+T (or the menu's "Time of day" button) opens `ui/time-menu.ts`: a 00:00–24:00 slider, presets and the clock speed (paused, real time, ×10, ×60, ×600). Persisted as `ski-sim.time-of-day`.
+- `env/time-of-day.ts` (pure, unit-tested) is the clock: advance by dt × rate, wrap at midnight. Times are local clock times on `SIM_DAY` (config: date and UTC offset); `simDate` turns them into an instant for `sunPosition`.
+- Presets come from the real sun for the resort (`dayPresets`): sunrise and sunset when it's 3° up, midday at its highest, morning and afternoon halfway, night at 22:00.
+- `Environment.setTime` moves the sky's sun, the shadow-casting light and sets light levels (`daylight`, unit-tested). The light never comes from below 2°, and fades out by sunset. At night a blue hemisphere "moonlight" (0.5) keeps the slopes readable; the Preetham sky goes black.
 
 ### Pistes
 

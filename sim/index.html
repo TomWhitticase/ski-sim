@@ -72,6 +72,7 @@
           <button id="open-ski-setup" class="menu-action" type="button">
             Ski setup <kbd>G</kbd>
           </button>
+          <button id="open-time" class="menu-action" type="button">Time of day <kbd>T</kbd></button>
           <button id="open-controls" class="menu-action" type="button">Controls</button>
         </div>
       </div>
@@ -120,6 +121,8 @@
               <dd>Lean forward / back; in the air, front flip / backflip</dd>
               <dt>G</dt>
               <dd>Ski setup</dd>
+              <dt>T</dt>
+              <dd>Time of day</dd>
             </dl>
           </section>
           <section>
@@ -182,6 +185,21 @@
         <div class="modal-body ski-setup"></div>
         <footer class="modal-footer">
           <button class="setup-reset menu-action" type="button">Reset to All-mountain</button>
+          <button class="modal-close menu-primary" type="button">Done</button>
+        </footer>
+      </div>
+    </dialog>
+
+    <dialog id="time-modal" class="modal" aria-labelledby="time-title">
+      <div class="modal-card">
+        <header class="modal-header">
+          <h2 id="time-title">Time of day</h2>
+          <button class="modal-close" type="button" title="Close (Esc)" aria-label="Close">
+            ✕
+          </button>
+        </header>
+        <div class="modal-body time-of-day"></div>
+        <footer class="modal-footer">
           <button class="modal-close menu-primary" type="button">Done</button>
         </footer>
       </div>

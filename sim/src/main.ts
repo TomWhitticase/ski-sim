@@ -7,7 +7,7 @@ import {
   WebGPURenderer,
 } from 'three/webgpu';
 
-import { CAMERA, DEFAULT_RESORT, FLY, SIM_TIME, TERRAIN } from './config';
+import { CAMERA, DEFAULT_RESORT, FLY, SIM_DAY, simDate, TERRAIN } from './config';
 import { Sound } from './audio/sound';
 import { liftHumLevel, soundLevels } from './audio/levels';
 import { FlyControls } from './controls/fly-controls';
@@ -20,6 +20,8 @@ import { Input } from './controls/input';
 import { EYE_HEIGHT, SkiControls } from './controls/ski-controls';
 import { loadSetup, saveSetup, type SkiSetup } from './controls/ski-setup';
 import { Environment } from './env/environment';
+import { sunPosition } from './env/sun-position';
+import { dayPresets, loadTime, saveTime } from './env/time-of-day';
 import { ObstacleIndex } from './features/obstacles';
 import { createBuildings } from './features/buildings';
 import type { ResortFeatures } from './features/types';
@@ -48,6 +50,7 @@ import { Hud, landingToast, Toast } from './ui/hud';
 import { type LabelKind, type LabelSpec, Labels, liftLabel, peakLabel } from './ui/labels';
 import { LAST_RESORT_KEY, MainMenu, type ResortEntry, type StartChoice } from './ui/main-menu';
 import { SkiSetupMenu } from './ui/ski-setup-menu';
+import { TimeMenu } from './ui/time-menu';
 import { Minimap } from './ui/minimap';
 import { WorldMap } from './ui/world-map';
 
@@ -161,7 +164,22 @@ async function main(): Promise<void> {
     CAMERA.near,
     CAMERA.far,
   );
-  const environment = new Environment(scene, SIM_TIME, manifest.origin.lat, manifest.origin.lon);
+  // The clock runs at its chosen rate; the time menu (T) sets it and the sun follows.
+  const clock = loadTime(localStorage, SIM_DAY.startTime);
+  const { lat: originLat, lon: originLon } = manifest.origin;
+  const environment = new Environment(scene, simDate(clock.seconds), originLat, originLon);
+  const timeMenu = new TimeMenu(
+    $('#time-modal'),
+    clock,
+    dayPresets((t) => sunPosition(simDate(t), originLat, originLon).elevation),
+    () => environment.sun.elevation,
+    () => {
+      environment.setTime(simDate(clock.seconds));
+      saveTime(localStorage, clock);
+    },
+  );
+  $('#open-time').addEventListener('click', () => timeMenu.open());
+  window.addEventListener('pagehide', () => saveTime(localStorage, clock));
 
   status.textContent = 'Building terrain…';
   await nextFrame();
@@ -472,9 +490,14 @@ async function main(): Promise<void> {
   document.addEventListener('visibilitychange', persistPose);
   document.addEventListener('keydown', (e) => {
     if (e.target instanceof HTMLInputElement) return; // typing in the map search box
-    if (e.code === 'KeyG' && !e.repeat && !worldMap.isOpen) {
+    if (e.code === 'KeyG' && !e.repeat && !worldMap.isOpen && !timeMenu.isOpen) {
       if (document.pointerLockElement) document.exitPointerLock();
       skiSetup.toggle();
+      return;
+    }
+    if (e.code === 'KeyT' && !e.repeat && !worldMap.isOpen && !skiSetup.isOpen) {
+      if (document.pointerLockElement) document.exitPointerLock();
+      timeMenu.toggle();
       return;
     }
     if (document.querySelector('dialog[open]')) return; // a menu dialog has the keyboard
@@ -541,7 +564,17 @@ async function main(): Promise<void> {
   window.__sim = sim;
   // Dev-only handles for profiling scripts and debugging from the console.
   if (import.meta.env.DEV)
-    Object.assign(sim, { scene, renderer, camera, labels, minimap, lifts, ski });
+    Object.assign(sim, {
+      scene,
+      renderer,
+      camera,
+      labels,
+      minimap,
+      lifts,
+      ski,
+      environment,
+      clock,
+    });
   let last = performance.now();
   let lastX = fly.position.x;
   let lastY = fly.position.y;
@@ -661,6 +694,11 @@ async function main(): Promise<void> {
 
     nearTerrain.update(pos, TERRAIN.buildBudgetMs);
     farTerrain.update(pos, TERRAIN.buildBudgetMs);
+    if (clock.rate !== 0) {
+      clock.advance(dt);
+      environment.setTime(simDate(clock.seconds));
+      timeMenu.sync();
+    }
     environment.update(camera);
     // A touch wider field of view at speed when skiing.
     const fov = CAMERA.fov + (mode === 'ski' ? Math.min(ski.speed / 30, 1) * 10 : 0);
@@ -719,6 +757,7 @@ async function main(): Promise<void> {
 
     if (now - lastPersist > 1000) {
       persistPose();
+      saveTime(localStorage, clock);
       lastPersist = now;
     }
 
