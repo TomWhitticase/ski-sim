@@ -79,6 +79,9 @@
             Ski setup <kbd>G</kbd>
           </button>
           <button id="open-time" class="menu-action" type="button">Time of day <kbd>T</kbd></button>
+          <button id="open-multiplayer" class="menu-action" type="button">
+            Multiplayer <kbd>N</kbd>
+          </button>
           <button id="open-controls" class="menu-action" type="button">Controls</button>
         </div>
       </div>
@@ -129,6 +132,8 @@
               <dd>Ski setup</dd>
               <dt>T</dt>
               <dd>Time of day</dd>
+              <dt>N</dt>
+              <dd>Multiplayer: host or join a game</dd>
             </dl>
           </section>
           <section>
@@ -223,6 +228,18 @@
         <footer class="modal-footer">
           <button class="modal-close menu-primary" type="button">Done</button>
         </footer>
+      </div>
+    </dialog>
+
+    <dialog id="multiplayer-modal" class="modal" aria-labelledby="multiplayer-title">
+      <div class="modal-card">
+        <header class="modal-header">
+          <h2 id="multiplayer-title">Multiplayer</h2>
+          <button class="modal-close" type="button" title="Close (Esc)" aria-label="Close">
+            ✕
+          </button>
+        </header>
+        <div class="modal-body multiplayer"></div>
       </div>
     </dialog>
 

@@ -19,6 +19,7 @@ export class TimeMenu extends Modal {
   private readonly sunEl: HTMLElement;
   private readonly presetsEl: HTMLElement;
   private readonly ratesEl: HTMLElement;
+  private readonly lockHint: HTMLElement;
   private dragging = false;
   private shown = -1;
 
@@ -31,6 +32,10 @@ export class TimeMenu extends Modal {
   ) {
     super(el);
     const body = el.querySelector<HTMLElement>('.modal-body')!;
+    this.lockHint = document.createElement('p');
+    this.lockHint.className = 'time-locked';
+    this.lockHint.hidden = true;
+    body.append(this.lockHint);
 
     const time = section(body, 'Time', 'setup-fields');
     const field = document.createElement('label');
@@ -69,6 +74,17 @@ export class TimeMenu extends Modal {
       this.ratesEl.append(b);
     }
     this.sync(true);
+  }
+
+  /** In someone else's game the host sets the time: `hint` says so, and nothing's editable. */
+  setLocked(hint: string | null): void {
+    this.lockHint.textContent = hint ?? '';
+    this.lockHint.hidden = !hint;
+    for (const input of this.el.querySelectorAll<HTMLInputElement | HTMLButtonElement>(
+      '.modal-body input, .modal-body button',
+    )) {
+      input.disabled = !!hint;
+    }
   }
 
   private set(seconds: number): void {

@@ -39,6 +39,8 @@ export class RideControls {
   line = 0;
   carrier = 0;
   phase: RidePhase = 'waiting';
+  /** Hold W to run the lift clock faster (off in multiplayer, where the clock is shared). */
+  fastForward = true;
   readonly velocity = new Vector3();
   private blend = 0;
   private moved = false;
@@ -134,7 +136,7 @@ export class RideControls {
   update(dt: number, input: Input): boolean {
     this.look.apply(input);
     const lifts = this.lifts;
-    lifts.rate = input.down('KeyW') ? FAST_FORWARD : 1;
+    lifts.rate = this.fastForward && input.down('KeyW') ? FAST_FORWARD : 1;
     if (input.wasPressed('KeyS')) {
       this.skipToTop();
       return true;

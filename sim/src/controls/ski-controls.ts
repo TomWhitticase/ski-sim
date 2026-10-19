@@ -59,7 +59,7 @@ export type SkiCamera = 'first-person' | 'chase';
  */
 export class SkiControls {
   readonly look = new Look(FLY.mouseSensitivity);
-  private readonly model = new SkierModel();
+  readonly model = new SkierModel();
   readonly skier = this.model.root;
   private readonly stance = initialStance();
   view: SkiCamera = 'first-person';

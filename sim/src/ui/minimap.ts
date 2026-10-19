@@ -13,6 +13,8 @@ export class Minimap {
   private lastKey = '';
   /** Mountain restaurants (east, north), drawn as knife-and-fork badges. */
   restaurants: { east: number; north: number }[] = [];
+  /** Other players in a multiplayer game, as coloured dots. */
+  players: { east: number; north: number; colour: string }[] = [];
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -39,7 +41,9 @@ export class Minimap {
     // Skip the redraw unless something visible changed (sub-pixel moves don't count).
     const span = MINIMAP.zoomLevels[this.zoomIndex]!;
     const metresPerPixel = span / size;
-    const key = `${Math.round(east / metresPerPixel)},${Math.round(north / metresPerPixel)},${Math.round(heading)},${span},${size}`;
+    const px = (m: number) => Math.round(m / metresPerPixel);
+    const others = this.players.map((p) => `${px(p.east)},${px(p.north)}`).join(';');
+    const key = `${px(east)},${px(north)},${Math.round(heading)},${span},${size},${others}`;
     if (key === this.lastKey) return;
     this.lastKey = key;
     if (canvas.width !== size || canvas.height !== size) {
@@ -73,6 +77,20 @@ export class Minimap {
       const y = c - (r.north - north) * scale;
       if (x < -10 || y < -10 || x > size + 10 || y > size + 10) continue;
       drawRestaurantIcon(ctx, x, y, 6.5 * dpr);
+    }
+    for (const p of this.players) {
+      // Off the edge: pinned to the rim, so you can see which way they are.
+      const dx = (p.east - east) * scale;
+      const dy = -(p.north - north) * scale;
+      const r = Math.hypot(dx, dy);
+      const k = r > c - 6 * dpr ? (c - 6 * dpr) / r : 1;
+      ctx.beginPath();
+      ctx.arc(c + dx * k, c + dy * k, 4.5 * dpr, 0, Math.PI * 2);
+      ctx.fillStyle = p.colour;
+      ctx.fill();
+      ctx.lineWidth = 1.5 * dpr;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
     }
     ctx.save();
     ctx.translate(c, c);

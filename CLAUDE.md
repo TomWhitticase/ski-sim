@@ -144,6 +144,7 @@ sim/src/
   controls/           Shared input + mouse look; fly mode; ski mode (ski-physics.ts and ski-setup.ts are pure and unit-tested);
                       paraglider and snowmobile (glider-physics.ts, snowmobile-physics.ts likewise)
   nav/                Saved pose (localStorage, per resort) and teleport destinations
+  net/                Multiplayer: state codec, interpolation, host/guest session, transports, remote players
   ui/                 HUD, minimap, fullscreen world map (M), world-anchored name labels
                       (HUD: mode/position/speed top left; the time of day above the minimap; the run
                       underfoot and the 1/2/3 display toggles under it. Key help lives only in the controls modal.)
@@ -192,6 +193,26 @@ The time shows above the minimap (with the clock speed unless it's real time). T
 - `env/time-of-day.ts` (pure, unit-tested) is the clock: advance by dt × rate, wrap at midnight. Times are local clock times on `SIM_DAY` (config: date and UTC offset); `simDate` turns them into an instant for `sunPosition`.
 - Presets come from the real sun for the resort (`dayPresets`): sunrise and sunset when it's 3° up, midday at its highest, morning and afternoon halfway, night at 22:00.
 - `Environment.setTime` moves the sky's sun, the shadow-casting light and sets light levels (`daylight`, unit-tested). The light never comes from below 2°, and fades out by sunset. At night a blue hemisphere "moonlight" (0.5) keeps the slopes readable; the Preetham sky goes black.
+
+### Multiplayer
+
+Free peer-to-peer play with no server of ours. N (or the menu's "Multiplayer" button) opens `ui/multiplayer-menu.ts`: name (`ski-sim.player-name`), Host (a 6-character code from an unambiguous alphabet, plus an invite link `?resort=<id>&join=CODE`), Join, the player list with "Go to", and Leave. `net/multiplayer.ts` ties the session, dialog and remote players to the sim. main.ts only feeds it the local avatar, the clocks and a teleport.
+- **Transport** (`net/transport.ts`): Trystero over WebRTC data channels. It signals through public Nostr relays (Trystero's own maintained list, seeded by our appId) and Google's public STUN. There's no TURN, so strict networks can fail. It's imported dynamically on Host/Join, so the sim touches no network otherwise; the view tests fail on any console error. Rooms are global by code. The host's `hello` carries its resort, and a guest on another resort reloads there with the same `?join=`.
+  - A dead relay logs a WebSocket error in the console while you're in a game; the other relays carry the connection.
+  - `?net=loopback` swaps in a BroadcastChannel transport, so pages in one browser connect with no network. `e2e/multiplayer.spec.ts` uses it with a host page and a guest page.
+  - Tested by hand over the real relays: the guest connected in ~5 s.
+  - Why Trystero, not PeerJS: it needs no signalling server at all (PeerJS depends on its free cloud broker staying up) and spreads over several relays, so one going down doesn't stop a game.
+- **Host relays** (`net/session.ts`, unit-tested with an in-memory hub). Trystero joins everyone mesh-style, but guests only talk to the host and ignore other peers. The host sends one batch of everyone's latest state (`encodeBatch`) about 12 times a second.
+  - The host owns the roster (player numbers 1–15, max 16 players) and turns away the 17th.
+  - Peers silent for 5 s are dropped. A guest that loses the host, or gets `end`, sees why in the dialog. A code nobody hosts gives up after 20 s.
+  - Bump `NET_VERSION` when the wire format changes.
+- **State** (`net/codec.ts`, 90 bytes): sender time, mode, flags, float32 position, then int16 velocity, the model root's quaternion, the body's balance line, the whole `Stance` (skis, crouch, lean, phases, sit, grip) and two extras (glider bank / sled steer, suspension).
+  - `net/local-avatar.ts` reads these from whichever model the mode shows; `SkierModel` remembers its last `apply` for this. Remote skiers therefore carve, plough, flip, crash and sit on chairs exactly as the local one.
+- **Interpolation** (`net/interpolation.ts`): 100 ms behind on the local clock. The per-player offset is the fastest delivery seen, relaxed slowly, so jitter doesn't show. After the newest sample it extrapolates along the velocity for up to 0.5 s. Mode changes and teleports jump; they never glide.
+- **Remote players** (`net/remote-players.ts`): models are built per mode on first use (a `SkierModel`, `createGliderRig`, `createSnowmobile` with a seated rider, or a `Pegman`). There's a coloured name tag (terrain-occluded, one ray-march per frame round robin) and a minimap dot, pinned to the rim when off the map.
+- **Shared world:** the host's time of day and lift clock (`SharedClock`). The host broadcasts it every second and on every time change; guests ping every 2 s and advance it by RTT/2.
+  - The guest's time menu is locked with a hint, and its time isn't saved.
+  - The lift clock slews toward the host's (snaps if over 2 s off), so chairs line up. Lift fast-forward (`RideControls.fastForward`) is off in a game, because the lift clock is shared.
 
 ### Pistes
 
