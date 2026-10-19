@@ -55,6 +55,8 @@ export function daylight(elevation: number) {
     day,
     /** How much the fog takes the sunset tint. */
     dusk: low * smoothstep(-6, 2, elevation),
+    /** Need for artificial light (headlights): from just before sunset, full once it's down. */
+    dark: 1 - smoothstep(-3, 4, elevation),
   };
 }
 

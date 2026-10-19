@@ -221,16 +221,20 @@ P deploys a paraglider from fly or ski mode, keeping your velocity; P again drop
 
 B gets on a snowmobile from fly or ski mode, keeping your momentum (mid-air, it falls and lands). B again steps you off to its left onto your skis, keeping up to 90 km/h of its speed. The sled stays parked there: B within 15 m climbs back on, anywhere else brings one to you. Mode `sled` (HUD: SNOWMOBILE) is remembered across reloads.
 - **Keys:** W throttle, S brake (held at a standstill it reverses, ~10 km/h), A/D steer, Shift + A/D hang off (tighter turns at speed, holds a side-hill traverse). Mouse looks; the view turns with the sled. V works.
-- **Physics:** `controls/snowmobile-physics.ts` (pure, unit-tested) models a ~150 hp mountain sled, 305 kg with rider. Drive is power / speed through the CVT, limited by track grip (0.55 g groomed, 0.6 in powder). Top speed is ~123 km/h on a groomed flat (gearing) and ~91 km/h in powder, with 0–100 km/h in ~6 s.
+- **Physics:** `controls/snowmobile-physics.ts` (pure, unit-tested) models a ~150 hp sled with a studded track and carbide runners, 305 kg with rider. Drive is power / speed through the CVT, limited by track grip (0.7 g groomed, 0.6 in powder). Top speed is ~123 km/h on a groomed flat (gearing) and ~91 km/h in powder.
   - Climbing: ~25° from a standstill on a piste. A spinning track slides back off anything much steeper, and momentum carries you higher.
   - Powder (off-piste, from the piste lookup): the sled sinks in and bogs when slow, planes when fast, and throws extra drag.
-  - Steering: v·tan(steer)/wheelbase, capped by front-ski grip, so turns widen with speed: ~4 m at walking pace, ~0.45 g at speed.
-  - Lateral grip (0.5 g groomed): steep traverses slip down the fall line.
+  - Steering: v·tan(steer)/wheelbase (25° lock, ~3.5 m radius at walking pace), capped by the carbides' bite: ~0.85 g on a piste, ~0.75 g in powder, more leaning in. Turning hard scrubs speed (`turnScrub`), so it bites rather than glides like skis.
+  - Lateral grip (1 g groomed, 0.85 g powder) is above the steering limit, so the sled goes where it points instead of drifting. Only very steep traverses slip down the fall line (~45° piste, ~40° powder).
   - Contact: the sled rests on a plane fitted under its skis and track, so it bridges dips. Contact only pushes, so it launches off crests. In the air, throttle lifts the nose and the brake drops it, and it always lands (no crashes). A sprung-mass suspension soaks up landings.
 - **Model:** `controls/snowmobile-model.ts` is a lofted hood, tunnel, running boards, seat, tall riser and bars, A-arms and spindles, steering skis, a track with scrolling paddles, a windshield and head/tail lights. The body is one vertex-coloured draw call; the rider is a seated `SkierModel` with skis stowed and `Stance.grip` holding the bars.
 - **Collisions** (`controls/snowmobile-controls.ts`): three circles along the sled, checked every 1/120 s, against buildings and terminals (`ObstacleIndex`) plus lift towers (`LiftSystem.towerObstacles()`). The skier doesn't hit towers.
-- **Sound** (`audio/levels.ts` `engineSound`): a twin two-stroke firing twice per rev (~53 Hz at idle, ~270 Hz near the 8,300 rpm limiter), with an idle warble and exhaust rasp. The track leaves one wide trail and throws roost when it spins.
-- `e2e/snowmobile.spec.ts` drives on the frozen lake (off-piste, so powder physics). The `snowmobile` view in `views.spec.ts` parks it on a green piste below the village.
+- **Sound** (`audio/levels.ts` `engineSound`): a twin two-stroke firing twice per rev (~53 Hz at idle, ~270 Hz near the 8,300 rpm limiter), with an idle warble and exhaust rasp.
+- **Snow marks:** a darker trench behind the track plus a thin groove per ski (`SnowTrails` tracks `sled`, `sledLeftSki`, `sledRightSki`). Each point is sampled on the snow surface, not at the sled's height. The track throws roost when it spins.
+- **Lights:** the lamp lenses glow while you ride (the tail light brightens when braking) and go dark when parked. The headlight beam fades in with `daylight().dark` (from 4° sun elevation; full at -3°).
+  - The beam is a `SpotLight` that always stays in the scene and is switched by intensity: adding or removing a light recompiles every lit material.
+  - It has no distance falloff: inverse-square burnt out the snow just ahead and left the rest dark. Instead it lights evenly to 90 m and fades there.
+- `e2e/snowmobile.spec.ts` drives on the frozen lake (off-piste, so powder physics) and checks the headlight at 22:00. The `snowmobile` and `snowmobile-night` views in `views.spec.ts` park it on a green piste below the village. Don't aim a test at heading ~300° there: you drive straight into an apartment block.
 
 ### Lift terminals, operation and riding
 
