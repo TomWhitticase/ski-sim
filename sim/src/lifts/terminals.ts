@@ -22,6 +22,25 @@ const WALL: RGB = [0.82, 0.8, 0.76];
 const GLASS: RGB = [0.12, 0.16, 0.22];
 const TIMBER: RGB = [0.38, 0.25, 0.15];
 const STRIPE: RGB = [0.95, 0.75, 0.1];
+/**
+ * The pad is flattened to exactly y = 0, so a face within this of it would z-fight the
+ * snow. `box` moves such faces clear: up to a visible step, or down out of sight.
+ */
+export const GROUND_GAP = 0.06;
+
+function clearOfGround(y: number): number {
+  if (Math.abs(y) >= GROUND_GAP) return y;
+  return y > 0 ? GROUND_GAP : -GROUND_GAP;
+}
+
+/** Where a station's name board goes: board centre, the way it faces, max width. */
+export interface SignMount {
+  centre: Vector3;
+  facing: Vector3;
+  width: number;
+  /** Free-standing (drag-lift arch): posts from the board's ends down to the ground. */
+  posts?: [Vector3, Vector3];
+}
 
 /** A wall or solid the skier collides with: footprint ring (east, north) and height range. */
 export interface Obstacle {
@@ -37,11 +56,15 @@ export interface Obstacle {
 class TerminalBuilder {
   readonly parts: BufferGeometry[] = [];
   readonly obstacles: Obstacle[] = [];
+  readonly signs: SignMount[] = [];
   private readonly origin: Vector3;
   private readonly u: Vector3;
   private readonly v: Vector3;
 
-  constructor(readonly t: Terminal) {
+  constructor(
+    readonly t: Terminal,
+    private readonly ground: (x: number, z: number) => number,
+  ) {
     this.origin = new Vector3(t.east, t.pad, -t.north);
     this.u = new Vector3(t.dir[0], 0, -t.dir[1]);
     this.v = new Vector3(t.across[0], 0, -t.across[1]);
@@ -66,6 +89,8 @@ class TerminalBuilder {
     colour: RGB,
     solid = false,
   ) {
+    y0 = clearOfGround(y0);
+    y1 = clearOfGround(y1);
     const g = new BoxGeometry(Math.abs(v1 - v0), y1 - y0, Math.abs(u1 - u0)).toNonIndexed();
     const centre = this.world((u0 + u1) / 2, (v0 + v1) / 2, (y0 + y1) / 2);
     // Box local x → v, local z → u.
@@ -84,7 +109,20 @@ class TerminalBuilder {
     }
   }
 
-  /** A column from the footing up, with a concrete foundation block at its base. */
+  /** Direction (world) of a terminal-frame vector. */
+  dirOf(u: number, v: number): Vector3 {
+    return new Vector3().addScaledVector(this.u, u).addScaledVector(this.v, v).normalize();
+  }
+
+  /** Board on a station face at (u, v), board centre `y` above the pad. */
+  sign(u: number, v: number, y: number, facing: Vector3, width: number) {
+    this.signs.push({ centre: this.world(u, v, y), facing, width });
+  }
+
+  /**
+   * A column from the footing up. The concrete plinth under it reaches down to the real
+   * ground, so where the pad blends into a slope it never floats.
+   */
   column(u: number, v: number, height: number, radius = 0.18) {
     const g = new CylinderGeometry(radius, radius, height + 0.6, 8).toNonIndexed();
     g.translate(0, (height + 0.6) / 2 - 0.6, 0);
@@ -92,7 +130,9 @@ class TerminalBuilder {
     g.applyMatrix4(new Matrix4().makeTranslation(at.x, at.y, at.z));
     paint(g, STEEL);
     this.parts.push(g);
-    this.box(u - 0.5, u + 0.5, v - 0.5, v + 0.5, -1.5, 0.25, CONCRETE, true);
+    const foot = this.world(u, v, 0);
+    const below = Math.min(-0.6, this.ground(foot.x, foot.z) - this.origin.y - 0.3);
+    this.box(u - 0.5, u + 0.5, v - 0.5, v + 0.5, below, 0.25, CONCRETE, true);
   }
 
   wheel(rail: number) {
@@ -121,57 +161,110 @@ function paint(g: BufferGeometry, colour: RGB) {
  *   uphill track's side where you walk in and out;
  * - drag: a bullwheel on a post and a small hut.
  */
-function buildTerminal(t: Terminal, rail: number): TerminalBuilder {
-  const b = new TerminalBuilder(t);
+const BOARD_RATIO = 0.19; // sign height / width
+const HOUSING_TOP = 1.9; // bullwheel housing top above the rail (chairs)
+const WALK_HEADROOM = 4.5; // walkway cut height above the pad (pipeline WALK_HEIGHT)
+
+function buildTerminal(
+  t: Terminal,
+  rail: number,
+  ground: (x: number, z: number) => number,
+): TerminalBuilder {
+  const b = new TerminalBuilder(t, ground);
   const r = t.gauge / 2;
   const w = t.width / 2;
   const L = t.length;
   const B = t.back;
+  const roofTop = Math.max(t.roofTop ?? rail + 2.5, rail + 1.5);
+  const side = b.dirOf(0, 1);
+  const backward = b.dirOf(-1, 0);
+  const forward = b.dirOf(1, 0);
+  const at = t.end === 'bottom' ? t.load : t.unload;
   b.wheel(rail);
 
   if (t.kind === 'chair') {
-    const roofY = rail + 1.3;
-    // Portal frame and housing round the bullwheel (above the carriers' grips).
+    // Bullwheel housing on a portal frame (above the carriers' grips), always clearly
+    // under the canopy roof so the two never overlap.
+    const housingTop = rail + HOUSING_TOP;
     for (const v of [-(r + 1.2), r + 1.2]) b.column(-B + 0.6, v, rail + 0.3);
-    b.box(-B, r + 1.5, -(r + 1.6), r + 1.6, rail + 0.3, rail + 2.0, HOUSING);
+    b.box(-B, r + 1.5, -(r + 1.6), r + 1.6, rail + 0.3, housingTop, HOUSING);
+    let signY = (rail + 0.3 + housingTop) / 2;
     if (t.detachable) {
-      // Roof canopy on columns over the slow-moving station section.
+      const roofY = roofTop - 0.25;
       for (const u of [r + 1.5, L * 0.55, L - 0.5]) {
         for (const v of [-w + 0.4, w - 0.4]) b.column(u, v, roofY);
       }
-      b.box(-B, L, -w, w, roofY, roofY + 0.25, ROOF);
+      b.box(-B, L, -w, w, roofY, roofTop, ROOF);
       b.box(-B + 0.5, L - 0.5, -(r + 0.5), r + 0.5, rail + 0.15, rail + 0.4, STEEL); // rail beam
+      signY = roofY - 0.15 - (9 * BOARD_RATIO) / 2;
     }
-    // Operator's hut on the downhill-track side, clear of both tracks.
-    const hu = t.end === 'bottom' ? Math.min(t.load + 2, L - 3) : Math.max(t.unload - 2, 1);
-    hut(b, hu, hu + 3, -w - 3.2, -w - 0.4);
+    if (t.hut) {
+      const hu = Math.max(at - 1.5, 0.5);
+      hut(b, hu, hu + 3, -w - 3.2, -w - 0.4);
+    }
     if (t.end === 'bottom') {
-      // Loading-line gate: two posts and a bar, just behind the loading point.
+      // Loading-line gate, just behind the loading point.
       for (const v of [r - 0.9, r + 0.9])
         b.box(t.load - 1.4, t.load - 1.3, v - 0.04, v + 0.04, 0, 1.1, STRIPE);
       b.box(t.load - 1.4, t.load - 1.3, r - 0.9, r + 0.9, 1.05, 1.12, STRIPE);
+      // Name board over the way in: canopy (or housing) edge facing the entrance.
+      if (t.entrance === 'back') {
+        b.sign(-B - 0.08, 0, signY, backward, t.detachable ? t.width - 0.6 : 2 * r + 3);
+      } else if (t.detachable) {
+        b.sign(at, w + 0.08, signY, side, 9);
+      } else {
+        b.sign((r + 1.5 - B) / 2, r + 1.68, signY, side, 3.2);
+      }
+    } else {
+      // Arriving riders see it on the line end.
+      const u = t.detachable ? L + 0.08 : r + 1.58;
+      b.sign(u, 0, signY, forward, t.detachable ? t.width - 0.6 : 2 * r + 3);
     }
   } else if (t.kind === 'gondola' || t.kind === 'cabin') {
-    const roofY = rail + (t.kind === 'cabin' ? 2 : 1.2);
-    const doorAt = t.end === 'bottom' ? t.load : t.unload;
-    const door: [number, number] = [doorAt - 3, doorAt + 3];
-    // Foundation slab edge (visible where the ground falls away).
-    b.box(-B, L, -w, w, -2.5, -0.02, CONCRETE);
-    // Back wall, side walls (uphill side has the door gap), roof.
-    b.box(-B, -B + 0.4, -w, w, 0, roofY, WALL, true);
+    const roofY = roofTop - 0.45;
+    // Door on the entrance side: in the side wall at the (un)loading point, or in the back
+    // wall beside the uphill track (outside the carriers' loop).
+    const door: [number, number] = [at - 3, at + 3];
+    const backDoor: [number, number] = [r + 0.8, Math.min(r + 4.8, w - 0.4)];
+    const sideDoor = t.entrance !== 'back';
+    const doorTop = Math.min(2.8, roofY - 0.8);
+    b.box(-B, L, -w, w, -2.5, 0.08, CONCRETE); // platform on its foundation
+    if (sideDoor) {
+      b.box(-B, -B + 0.4, -w, w, 0, roofY, WALL, true);
+      b.box(-B, door[0], w - 0.4, w, 0, roofY, WALL, true);
+      b.box(door[1], L, w - 0.4, w, 0, roofY, WALL, true);
+      b.box(door[0], door[1], w - 0.4, w, doorTop, roofY, WALL); // lintel
+    } else {
+      b.box(-B, -B + 0.4, -w, backDoor[0], 0, roofY, WALL, true);
+      b.box(-B, -B + 0.4, backDoor[1], w, 0, roofY, WALL, true);
+      b.box(-B, -B + 0.4, backDoor[0], backDoor[1], doorTop, roofY, WALL); // lintel
+      b.box(-B, L, w - 0.4, w, 0, roofY, WALL, true);
+    }
     b.box(-B, L, -w, -w + 0.4, 0, roofY, WALL, true);
-    b.box(-B, door[0], w - 0.4, w, 0, roofY, WALL, true);
-    b.box(door[1], L, w - 0.4, w, 0, roofY, WALL, true);
-    b.box(door[0], door[1], w - 0.4, w, 2.6, roofY, WALL); // lintel over the door
-    // Window bands.
     b.box(-B + 1, L - 1, -w - 0.02, -w + 0.42, roofY * 0.55, roofY * 0.85, GLASS);
-    b.box(door[1] + 0.5, L - 1, w - 0.42, w + 0.02, roofY * 0.55, roofY * 0.85, GLASS);
-    b.box(-B - 0.5, L + 0.8, -w - 0.5, w + 0.5, roofY, roofY + 0.45, ROOF);
+    b.box(-B - 0.5, L + 0.8, -w - 0.5, w + 0.5, roofY, roofTop, ROOF);
     b.box(-B + 0.5, L - 0.5, -(r + 0.6), r + 0.6, rail + 0.2, rail + 0.5, STEEL); // rail beam
+    // Name board above the door, inside the walkway the pipeline cuts through any
+    // building in front of it (6 m wide / 4 m at the back, 4.5 m headroom).
+    const opening = sideDoor ? door[1] - door[0] : backDoor[1] - backDoor[0];
+    const room = Math.min(roofY, WALK_HEADROOM) - doorTop - 0.3;
+    const boardW = Math.min(opening - 0.4, Math.max(2.4, room / BOARD_RATIO));
+    const signY = doorTop + 0.15 + (boardW * BOARD_RATIO) / 2;
+    if (sideDoor) b.sign(at, w + 0.08, signY, side, boardW);
+    else b.sign(-B - 0.08, (backDoor[0] + backDoor[1]) / 2, signY, backward, boardW);
   } else {
-    // Drag lift: bullwheel post and a small hut.
+    // Drag lift: bullwheel post, a small hut, and a name board on an arch over the track.
     b.column(0, 0, rail, 0.25);
-    hut(b, 1, 3.5, -t.width / 2 - 3, -t.width / 2 - 0.5);
+    if (t.hut) hut(b, 1, 3.5, -w - 3, -w - 0.5);
+    const bw = 3.2;
+    const u = t.end === 'bottom' ? t.load + 1.5 : t.unload - 1.5;
+    const y = 2.4 + (bw * BOARD_RATIO) / 2;
+    b.signs.push({
+      centre: b.world(u, r, y),
+      facing: t.end === 'bottom' ? backward : forward,
+      width: bw,
+      posts: [b.world(u, r - bw / 2 - 0.1, 0), b.world(u, r + bw / 2 + 0.1, 0)],
+    });
   }
   return b;
 }
@@ -186,16 +279,18 @@ function hut(b: TerminalBuilder, u0: number, u1: number, v0: number, v1: number)
  * All terminals merged into one mesh (one draw call), plus their collision obstacles.
  * `rails` gives each terminal's rail height above its pad.
  */
-export function createTerminals(terminals: { terminal: Terminal; rail: number }[]): {
-  mesh: Mesh;
-  obstacles: Obstacle[];
-} {
+export function createTerminals(
+  terminals: { terminal: Terminal; rail: number }[],
+  ground: (x: number, z: number) => number,
+): { mesh: Mesh; obstacles: Obstacle[]; signs: SignMount[][] } {
   const parts: BufferGeometry[] = [];
   const obstacles: Obstacle[] = [];
+  const signs: SignMount[][] = [];
   for (const { terminal, rail } of terminals) {
-    const built = buildTerminal(terminal, rail);
+    const built = buildTerminal(terminal, rail, ground);
     parts.push(...built.parts);
     obstacles.push(...built.obstacles);
+    signs.push(built.signs);
   }
   const geometry = parts.length ? mergeGeometries(parts)! : new BoxGeometry(0, 0, 0);
   geometry.computeVertexNormals();
@@ -207,5 +302,5 @@ export function createTerminals(terminals: { terminal: Terminal; rail: number }[
   mesh.name = 'lift-terminals';
   mesh.castShadow = true;
   mesh.receiveShadow = true;
-  return { mesh, obstacles };
+  return { mesh, obstacles, signs };
 }

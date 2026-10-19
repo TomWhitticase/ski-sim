@@ -19,10 +19,9 @@ import { GliderControls } from './controls/glider-controls';
 import { Input } from './controls/input';
 import { EYE_HEIGHT, SkiControls } from './controls/ski-controls';
 import { Environment } from './env/environment';
-import { BuildingIndex } from './features/building-index';
 import { ObstacleIndex } from './features/obstacles';
 import { createBuildings } from './features/buildings';
-import type { Building, ResortFeatures, Terminal } from './features/types';
+import type { ResortFeatures } from './features/types';
 import { Heightmap } from './geo/heightmap';
 import { LocalFrame, worldToEnu } from './geo/local-frame';
 import { type HeightmapMeta, loadManifest, resortUrl } from './resort/manifest';
@@ -213,18 +212,7 @@ async function main(): Promise<void> {
     })),
     ...lifts.obstacles,
   ]);
-  // Signs stand clear of buildings and terminals (world z = -north).
-  const buildingIndex = new BuildingIndex(
-    [
-      ...features.buildings,
-      ...lifts.lines.flatMap((l) =>
-        [l.bottomTerminal, l.topTerminal].map((t) => terminalFootprint(t)),
-      ),
-    ],
-    1.5,
-  );
-  const insideBuilding = (x: number, z: number) => buildingIndex.contains(x, -z);
-  scene.add(lifts.root, createLiftSigns(lifts.lines, groundHeight, insideBuilding));
+  scene.add(lifts.root, createLiftSigns(lifts.lines, lifts.signMounts));
   const ride = new RideControls(camera, lifts, ski);
   let mode: Mode = loadMode();
   const controls = () =>
@@ -755,28 +743,6 @@ function loadPrefs(): Prefs {
   } catch {
     return defaults;
   }
-}
-
-/** A terminal's hall as a building footprint (for keeping signs clear of it). */
-function terminalFootprint(t: Terminal): Building {
-  const corner = (u: number, v: number): [number, number] => [
-    t.east + t.dir[0] * u + t.across[0] * v,
-    t.north + t.dir[1] * u + t.across[1] * v,
-  ];
-  const w = t.width / 2 + 1;
-  return {
-    id: -1,
-    type: 'lift_station',
-    footprint: [
-      corner(-t.back - 1, -w),
-      corner(t.length + 1, -w),
-      corner(t.length + 1, w),
-      corner(-t.back - 1, w),
-    ],
-    base: t.pad - 2,
-    top: t.pad + 10,
-    heightSource: 'estimate',
-  };
 }
 
 function formatWait(seconds: number): string {

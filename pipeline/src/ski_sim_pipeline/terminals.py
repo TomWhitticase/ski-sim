@@ -4,9 +4,12 @@ For each end of each lift this decides the terminal's kind and size from the lif
 and specs. It then:
 - flattens a pad (and, at the top of chairs and drags, a ski-off ramp) into the
   terrain, blended into the surrounding lidar, with nearby terminals sharing one height;
-- cuts buildings so nothing clips: a building that *is* the station is replaced by the
-  generated terminal, and any other building loses the slice the terminal or the cable
-  passes through.
+- picks each terminal's entrance side (side door or behind the bullwheel) where it's
+  least built-up, and guarantees a walkway from it out to open snow;
+- cuts buildings only as much as needed, as 3D volumes: the station up to its roof, the
+  walkways up to head height, the cable corridor only between the carriers' lowest point
+  and the rope. Whatever is above a cut stays (so a station sits in a building's ground
+  floor, roofed by the rest of it); a small building that *is* the station is replaced.
 
 Conventions (local ENU metres): `dir` is the unit vector from a terminal's bullwheel into
 the line (toward the other end). `across` is the right-hand perpendicular of the
@@ -20,7 +23,7 @@ import logging
 import math
 
 import numpy as np
-from shapely.geometry import LineString, MultiPolygon, Polygon
+from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
 from .grid import Grid
@@ -40,11 +43,27 @@ KIND = {
 }
 #: Speed (m/s) above which a chairlift must be detachable (fixed grips top out ~2.5 m/s).
 DETACHABLE_SPEED = 3.2
-PAD_MARGIN = 4.0  # flat ground around the terminal (m)
+PAD_MARGIN = 6.0  # flat ground around the terminal (m), past every column and footing
 FALLOFF = 14.0  # blend from the pad back into the lidar (m)
 RAMP = {"length": 14.0, "drop": 2.4, "halfWidth": 4.0}
 CLUSTER_DISTANCE = 45.0
 CUT_MARGIN = 0.1  # terminals this close share one pad height (m)
+#: Station top above the pad: rope height + structure above it (canopy, roof, housing).
+ROOF_ABOVE_RAIL = {"chair": 2.1, "chair-detachable": 2.6, "gondola": 1.9, "cabin": 2.7, "drag": 1.5}
+#: The operator's hut stands this far out on the hall's -across side (chair and drag).
+HUT_DEPTH = 3.6
+#: Walkways: minimum length, how far they may tunnel through buildings, width, headroom.
+WALK_MIN = 5.0
+WALK_MAX = 25.0
+#: Side walkways match the sim's 6 m side door; back ones its 4 m door beside the track.
+#: The headroom leaves room for the name board over the door.
+WALK_HALF_WIDTH = 3.0
+BACK_WALK = (0.8, 4.8)
+WALK_HEIGHT = 4.5
+#: Building slabs thinner than this left above a cut are dropped, not floated.
+MIN_SLAB = 2.0
+#: Rope corridor cut piece length (m): the cut follows the rope height this finely.
+CABLE_STEP = 4.0
 #: How far below the cable a carrier and its load reach (m), for building clearance.
 HANG_DEPTH = {"chair": 3.2, "gondola": 4.6, "cabin": 8.5, "drag": 99.0}
 
@@ -93,7 +112,16 @@ def plan(lifts: list[dict]) -> list[dict]:
         across = np.array([along[1], -along[0]])
         det = detachable(lift)
         dims = dimensions(kind, lift["gauge"], det)
-        for end, at, nxt in (("bottom", b, s[1]), ("top", t, s[-2])):
+
+        def beyond(at, seq, dims=dims):
+            # Aim along the line, not at a tower that may sit inside the station.
+            for sup in seq:
+                p = np.array([sup["east"], sup["north"]])
+                if np.hypot(*(p - at)) > dims["length"] + 10:
+                    return sup
+            return seq[-1]
+
+        for end, at, nxt in (("bottom", b, beyond(b, s[1:])), ("top", t, beyond(t, s[-2::-1]))):
             d = np.array([nxt["east"], nxt["north"]]) - at
             d = d / max(np.hypot(*d), 1e-6)
             ramp = None
@@ -112,9 +140,21 @@ def plan(lifts: list[dict]) -> list[dict]:
                     "gauge": lift["gauge"],
                     **dims,
                     "ramp": ramp,
+                    "hut": kind in ("chair", "drag"),
+                    "roofTop": round(_rail(kind) + ROOF_ABOVE_RAIL[_roof_key(kind, det)], 2),
                 }
             )
     return out
+
+
+def _rail(kind: str) -> float:
+    from .approach import RAIL
+
+    return RAIL[kind]
+
+
+def _roof_key(kind: str, det: bool) -> str:
+    return "chair-detachable" if kind == "chair" and det else kind
 
 
 def _frame(t: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -125,13 +165,16 @@ def hall_polygon(t: dict, margin: float = 0.8) -> Polygon:
     """The station hall's footprint (what buildings are cut away from)."""
     o, d, a = _frame(t)
     w = t["width"] / 2 + margin
-    corners = [
-        o + d * (-t["back"] - margin) + a * -w,
-        o + d * (t["length"] + margin) + a * -w,
-        o + d * (t["length"] + margin) + a * w,
-        o + d * (-t["back"] - margin) + a * w,
-    ]
-    return Polygon(corners)
+    w_hut = w + (HUT_DEPTH if t.get("hut") else 0.0)
+    return _rect(t, -t["back"] - margin, t["length"] + margin, -w_hut, w)
+
+
+def _rect(t: dict, u0: float, u1: float, v0: float, v1: float) -> Polygon:
+    """Rectangle in a terminal's (u along dir, v along across) frame."""
+    o, d, a = _frame(t)
+    return Polygon(
+        [o + d * u0 + a * v0, o + d * u1 + a * v0, o + d * u1 + a * v1, o + d * u0 + a * v1]
+    )
 
 
 def _rect_stamp(
@@ -177,7 +220,8 @@ def _rect_stamp(
 
 def _pad_ranges(t: dict) -> tuple[tuple[float, float], tuple[float, float]]:
     w = t["width"] / 2 + PAD_MARGIN
-    return (-t["back"] - PAD_MARGIN, t["length"] + PAD_MARGIN), (-w, w)
+    hut = HUT_DEPTH if t.get("hut") else 0.0
+    return (-t["back"] - PAD_MARGIN, t["length"] + PAD_MARGIN), (-w - hut, w)
 
 
 def flatten(terminals: list[dict], heights: np.ndarray, grid: Grid, ground) -> None:
@@ -262,104 +306,273 @@ def _on_pads(terminals: list[dict], east: np.ndarray, north: np.ndarray) -> np.n
     return mask
 
 
-def cut_buildings(
-    buildings: list[dict], lifts: list[dict], terminals: list[dict], roof
-) -> tuple[list[dict], dict]:
-    """Remove what lifts pass through. Returns (buildings, stats)."""
-    halls = [hall_polygon(t) for t in terminals]
-    cuts: list[tuple[Polygon, float | None]] = [(h, None) for h in halls]
-    # Cable corridors: below the carriers' lowest point nothing may stand.
-    by_id = {lift["id"]: lift for lift in lifts}
-    for lift in by_id.values():
+# --- Entrances and walkways -------------------------------------------------------------
+
+
+def _walk_rect(t: dict, side: str, length: float) -> Polygon:
+    """A walkway `length` m long from the station out to the snow, on `side`."""
+    w = t["width"] / 2
+    r = t["gauge"] / 2
+    at = t["load"] if t["end"] == "bottom" else t["unload"]
+    if side == "side":
+        return _rect(t, at - WALK_HALF_WIDTH, at + WALK_HALF_WIDTH, w, w + length)
+    if side == "back":
+        # Behind the bullwheel, beside the uphill track (outside the carriers' loop).
+        return _rect(t, -t["back"] - length, -t["back"], r + BACK_WALK[0], r + BACK_WALK[1])
+    ramp = t["ramp"]
+    return _rect(
+        t, -t["back"] - ramp["length"], t["unload"], r - ramp["halfWidth"], r + ramp["halfWidth"]
+    )
+
+
+def _blocked(polygon: Polygon, tree, footprints: list[Polygon]) -> float:
+    hits = [footprints[int(i)] for i in tree.query(polygon)]
+    if not hits:
+        return 0.0
+    return unary_union([h.intersection(polygon) for h in hits]).area / polygon.area
+
+
+def choose_entrances(terminals: list[dict], buildings: list[dict]) -> None:
+    """Set each terminal's `entrance` (bottom) / exit (top) side and walkway length.
+
+    Candidates: a door/gate in the side of the hall at the loading point, or a way in from
+    behind the bullwheel. The least built-up wins (ties: side). Chair and drag tops always
+    exit down the ski-off ramp. The walkway runs WALK_MIN m, extended (tunnelling through
+    buildings) until it reaches open snow, up to WALK_MAX.
+    """
+    from shapely.strtree import STRtree
+
+    footprints = [Polygon(b["footprint"]).buffer(0) for b in buildings]
+    tree = STRtree(footprints)
+    for t in terminals:
+        if t["end"] == "top" and t["ramp"]:
+            t["entrance"] = "ramp"
+            t["walk"] = t["ramp"]["length"]
+            continue
+        scores = {
+            side: _blocked(_walk_rect(t, side, 12.0), tree, footprints) for side in ("side", "back")
+        }
+        side = "side" if scores["side"] <= scores["back"] + 0.05 else "back"
+        length = WALK_MIN
+        while length < WALK_MAX:
+            ahead = _walk_rect(t, side, length + 2).difference(_walk_rect(t, side, length))
+            if _blocked(ahead, tree, footprints) < 0.05:
+                break
+            length += 2
+        t["entrance"] = side
+        t["walk"] = round(length + 2, 1)
+
+
+# --- Volumetric building cuts -----------------------------------------------------------
+
+NO_FLOOR = -1e9
+
+
+def cut_volumes(
+    lifts: list[dict], terminals: list[dict]
+) -> list[tuple[Polygon, float, float, str]]:
+    """Spaces lifts need: (footprint, from height, to height, what)."""
+    cuts = []
+    for t in terminals:
+        cuts.append((hall_polygon(t), NO_FLOOR, t["pad"] + t["roofTop"] + 0.6, "hall"))
+        side = t.get("entrance")
+        if side:
+            cuts.append(
+                (_walk_rect(t, side, t["walk"]), NO_FLOOR, t["pad"] + WALK_HEIGHT, "walkway")
+            )
+    for lift in lifts:
         kind = KIND.get(lift["type"])
         if kind is None:
             continue
         s = lift["supports"]
         width = lift["gauge"] / 2 + 2.2
         for a, b in zip(s, s[1:], strict=False):
-            corridor = LineString([(a["east"], a["north"]), (b["east"], b["north"])]).buffer(
-                width, cap_style="flat"
-            )
-            floor = min(a["top"], b["top"]) - HANG_DEPTH[kind] - 0.5
-            cuts.append((corridor, floor))
+            ax, ay, bx, by = a["east"], a["north"], b["east"], b["north"]
+            span = math.hypot(bx - ax, by - ay)
+            if span < 1e-3:
+                continue
+            # The rope is level through a station, then runs straight to the next support.
+            # Cut in short pieces that follow it, so a climbing rope doesn't slice a tall
+            # wedge out of every building it passes over.
+            level_a = _station_length(a, terminals)
+            level_b = span - _station_length(b, terminals)
 
+            def rope(d, a=a, b=b, span=span, level_a=level_a, level_b=level_b):
+                if level_b <= level_a:
+                    return a["top"] + (b["top"] - a["top"]) * d / span
+                f = min(max((d - level_a) / (level_b - level_a), 0.0), 1.0)
+                return a["top"] + (b["top"] - a["top"]) * f
+
+            n = max(1, math.ceil(span / CABLE_STEP))
+            for k in range(n):
+                d0, d1 = span * k / n, span * (k + 1) / n
+                piece = LineString(
+                    [
+                        (ax + (bx - ax) * d0 / span, ay + (by - ay) * d0 / span),
+                        (ax + (bx - ax) * d1 / span, ay + (by - ay) * d1 / span),
+                    ]
+                ).buffer(width, cap_style="flat")
+                hs = [rope(d) for d in (d0, d1, level_a, level_b) if d0 <= d <= d1]
+                low = NO_FLOOR if kind == "drag" else min(hs) - HANG_DEPTH[kind] - 0.5
+                cuts.append((piece, low, max(hs) + 1.5, "cable"))
+    return cuts
+
+
+def _station_length(support: dict, terms: list[dict]) -> float:
+    """How far the rope runs level from this support (its terminal's hall), else 0."""
+    if support.get("kind") != "station":
+        return 0.0
+    for t in terms:
+        if math.hypot(t["east"] - support["east"], t["north"] - support["north"]) < 1.0:
+            return t["length"]
+    return 0.0
+
+
+def _split_holes(polygon: Polygon) -> list[Polygon]:
+    """Rings can't have holes in the renderer: cut through each hole until none remain."""
+    if polygon.is_empty:
+        return []
+    if not polygon.interiors:
+        return [polygon]
+    from shapely.ops import split
+
+    hole = Polygon(polygon.interiors[0])
+    cx = hole.centroid.x
+    minx, miny, maxx, maxy = polygon.bounds
+    parts = split(polygon, LineString([(cx, miny - 1), (cx, maxy + 1)]))
+    out: list[Polygon] = []
+    for g in parts.geoms:
+        if isinstance(g, Polygon):
+            out += _split_holes(g)
+    return out
+
+
+def _polygons(geom) -> list[Polygon]:
+    # Drop the collinear vertices left where neighbouring cut pieces meet.
+    geom = geom.simplify(0.02, preserve_topology=True)
+    if geom.is_empty:
+        return []
+    if isinstance(geom, Polygon):
+        return _split_holes(geom)
+    out: list[Polygon] = []
+    for g in getattr(geom, "geoms", []):
+        if isinstance(g, Polygon):
+            out += _split_holes(g)
+    return out
+
+
+def _full_top(b: dict) -> float:
+    return b["top"] + ((b.get("roof") or {}).get("rise") or 0.0)
+
+
+def _clip_roof(roof: dict | None, piece: Polygon) -> dict | None:
+    if not roof:
+        return None
+    faces = []
+    for face in roof["faces"]:
+        for part in _polygons(Polygon(face).buffer(0).intersection(piece)):
+            if part.area > 0.05:
+                faces.append(np.round(np.asarray(part.exterior.coords)[:-1], 2).tolist())
+    return {**roof, "faces": faces} if faces else None
+
+
+def cut_buildings(buildings: list[dict], cuts: list[tuple], halls: list[tuple] | None = None):
+    """Apply volumetric `cuts` to buildings. Returns (buildings, stats).
+
+    A building mostly inside a station hall and not much taller than it *is* the
+    station: it's replaced by the generated terminal. Otherwise each building is split:
+    what's outside a cut stays as it was; inside it, anything below the cut's floor stays
+    (flat-topped) and anything above its ceiling stays as a raised piece (keeping its
+    original roof), unless it would be a sliver thinner than MIN_SLAB.
+    """
     from shapely.strtree import STRtree
 
-    tree = STRtree([c for c, _ in cuts])
-    stats = {"removedAsStation": 0, "cut": 0}
+    tree = STRtree([c[0] for c in cuts])
+    hall_cuts = [c for c in cuts if c[3] == "hall"]
+    stats = {"removedAsStation": 0, "cut": 0, "raisedPieces": 0}
     out: list[dict] = []
     for b in buildings:
-        polygon = Polygon(b["footprint"])
-        if not polygon.is_valid:
-            polygon = polygon.buffer(0)
-        top = b["top"] + ((b.get("roof") or {}).get("rise") or 0)
-        hits = []
-        for i in tree.query(polygon):
-            shape, floor = cuts[int(i)]
-            if floor is not None and top < floor:
-                continue  # the cable passes well over it
-            if shape.intersects(polygon) and shape.intersection(polygon).area > 0.05:
-                hits.append((int(i), shape))
-        if not hits:
-            out.append(b)
-            continue
-        # Mostly inside a station hall: it *is* the station; the terminal replaces it.
-        hall_area = sum(polygon.intersection(s).area for i, s in hits if i < len(halls))
-        if hall_area > 0.5 * polygon.area:
-            stats["removedAsStation"] += 1
-            continue
-        # Cut 10 cm generously: coordinates are rounded to 1 cm on output, which must not
-        # creep back into the cleared space.
-        remainder = polygon.difference(unary_union([s.buffer(CUT_MARGIN) for _, s in hits]))
-        pieces = list(remainder.geoms) if isinstance(remainder, MultiPolygon) else [remainder]
-        if any(len(p.interiors) for p in pieces if not p.is_empty):
-            # A station inside a big building: slice clean through so there are no holes.
-            minx, miny, maxx, maxy = polygon.bounds
-            span = math.hypot(maxx - minx, maxy - miny)
-            slices = []
-            for i, _shape in hits:
-                if i < len(halls):
-                    t = terminals[i]
-                    o, d, a = _frame(t)
-                    w = t["width"] / 2 + 0.8
-                    slices.append(
-                        Polygon(
-                            [
-                                o + d * -span + a * -w,
-                                o + d * span + a * -w,
-                                o + d * span + a * w,
-                                o + d * -span + a * w,
-                            ]
-                        )
-                    )
-            remainder = polygon.difference(
-                unary_union([s.buffer(CUT_MARGIN) for _, s in hits] + slices)
-            )
-            pieces = list(remainder.geoms) if isinstance(remainder, MultiPolygon) else [remainder]
-        stats["cut"] += 1
-        for k, piece in enumerate(pieces):
-            if piece.is_empty or piece.area < 10 or len(piece.interiors):
-                continue
-            ring = np.round(np.asarray(piece.exterior.coords)[:-1], 2).tolist()
-            out.append(
+        polygon = Polygon(b["footprint"]).buffer(0)
+        top = _full_top(b)
+        for hall, _, ceiling, _ in hall_cuts:
+            if polygon.intersection(hall).area > 0.5 * polygon.area and top <= ceiling + 3:
+                stats["removedAsStation"] += 1
+                break
+        else:
+            pieces = [
                 {
-                    **b,
-                    "id": b["id"] * 10 + k if len(pieces) > 1 else b["id"],
-                    "footprint": ring,
-                    "roof": roof(piece, b["type"]),
+                    "polygon": polygon,
+                    "base": b["base"],
+                    "top": b["top"],
+                    "roof": b.get("roof"),
+                    "raised": False,
                 }
-            )
+            ]
+            touched = False
+            for i in tree.query(polygon):
+                shape, z0, z1, _ = cuts[int(i)]
+                margin_shape = shape.buffer(CUT_MARGIN, join_style=2)
+                next_pieces = []
+                for p in pieces:
+                    p_top = p["top"] + ((p["roof"] or {}).get("rise") or 0.0)
+                    inside = p["polygon"].intersection(margin_shape)
+                    if z0 >= p_top or z1 <= p["base"] or inside.area < 0.05:
+                        next_pieces.append(p)
+                        continue
+                    touched = True
+                    for q in _polygons(p["polygon"].difference(margin_shape)):
+                        next_pieces.append({**p, "polygon": q, "roof": _clip_roof(p["roof"], q)})
+                    for q in _polygons(inside):
+                        if z0 > p["base"] + 1.0:  # below the cut: flat-topped stub
+                            stub_top = min(p["top"], z0)
+                            roof = _clip_roof(p["roof"], q) if z0 >= p_top else None
+                            next_pieces.append({**p, "polygon": q, "top": stub_top, "roof": roof})
+                        if z1 < p["top"] and p_top - z1 >= MIN_SLAB:  # above it: raised
+                            next_pieces.append(
+                                {
+                                    **p,
+                                    "polygon": q,
+                                    "base": max(z1, p["base"]),
+                                    "roof": _clip_roof(p["roof"], q),
+                                    "raised": True,
+                                }
+                            )
+                pieces = next_pieces
+            if not touched:
+                out.append(b)
+                continue
+            stats["cut"] += 1
+            kept = [p for p in pieces if p["polygon"].area >= 4]
+            for k, p in enumerate(kept):
+                stats["raisedPieces"] += p["raised"]
+                out.append(
+                    {
+                        **b,
+                        "id": b["id"] * 100 + k,
+                        "footprint": np.round(
+                            np.asarray(p["polygon"].exterior.coords)[:-1], 2
+                        ).tolist(),
+                        "base": round(p["base"], 2),
+                        "top": round(p["top"], 2),
+                        "roof": p["roof"],
+                        "raised": p["raised"],
+                    }
+                )
     return out, stats
 
 
-def conflicts(buildings: list[dict], lifts: list[dict], terminals: list[dict]) -> list[str]:
-    """Invariant check: anything still in a hall or under a cable. Empty = fine."""
-    remaining, stats = cut_buildings(buildings, lifts, terminals, lambda p, k: None)
-    problems = []
-    if stats["removedAsStation"] or stats["cut"]:
-        problems.append(
-            f"{stats['removedAsStation'] + stats['cut']} buildings still intersect lift halls "
-            "or cable corridors"
-        )
-    del remaining
-    return problems
+def conflicts(buildings: list[dict], cuts: list[tuple]) -> list[str]:
+    """Invariant: no building volume overlaps a lift's space. Empty = fine."""
+    from shapely.strtree import STRtree
+
+    tree = STRtree([c[0] for c in cuts])
+    bad: dict[str, int] = {}
+    for b in buildings:
+        polygon = Polygon(b["footprint"]).buffer(0)
+        lo, hi = b["base"], _full_top(b)
+        for i in tree.query(polygon):
+            shape, z0, z1, what = cuts[int(i)]
+            if min(hi, z1) - max(lo, z0) > 0.05 and polygon.intersection(shape).area > 0.05:
+                bad[what] = bad.get(what, 0) + 1
+                break
+    return [f"{n} buildings intrude on lift {what} space" for what, n in bad.items()]

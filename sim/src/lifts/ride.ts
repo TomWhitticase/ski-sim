@@ -89,17 +89,8 @@ export class RideControls {
   approach(line: number, from: Vector3, lookYaw: number): void {
     this.line = line;
     const l = this.lineObj;
-    const t = l.bottomTerminal;
     this.waypoints.length = 0;
-    if (l.op.kind === 'gondola' || l.op.kind === 'cabin') {
-      // In through the door on the uphill side, then to your spot beside the track.
-      const outside = l.loadPoint
-        .clone()
-        .addScaledVector(l.across, t.width / 2 - t.gauge / 2 + 2.5);
-      this.waypoints.push(outside, l.loadPoint.clone().addScaledVector(l.across, 1.4));
-    } else {
-      this.waypoints.push(l.loadPoint.clone());
-    }
+    this.waypoints.push(...l.entryPath());
     this.feet.copy(from);
     this.lastFeet.copy(from);
     this.look.yaw = lookYaw;
@@ -192,8 +183,9 @@ export class RideControls {
     const out = new Vector3(-t.dir[0], 0, t.dir[1]); // onward, past the bullwheel
     const velocity = new Vector3();
     if (line.op.kind === 'gondola' || line.op.kind === 'cabin') {
-      // Out through the door on the uphill side.
-      velocity.copy(line.across).multiplyScalar(2).addScaledVector(out, 0.3);
+      // Out through the station's exit door: in its side wall, or round the back.
+      if (t.entrance === 'back') velocity.copy(out).multiplyScalar(2);
+      else velocity.copy(line.across).multiplyScalar(2).addScaledVector(out, 0.3);
     } else {
       const speed = Math.max(Math.hypot(this.velocity.x, this.velocity.z) / this.lifts.rate, 2.5);
       velocity.copy(out).multiplyScalar(speed);

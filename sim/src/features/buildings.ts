@@ -122,6 +122,19 @@ export function buildBuildingGeometry(buildings: Building[]): BufferGeometry {
       }
     }
 
+    // Raised pieces (left above a station, walkway or cable cut) need an underside.
+    if (b.raised) {
+      const contour = ring.map(([e, n]) => new Vector2(e, n));
+      for (const [i0, i1, i2] of ShapeUtils.triangulateShape(contour, [])) {
+        const p0 = ring[i0!]!;
+        let p1 = ring[i1!]!;
+        let p2 = ring[i2!]!;
+        const cross = (p1[0] - p0[0]) * (p2[1] - p0[1]) - (p1[1] - p0[1]) * (p2[0] - p0[0]);
+        if (cross > 0) [p1, p2] = [p2, p1]; // clockwise from above: faces down
+        for (const [e, n] of [p0, p1, p2]) vertex(e, b.base, n, e, 0.5, STYLE.render, 1);
+      }
+    }
+
     // Roof: each face is planar, so triangulate it and lift the vertices onto the roof.
     const faces = b.roof ? b.roof.faces : [ring];
     for (const face of faces) {

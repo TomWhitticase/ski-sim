@@ -194,13 +194,16 @@ P deploys a paraglider from fly or ski mode, keeping your velocity; P again drop
 - **Kind and size:** chair (detachable or fixed), gondola, cable car or drag, sized from gauge and type. Detachable means published speed over 3.2 m/s, any gondola, or 6+ seats.
 - **Pads:** a flat pad under each terminal, with nearby terminals sharing one height. Chair and drag tops also get a ski-off ramp that drops 2.4 m from the unload point, so the chair passes overhead. Ramps never carve another terminal's pad.
 - **Ordering:** pads are flattened *before* buildings and lifts are placed, so everything sits on the final ground.
-- **Building cuts:** a building mostly inside a hall *is* the station and is replaced. Otherwise the hall and the cable corridor (below the lowest carrier) are cut out of it. A station inside a big building gets sliced clean through, so there are no holes. Cuts repeat until stable, with a 10 cm margin against coordinate rounding.
+- **Approach (`approach.py`):** OSM towers know nothing about our stations. Towers inside a station or within `MIN_GAP` of its exit are dropped. Walking outward from each exit, tower tops are adjusted so the rope leaves at most `MAX_EXIT_ANGLE` from level (18° chairs/gondolas, 35° cable cars) and bends at most 14° per tower, within buildable tower heights. Clearance towers are then re-inserted. Changed towers get `adjusted: true`, and the build logs any steep exits left (the terrain can force one).
+- **Entrances:** `choose_entrances` picks each bottom station's way in (and top's way out): a side door at the (un)loading point, or the back wall beside the uphill track, whichever is less built-up. Chair and drag tops use the ramp. A walkway (6 m wide, 4.5 m headroom, 5–25 m long until it reaches open snow) is guaranteed in front of it.
+- **Building cuts are 3D volumes** (`cut_volumes`, `cut_buildings`): the hall up to its roof, the walkway up to its headroom, and the rope corridor between the carriers' lowest point and the rope. The rope corridor is cut in 4 m pieces that follow the rope's height, so a climbing rope doesn't slice a wedge out of everything it passes over. What's above a cut stays as a `raised` piece (rendered with an underside), so a station sits in a building's ground floor roofed by the rest of it. A small building mostly inside a hall *is* the station and is replaced. Corners are mitred (10 cm margin), holes are split, and collinear vertices dropped.
 - **Check:** `conflicts()` must report nothing (logged as an ERROR otherwise, and recorded in `manifest.validation.liftClearance`).
 
 **Sim.**
 - `lifts/loop.ts`: each loop lift is one continuous path: up track, round the top bullwheel, down track, round the bottom one. Carriers are spaced in *time*, so detachables crawl through stations (chairs 1 m/s, gondolas 0.35 m/s) and bunch there. Jig-back cable cars use two docked tracks.
 - `lifts/operation.ts`: line speed, headway and capacity.
-- `lifts/terminals.ts`: station meshes (chair: housing, canopy, hut, loading gate; gondola/cable car: enclosed hall with a door gap on the uphill side; drag: post and hut), merged into one draw call, plus their collision obstacles.
+- `lifts/terminals.ts`: station meshes (chair: bullwheel housing always below the canopy, hut, loading gate; gondola/cable car: enclosed hall with its door on the pipeline's chosen entrance; drag: post, hut and a name arch), merged into one draw call, plus their collision obstacles. Column plinths reach down to the real ground, so footings never float. Each terminal also returns `SignMount`s: the name board goes over the entrance (bottom) or on the line end (top), sized to fit inside the walkway, and `signs.ts` draws them.
+- **No face on the snow:** pads are flattened to exactly the station's y = 0, so `TerminalBuilder.box` moves any face within `GROUND_GAP` (6 cm) of it up or down; `terminals.test.ts` checks every vertex. Use the same rule (a visible step, never a coincident plane) for anything placed on generated ground.
 - `lifts/lift-system.ts`: carriers, statics, and the load and unload points with "has a carrier just passed?" timing (`nextToLoad`, `passed`).
 - `LiftSystem.check()` (console error, so the e2e tests fail): continuous paths, and loading/unloading points on their pads.
 
@@ -212,6 +215,15 @@ P deploys a paraglider from fly or ski mode, keeping your velocity; P again drop
 - **Skip:** S skips to the top from any phase; W fast-forwards (×8).
 
 **Collisions** (`features/obstacles.ts`): the skier is pushed out of buildings and terminal walls, with the into-wall velocity removed.
+
+### Piste grading
+
+`grading.py` benches pistes into the terrain the way they're built, before terminals are flattened (so station pads win) and before anything is placed on the ground:
+- **Across:** the cross-slope is limited by difficulty (`MAX_CROSS`: 4° green to 14° black). The bench narrows on steep sides (down to 8 m, like a real cat track) so its edges stay within 4 m of the slope, and it's raised so it's mostly packed-snow fill, not a cut into rock. Banks bridge the edge back to the natural slope.
+- **Along:** the centreline profile is fitted (pool-adjacent-violators) so it never climbs, preferring a 5% gliding grade, within 5 m of fill and 3 m of cut. A run that really climbs more than that keeps climbing.
+- Skipped: freeride runs, cliffs (cross-slope over ~60°, usually a loosely drawn line), and lines inside surveyed piste areas (open slopes).
+- The build logs and records (`manifest.validation.pisteGrading`) how much climbing the run centrelines had before and after.
+- The near terrain is also despiked first (`grid.despike`): the IGN lidar has rings of 100–500 m deep pits in a few places.
 
 ### Lifts and buildings
 

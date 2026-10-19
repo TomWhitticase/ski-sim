@@ -4,23 +4,24 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
 from rasterio.warp import Resampling
 
+from . import approach, features, grading, minimap, pistes, terminals
 from . import bases as base_finder
-from . import features, minimap, pistes, terminals
 from .config import ResortConfig, load_resort
 from .export import write_heightmap
 from .frame import LocalFrame
-from .grid import Grid, reproject_into, sample_bilinear, stitch_far_to_near
+from .grid import Grid, despike, reproject_into, sample_bilinear, stitch_far_to_near
 from .sources import copernicus, ign, osm
 
 log = logging.getLogger(__name__)
 
-MANIFEST_VERSION = 6
+MANIFEST_VERSION = 7
 LANDMARK_SEARCH_RADIUS = 30.0  # OSM summit nodes are often a few metres off the true top
 LANDMARK_TOLERANCE = 15.0
 
@@ -83,6 +84,9 @@ def build_near(
         east, north = np.broadcast_arrays(*grid.coords())
         heights[holes] = sample_bilinear(far, far_grid, east[holes], north[holes])
         coverage["far"] = round(float(holes.mean()), 6)
+    spikes = despike(heights)
+    if spikes:
+        log.info("Near terrain: %d pit/spike cells (lidar artefacts) smoothed", spikes)
     return heights, grid, coverage
 
 
@@ -111,30 +115,66 @@ def build_features(
 
     buildings, stations = features.extract_buildings(elements, frame, near_grid.extent, ground)
     lifts = features.extract_lifts(elements, frame, near_grid.extent, ground, stations)
-    # Cutting can give a piece a new, taller roof that then reaches a cable it used to
-    # clear, so repeat until nothing changes.
-    cut_stats = {"removedAsStation": 0, "cut": 0}
-    for _ in range(4):
-        buildings, stats = terminals.cut_buildings(
-            buildings, lifts, terms, lambda poly, kind: features.gable_roof(poly, kind, None)
-        )
-        cut_stats = {k: cut_stats[k] + stats[k] for k in cut_stats}
-        if not any(stats.values()):
-            break
-    log.info(
-        "Lift clearance: %d station buildings replaced, %d buildings cut",
-        cut_stats["removedAsStation"],
-        cut_stats["cut"],
-    )
-    problems = terminals.conflicts(buildings, lifts, terms)
-    for problem in problems:
-        log.error("Lift clearance check failed: %s", problem)
     by_lift: dict[int, list[dict]] = {}
     for t in terms:
-        by_lift.setdefault(t.pop("lift"), []).append(t)
+        by_lift.setdefault(t["lift"], []).append(t)
+
+    # Smooth the line where it leaves each terminal (towers inside/crowding stations,
+    # steep exits), then report what's left.
+    smooth = {"dropped": 0, "adjusted": 0, "inserted": 0, "unresolved": 0}
+    steep = []
+    for lift in lifts:
+        ends = by_lift.get(lift["id"], [])
+        if len(ends) != 2:
+            continue
+        # Match terminals to the line's ends by position: on a short lift both pads can
+        # share one height, so "bottom" by elevation may not be supports[0]'s end.
+        s0 = lift["supports"][0]
+        if math.hypot(ends[0]["east"] - s0["east"], ends[0]["north"] - s0["north"]) > math.hypot(
+            ends[1]["east"] - s0["east"], ends[1]["north"] - s0["north"]
+        ):
+            ends.reverse()
+        stats = approach.smooth_lift(lift, ends, ground)
+        smooth = {k: smooth[k] + stats[k] for k in smooth}
+        kind = terminals.KIND[lift["type"]]
+        for t, seq in ((ends[0], lift["supports"]), (ends[1], lift["supports"][::-1])):
+            angle = approach.exit_angle(seq, t, kind)
+            limit = max(approach.MAX_EXIT_ANGLE[kind], approach.feasible_exit_angle(seq, t, kind))
+            if angle > limit + 0.5:
+                steep.append(f"{lift['name'] or lift['id']} {t['end']} {angle:.0f}°")
+    log.info(
+        "Lift approaches: %d towers dropped, %d adjusted, %d added; %d steep station exits",
+        smooth["dropped"],
+        smooth["adjusted"],
+        smooth["inserted"],
+        len(steep),
+    )
+    if steep:
+        log.warning("Steep station exits: %s", ", ".join(steep[:12]))
+
+    # Entrances, then cut buildings only as much as lifts need (3D volumes).
+    terminals.choose_entrances(terms, buildings)
+    cuts = terminals.cut_volumes(lifts, terms)
+    buildings, cut_stats = terminals.cut_buildings(buildings, cuts)
+    log.info(
+        "Lift clearance: %d station buildings replaced, %d buildings cut (%d raised pieces)",
+        cut_stats["removedAsStation"],
+        cut_stats["cut"],
+        cut_stats["raisedPieces"],
+    )
+    problems = terminals.conflicts(buildings, cuts)
+    for problem in problems:
+        log.error("Lift clearance check failed: %s", problem)
+    entrances = {}
+    for t in terms:
+        entrances[t["entrance"]] = entrances.get(t["entrance"], 0) + 1
+    log.info("Terminal entrances: %s", entrances)
+    for t in terms:
+        t.pop("lift")
     for lift in lifts:
         lift["terminals"] = by_lift.get(lift["id"], [])
         lift["detachable"] = bool(lift["terminals"] and lift["terminals"][0]["detachable"])
+    cut_stats = {**cut_stats, "steepExits": len(steep), **smooth}
 
     for lift in sorted(lifts, key=lambda lift: lift["name"] or ""):
         kinds = [s["kind"] for s in lift["supports"]]
@@ -306,6 +346,19 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     far, far_grid = build_far(cfg, frame, raw_root)
     log.info("Building near terrain (%s)", ", ".join(cfg.near.sources))
     near, near_grid, coverage = build_near(cfg, frame, raw_root, far, far_grid)
+    log.info("Grading pistes into the terrain")
+    piste_elements = osm.fetch_pistes(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root)
+    graded = grading.grade(
+        pistes.collect(piste_elements, frame, near_grid.extent)[0], near, near_grid
+    )
+    log.info(
+        "Graded %d runs (%.0f km): climbing along them %.0f m -> %.0f m, max fill %.1f m",
+        graded["runs"],
+        graded["km"],
+        graded["climbBefore"],
+        graded["climbAfter"],
+        graded["maxFill"],
+    )
     stitch_far_to_near(far, far_grid, near, near_grid)
 
     log.info("Building lifts and buildings (OpenStreetMap)")
@@ -383,6 +436,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         },
         "validation": {
             "landmarks": validation,
+            "pisteGrading": graded,
             "nearCoverage": coverage,
             "liftClearance": clearance,
         },

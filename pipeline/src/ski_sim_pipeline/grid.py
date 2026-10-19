@@ -102,3 +102,31 @@ def stitch_far_to_near(far: np.ndarray, far_grid: Grid, near: np.ndarray, near_g
     ext = near_grid.extent
     inside = (east >= ext.west) & (east <= ext.east) & (north >= ext.south) & (north <= ext.north)
     far[inside] = sample_bilinear(near, near_grid, east[inside], north[inside])
+
+
+def despike(heights: np.ndarray, threshold: float = 25.0, window: int = 3) -> int:
+    """Replace pits and spikes (lidar artefacts) in place; returns how many cells.
+
+    A cell more than `threshold` off the median of its four neighbours can't be real
+    ground at our cell sizes: on a cliff, the neighbours along the cliff agree with it.
+    Flagged cells take the median of the unflagged cells within `window` cells, repeated
+    until clusters (rings of pits) are filled from their edges inward.
+    """
+    fixed = 0
+    for _ in range(8):
+        h = heights
+        nb = np.stack([h[:-2, 1:-1], h[2:, 1:-1], h[1:-1, :-2], h[1:-1, 2:]])
+        bad = np.zeros(h.shape, dtype=bool)
+        bad[1:-1, 1:-1] = np.abs(h[1:-1, 1:-1] - np.median(nb, axis=0)) > threshold
+        if not bad.any():
+            break
+        rows, cols = np.nonzero(bad)
+        values = []
+        for r, c in zip(rows, cols, strict=True):
+            r0, r1 = max(r - window, 0), r + window + 1
+            c0, c1 = max(c - window, 0), c + window + 1
+            patch = h[r0:r1, c0:c1][~bad[r0:r1, c0:c1]]
+            values.append(np.median(patch) if patch.size else h[r, c])
+        h[rows, cols] = values
+        fixed += len(rows)
+    return fixed

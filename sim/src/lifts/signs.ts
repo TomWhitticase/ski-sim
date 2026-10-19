@@ -17,7 +17,7 @@ import {
 
 import { liftTypeName } from '../nav/places';
 import type { LiftLine } from './lift-system';
-import { checkSign, placeSign } from './sign-placement';
+import type { SignMount } from './terminals';
 
 const CELL_W = 1024;
 const CELL_H = 192;
@@ -83,12 +83,13 @@ function drawAtlas(lines: LiftLine[]): CanvasTexture {
  * Name boards at the bottom and top of every lift, on two posts beside the line.
  * One texture atlas and one instanced mesh for all of them (plus one for the posts).
  */
-export function createLiftSigns(
-  lines: LiftLine[],
-  groundHeight: (x: number, z: number) => number,
-  /** Whether a world point is inside any building footprint. */
-  insideBuilding: (x: number, z: number) => boolean = () => false,
-): Group {
+/**
+ * Name boards mounted on each lift's stations (over the entrance; on the line end where
+ * riders arrive at the top): positions come from the station builder, so a board is
+ * attached by construction and can't float or wander. Drag lifts get a small arch.
+ * One texture atlas and one instanced mesh for all the boards (plus one for posts).
+ */
+export function createLiftSigns(lines: LiftLine[], mounts: SignMount[][][]): Group {
   const group = new Group();
   group.name = 'lift-signs';
   const atlas = drawAtlas(lines);
@@ -98,55 +99,37 @@ export function createLiftSigns(
   const posts: Matrix4[] = [];
   const q = new Quaternion();
   const m = new Matrix4();
-  const problems: string[] = [];
+  const Z = new Vector3(0, 0, 1);
 
-  lines.forEach((line, cell) => {
-    const along = line.top.clone().sub(line.bottom).setY(0).normalize();
-    for (const [station, facing, end] of [
-      [line.bottom, along.clone().negate(), 'bottom'], // read by skiers approaching from below
-      [line.top, along.clone(), 'top'], // and by those arriving at the top
-    ] as const) {
-      const site = placeSign(
-        {
-          station,
-          facing,
-          across: line.across,
-          gauge: line.lift.gauge,
-          boardWidth: BOARD.width,
-          boardHeight: BOARD.height,
-        },
-        groundHeight,
-        insideBuilding,
-      );
-      if (!site) continue; // nowhere clear to stand it: no sign beats a floating one
-      for (const p of checkSign(site, BOARD.height, groundHeight, insideBuilding)) {
-        problems.push(`${line.name} (${end}): ${p}`);
-      }
-      const centre = new Vector3(site.x, site.y, site.z);
-      for (const dir of [facing, facing.clone().negate()]) {
-        q.setFromUnitVectors(new Vector3(0, 0, 1), dir);
-        // Back-to-back faces 4 cm apart so they never share a plane.
-        const face = centre.clone().addScaledVector(dir, 0.02);
-        m.compose(face, q, new Vector3(BOARD.width, BOARD.height, 1));
+  lines.forEach((_, cell) => {
+    for (const mount of (mounts[cell] ?? []).flat()) {
+      const width = Math.min(BOARD.width, mount.width);
+      const height = width * (BOARD.height / BOARD.width);
+      // Facing out, plus a back face (4 cm behind) for free-standing arches.
+      const faces = mount.posts ? [mount.facing, mount.facing.clone().negate()] : [mount.facing];
+      for (const dir of faces) {
+        q.setFromUnitVectors(Z, dir);
+        const centre = mount.centre.clone().addScaledVector(dir, 0.02);
+        m.compose(centre, q, new Vector3(width, height, 1));
         boards.push({ matrix: m.clone(), cell });
       }
-      // Posts from the ground under each one up to the top of the board.
-      const top = site.y + BOARD.height / 2;
-      for (const foot of site.posts) {
-        const height = top - foot.ground + 0.3; // 0.3 m sunk into the snow
-        posts.push(
-          m
-            .compose(
-              new Vector3(foot.x, foot.ground - 0.3 + height / 2, foot.z),
-              q.identity(),
-              new Vector3(1, height, 1),
-            )
-            .clone(),
-        );
+      if (mount.posts) {
+        const top = mount.centre.y + height / 2;
+        for (const foot of mount.posts) {
+          const h = top - foot.y + 0.3;
+          posts.push(
+            m
+              .compose(
+                new Vector3(foot.x, foot.y - 0.3 + h / 2, foot.z),
+                q.identity(),
+                new Vector3(1, h, 1),
+              )
+              .clone(),
+          );
+        }
       }
     }
   });
-  if (problems.length) console.error(`Lift sign placement problems:\n${problems.join('\n')}`);
 
   const cells = new InstancedBufferAttribute(new Float32Array(boards.map((b) => b.cell)), 1);
   const material = new MeshBasicNodeMaterial();

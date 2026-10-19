@@ -63,43 +63,52 @@ def test_flatten_makes_a_level_pad_and_a_ramp_down_at_the_top():
     assert beyond < top["pad"] - 1.0
 
 
-def test_buildings_in_the_way_are_cut_or_replaced():
+def test_buildings_are_cut_only_where_and_as_high_as_lifts_need():
+    from ski_sim_pipeline.terminals import WALK_HEIGHT, choose_entrances, conflicts, cut_volumes
+
     terms = plan([lift(duration=200)])
     for t in terms:
-        t["pad"] = 2000
+        t["pad"] = 2000 if t["end"] == "bottom" else 2300
     station = {
         "id": 7,
         "type": "yes",
         "footprint": [[-4, -3], [4, -3], [4, 14], [-4, 14]],
-        "top": 2008,
+        "top": 2006,
         "base": 1999,
     }
-    hotel = {
+    # A tall block the bottom station sits inside the ground floor of.
+    block = {
         "id": 8,
-        "type": "hotel",
-        "footprint": [[-40, 200], [40, 200], [40, 230], [-40, 230]],
-        "top": 2200,
-        "base": 2050,
+        "type": "apartments",
+        "footprint": [[-30, -20], [30, -20], [30, 40], [-30, 40]],
+        "top": 2020,
+        "base": 1999,
     }
     beside = {
         "id": 9,
         "type": "yes",
-        "footprint": [[30, 0], [50, 0], [50, 20], [30, 20]],
+        "footprint": [[60, 0], [80, 0], [80, 20], [60, 20]],
         "top": 2010,
         "base": 2000,
     }
-    out, stats = cut_buildings(
-        [station, hotel, beside], [lift(duration=200)], terms, lambda p, k: None
-    )
-    ids = sorted(b["id"] for b in out)
-    assert 7 not in ids  # the station building is replaced by the generated terminal
+    buildings = [station, block, beside]
+    choose_entrances(terms, buildings)
+    cuts = cut_volumes([lift(duration=200)], terms)
+    out, stats = cut_buildings(buildings, cuts)
+    ids = {b["id"] for b in out}
+    assert 7 not in ids  # the small station building is replaced by the terminal
     assert 9 in ids  # untouched
-    hotel_pieces = [b for b in out if b["id"] in (80, 81)]
-    assert len(hotel_pieces) == 2  # the cable corridor slices the tall hotel in two
-    for piece in hotel_pieces:
-        xs = [p[0] for p in piece["footprint"]]
-        assert min(abs(x) for x in xs) >= 2.5 + 2.2 - 0.01
-    assert stats == {"removedAsStation": 1, "cut": 1}
+    pieces = [b for b in out if b["id"] // 100 == 8]
+    raised = [b for b in pieces if b.get("raised")]
+    # The block stays above the station (roofing it over) and above the walkway tunnel.
+    assert raised and min(b["base"] for b in raised) >= 2000 + WALK_HEIGHT
+    assert max(b["base"] for b in raised) >= 2000 + terms[0]["roofTop"]
+    assert all(len(b["footprint"]) <= 12 for b in pieces)  # clean, square-cornered cuts
+    # ...and keeps its full outer walls at ground level elsewhere.
+    assert any(not b.get("raised") and b["base"] < 2000 for b in pieces)
+    assert all(not Polygon(b["footprint"]).interiors for b in out)  # no holes
+    assert conflicts(out, cuts) == []
+    assert stats["removedAsStation"] == 1
 
 
 def test_a_ramp_never_carves_another_terminals_pad():

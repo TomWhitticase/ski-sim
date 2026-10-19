@@ -37,6 +37,15 @@ export interface Terminal {
   /** Flattened pad height (m above sea level). */
   pad: number;
   ramp: { length: number; drop: number; halfWidth: number } | null;
+  /** Height of the station's top above its pad (buildings are cut away up to here). */
+  roofTop: number;
+  /** An operator's hut on the -across side (inside the cleared area). */
+  hut: boolean;
+  /** How you get in (bottom) or out (top): a side door/gate at the (un)loading point,
+   *  from behind the bullwheel, or (chair/drag tops) down the ski-off ramp. */
+  entrance: 'side' | 'back' | 'ramp';
+  /** Length of the cleared walkway from the station to open snow (m). */
+  walk: number;
 }
 
 export interface Lift {
@@ -70,6 +79,8 @@ export interface Building {
   base: number;
   top: number;
   heightSource: 'osm-height' | 'osm-levels' | 'estimate';
+  /** A piece left above a cut (station, walkway, cable): needs an underside. */
+  raised?: boolean;
   /** Gable roof (null = flat). Faces are the footprint split along the ridge. */
   roof?: {
     ridge: [[number, number], [number, number]];

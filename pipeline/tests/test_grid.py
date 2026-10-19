@@ -37,3 +37,17 @@ def test_stitch_replaces_far_inside_near_extent():
     inside = (np.abs(east) <= 300) & (np.abs(north) <= 300)
     assert far[inside] == pytest.approx(1000 + 0.5 * east[inside] - 0.25 * north[inside])
     assert (far[~inside] == 0).all()
+
+
+def test_despike_fills_a_ring_of_pits_but_keeps_a_cliff():
+    import numpy as np
+
+    from ski_sim_pipeline.grid import despike
+
+    e, n = np.meshgrid(np.arange(40.0), np.arange(40.0))
+    heights = (2000 + np.where(e > 20, 60.0, 0.0) + 0.1 * n).astype(np.float32)  # a 60 m cliff
+    clean = heights.copy()
+    ring = (np.abs(np.hypot(e - 10, n - 20) - 4) < 0.8)
+    heights[ring] -= 150
+    assert despike(heights) >= ring.sum()
+    assert np.abs(heights - clean).max() < 1.0

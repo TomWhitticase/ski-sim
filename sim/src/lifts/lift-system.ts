@@ -23,7 +23,7 @@ import {
 } from './carriers';
 import { LoopPath, loopCorners, maxStep, type TerminalFrame } from './loop';
 import { MAX_CARRIERS, type Operation, operation } from './operation';
-import { createTerminals, type Obstacle } from './terminals';
+import { createTerminals, type Obstacle, type SignMount } from './terminals';
 
 const UP = new Vector3(0, 1, 0);
 /** Depth tower bases are sunk into the ground. */
@@ -257,6 +257,29 @@ export class LiftLine {
     return travelled > 0 && sinceMark <= travelled;
   }
 
+  /**
+   * Walking route (world, on the pad) from outside the bottom station's entrance to the
+   * loading spot: in through the side door/gate at the loading point, or from behind the
+   * bullwheel along the uphill track's outer side (outside the carriers' loop).
+   */
+  entryPath(): Vector3[] {
+    const t = this.bottomTerminal;
+    const r = t.gauge / 2;
+    const w = t.width / 2;
+    const enclosed = this.op.kind === 'gondola' || this.op.kind === 'cabin';
+    const at = (u: number, v: number) =>
+      new Vector3(t.east, t.pad, -t.north)
+        .addScaledVector(new Vector3(t.dir[0], 0, -t.dir[1]), u)
+        .addScaledVector(this.across, v);
+    // Where you stand: on the loading line (chairs, drags), beside the track (cabins).
+    const spot = at(t.load, enclosed ? r + 1.4 : r);
+    if (t.entrance === 'back') {
+      const lane = r + 2.8;
+      return [at(-t.back - 6, lane), at(-t.back - 0.5, lane), at(t.load, lane), spot];
+    }
+    return [at(t.load, w + 6), at(t.load, w + 0.5), spot];
+  }
+
   /** Whether a world point is in this lift's loading zone (on the pad by the loading point). */
   inLoadingZone(p: Vector3): boolean {
     const t = this.bottomTerminal;
@@ -338,6 +361,8 @@ export class LiftSystem {
   readonly lines: LiftLine[];
   /** Collision obstacles from the terminals (walls, huts, footings). */
   readonly obstacles: Obstacle[];
+  /** Name-board mounts on each line's [bottom, top] terminal. */
+  readonly signMounts: SignMount[][][];
   /** Lift clock (s). Runs faster while the rider fast-forwards. */
   time = 0;
   /** The lift clock at the previous update (for "did a carrier pass this point?"). */
@@ -365,7 +390,13 @@ export class LiftSystem {
       this.lines.flatMap((line) =>
         [line.bottomTerminal, line.topTerminal].map((terminal) => ({ terminal, rail: line.rail })),
       ),
+      groundHeight,
     );
+    // Two terminals per line, in order: [bottom mounts, top mounts].
+    this.signMounts = this.lines.map((_, i) => [
+      terminals.signs[2 * i] ?? [],
+      terminals.signs[2 * i + 1] ?? [],
+    ]);
     this.obstacles = terminals.obstacles;
     this.root.add(terminals.mesh);
     this.buildStatics(vertexColoured());
