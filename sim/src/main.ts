@@ -22,6 +22,8 @@ import { SLED_LAYOUT } from './controls/snowmobile-model';
 import { Input } from './controls/input';
 import { cameraSettings, loadCamera, saveCamera } from './controls/camera-settings';
 import { SettingsMenu } from './ui/settings-menu';
+import { WaypointMarker } from './ui/waypoint-marker';
+import { loadWaypoint, saveWaypoint } from './nav/waypoint';
 import { EYE_HEIGHT, SkiControls } from './controls/ski-controls';
 import { loadSetup, saveSetup, type SkiSetup } from './controls/ski-setup';
 import { daylight, Environment } from './env/environment';
@@ -38,7 +40,7 @@ import { createNormalTexture } from './terrain/normals';
 import { AdaptiveResolution } from './render/adaptive-resolution';
 import { Terrain } from './terrain/terrain';
 import { createTerrainMaterial } from './terrain/terrain-material';
-import { buildPlaces, groundedPose, liftTypeName } from './nav/places';
+import { buildPlaces, groundedPose, liftTypeName, type Place } from './nav/places';
 import { LiftSystem } from './lifts/lift-system';
 import { RideControls } from './lifts/ride';
 import { createLiftSigns } from './lifts/signs';
@@ -413,6 +415,45 @@ async function main(): Promise<void> {
 
   // Teleports reset the speed readout so the jump doesn't register as motion.
   let speedReset = true;
+  // Map teleports (and J, to the guide marker) land you on the ground there.
+  const teleport = (target: Pose, lookAt?: Place['lookAt']) => {
+    if (mode === 'ride') setMode('ski');
+    // The cuts' heights are above the highest ground nearby, so the low ones can't end
+    // up inside a hillside.
+    const skyGround = (x: number, z: number) => {
+      let top = groundHeight(x, z);
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        top = Math.max(top, groundHeight(x + Math.cos(a) * 150, z + Math.sin(a) * 150));
+      }
+      return top;
+    };
+    // GTA-style: up into the sky from where the camera is now...
+    const from = {
+      x: camera.position.x,
+      z: camera.position.z,
+      ground: skyGround(camera.position.x, camera.position.z),
+      yaw: new Euler().setFromQuaternion(camera.quaternion, 'YXZ').y,
+    };
+    // ...and down to you, already standing on the ground there (so the terrain loads
+    // round the destination while the camera is in the air).
+    const pose = groundedPose(
+      target,
+      (east, north) => groundHeight(east, -north),
+      Math.max(EYE_HEIGHT, FLY.minHeightAboveGround) + 0.1,
+      lookAt,
+    );
+    controls().place(pose);
+    sky.start(from, {
+      x: pose.east,
+      z: -pose.north,
+      ground: skyGround(pose.east, -pose.north),
+      yaw: controls().look.yaw,
+    });
+    speedReset = true;
+    persistPose();
+    closeMap(true);
+  };
   const worldMap = new WorldMap(
     $('#world-map'),
     {
@@ -436,46 +477,19 @@ async function main(): Promise<void> {
       groundHeight: (east, north) => groundHeight(east, -north),
       toLatLon: (east, north) => frame.toLatLon(east, north),
     },
-    (target, lookAt) => {
-      if (mode === 'ride') setMode('ski');
-      // The cuts' heights are above the highest ground nearby, so the low ones can't end
-      // up inside a hillside.
-      const skyGround = (x: number, z: number) => {
-        let top = groundHeight(x, z);
-        for (let i = 0; i < 8; i++) {
-          const a = (i / 8) * Math.PI * 2;
-          top = Math.max(top, groundHeight(x + Math.cos(a) * 150, z + Math.sin(a) * 150));
-        }
-        return top;
-      };
-      // GTA-style: up into the sky from where the camera is now...
-      const from = {
-        x: camera.position.x,
-        z: camera.position.z,
-        ground: skyGround(camera.position.x, camera.position.z),
-        yaw: new Euler().setFromQuaternion(camera.quaternion, 'YXZ').y,
-      };
-      // ...and down to you, already standing on the ground there (so the terrain loads
-      // round the destination while the camera is in the air).
-      const pose = groundedPose(
-        target,
-        (east, north) => groundHeight(east, -north),
-        Math.max(EYE_HEIGHT, FLY.minHeightAboveGround) + 0.1,
-        lookAt,
-      );
-      controls().place(pose);
-      sky.start(from, {
-        x: pose.east,
-        z: -pose.north,
-        ground: skyGround(pose.east, -pose.north),
-        yaw: controls().look.yaw,
-      });
-      speedReset = true;
-      persistPose();
-      closeMap(true);
-    },
+    teleport,
     () => closeMap(false),
+    (marker) => setWaypoint(marker),
   );
+  // The guide marker placed on the map (left click): a beam and an on-screen pin.
+  const waypoint = new WaypointMarker(scene, $('#labels'), groundHeight);
+  const setWaypoint = (w: { east: number; north: number } | null) => {
+    waypoint.set(w);
+    worldMap.marker = w;
+    minimap.waypoint = w;
+    saveWaypoint(localStorage, resortId, w);
+  };
+  setWaypoint(loadWaypoint(localStorage, resortId));
   let view: 'first-person' | 'chase' =
     localStorage.getItem(VIEW_KEY) === 'chase' ? 'chase' : 'first-person';
   const setView = (next: typeof view) => {
@@ -644,6 +658,10 @@ async function main(): Promise<void> {
       else openMap();
     } else if (e.code === 'Escape' && worldMap.isOpen) {
       closeMap(false);
+    } else if (e.code === 'KeyJ' && !e.repeat && !worldMap.isOpen && waypoint.current) {
+      // Jump to the guide marker, facing the way you were going.
+      const w = waypoint.current;
+      teleport({ ...w, altitude: 0, heading: currentPose().heading, pitch: 0 });
     } else if (e.code === 'KeyE' && !e.repeat && !worldMap.isOpen) {
       if (mode === 'ride') {
         setMode('ski'); // step off (or jump!) where you are
@@ -713,6 +731,7 @@ async function main(): Promise<void> {
       camera,
       labels,
       minimap,
+      waypoint,
       lifts,
       ski,
       sled,
@@ -931,6 +950,7 @@ async function main(): Promise<void> {
     minimap.draw(east, north, controls().heading);
     updatePrompt();
     labels.update(camera);
+    waypoint.update(camera, here);
 
     if (!debug.hidden) {
       const info = renderer.info.render;

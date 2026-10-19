@@ -170,6 +170,88 @@ body {
   pointer-events: none;
 }
 
+/* The map's guide marker: a pin over the spot, or on the screen edge pointing the way. */
+#waypoint {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 2;
+}
+
+#waypoint[hidden] {
+  display: none;
+}
+
+.waypoint-pin {
+  position: absolute;
+  left: -11px;
+  top: -30px;
+  width: 22px;
+  height: 22px;
+  border: 2px solid #fff;
+  border-radius: 50% 50% 50% 0;
+  background: #ff8a1f;
+  transform: rotate(-45deg);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+.waypoint-pin::after {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.waypoint-info {
+  position: absolute;
+  left: 0;
+  top: -58px;
+  transform: translateX(-50%);
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: rgba(20, 24, 32, 0.78);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.waypoint-arrow {
+  display: none;
+  position: absolute;
+  left: -14px;
+  top: -14px;
+  width: 28px;
+  height: 28px;
+}
+
+.waypoint-arrow::before {
+  content: '';
+  position: absolute;
+  left: 30px;
+  top: 6px;
+  border-left: 12px solid #ff8a1f;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6));
+}
+
+#waypoint.offscreen .waypoint-arrow {
+  display: block;
+}
+
+#waypoint.offscreen .waypoint-pin {
+  top: -11px;
+}
+
+#waypoint.offscreen .waypoint-info {
+  top: 14px;
+}
+
 .label {
   position: absolute;
   left: 0;

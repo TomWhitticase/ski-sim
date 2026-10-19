@@ -13,6 +13,8 @@ export class Minimap {
   private lastKey = '';
   /** Mountain restaurants (east, north), drawn as knife-and-fork badges. */
   restaurants: { east: number; north: number }[] = [];
+  /** The map's guide marker (orange dot; on the edge when out of range). */
+  waypoint: { east: number; north: number } | null = null;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -39,7 +41,8 @@ export class Minimap {
     // Skip the redraw unless something visible changed (sub-pixel moves don't count).
     const span = MINIMAP.zoomLevels[this.zoomIndex]!;
     const metresPerPixel = span / size;
-    const key = `${Math.round(east / metresPerPixel)},${Math.round(north / metresPerPixel)},${Math.round(heading)},${span},${size}`;
+    const w = this.waypoint;
+    const key = `${w ? `${w.east},${w.north}:` : ''}${Math.round(east / metresPerPixel)},${Math.round(north / metresPerPixel)},${Math.round(heading)},${span},${size}`;
     if (key === this.lastKey) return;
     this.lastKey = key;
     if (canvas.width !== size || canvas.height !== size) {
@@ -73,6 +76,24 @@ export class Minimap {
       const y = c - (r.north - north) * scale;
       if (x < -10 || y < -10 || x > size + 10 || y > size + 10) continue;
       drawRestaurantIcon(ctx, x, y, 6.5 * dpr);
+    }
+    if (w) {
+      // The guide marker, pinned to the edge when it's off the map.
+      let x = (w.east - east) * scale;
+      let y = -(w.north - north) * scale;
+      const edge = c - 9 * dpr;
+      const k = Math.max(Math.abs(x), Math.abs(y)) / edge;
+      if (k > 1) {
+        x /= k;
+        y /= k;
+      }
+      ctx.fillStyle = '#ff8a1f';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2 * dpr;
+      ctx.beginPath();
+      ctx.arc(c + x, c + y, 6 * dpr, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
     }
     ctx.save();
     ctx.translate(c, c);

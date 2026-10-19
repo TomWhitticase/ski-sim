@@ -68,13 +68,15 @@ test('M opens the map; search and teleport to a peak', async ({ page }) => {
   await expectOnGround(page);
 });
 
-test('clicking the map teleports you onto the ground there', async ({ page }) => {
+test('right clicking the map teleports you onto the ground there', async ({ page }) => {
   await load(page);
   await page.keyboard.press('KeyM');
   const canvas = page.locator('#world-map canvas');
   const box = (await canvas.boundingBox())!;
   // 200 px left of centre at the default 6 m/px is ~1.2 km west of the start.
-  await page.mouse.click(box.x + box.width / 2 - 200, box.y + box.height / 2);
+  await page.mouse.click(box.x + box.width / 2 - 200, box.y + box.height / 2, {
+    button: 'right',
+  });
   await expect(page.locator('#world-map')).toBeHidden();
   await page.waitForTimeout(300);
   expect(await hudNumber(page, 'lon')).toBeLessThan(6.5803 - 0.012);
@@ -129,4 +131,45 @@ test('Esc closes the map without teleporting', async ({ page }) => {
   await page.keyboard.press('Escape');
   await expect(page.locator('#world-map')).toBeHidden();
   expect(await hudNumber(page, 'lat')).toBe(before);
+});
+
+test('left clicking the map drops a guide marker you can see while skiing', async ({ page }) => {
+  await load(page);
+  await page.keyboard.press('KeyM');
+  const canvas = page.locator('#world-map canvas');
+  const box = (await canvas.boundingBox())!;
+  const at = { x: box.x + box.width / 2 - 200, y: box.y + box.height / 2 };
+  await page.mouse.click(at.x, at.y);
+  await expect(page.locator('#world-map')).toBeVisible(); // no teleport
+  await page.screenshot({ path: 'test-results/views/map-marker.png' });
+  await page.keyboard.press('KeyM');
+  await expect(page.locator('#world-map')).toBeHidden();
+
+  // ~1.2 km west: a pin with the distance (and a dot on the minimap).
+  const marker = page.locator('#waypoint');
+  const pin = marker.locator('.waypoint-pin');
+  await expect(pin).toBeVisible();
+  await expect(marker.locator('.waypoint-info')).toHaveText(/^1\.[12] km/);
+  await page.screenshot({ path: 'test-results/views/waypoint.png' });
+
+  // Remembered for the resort across reloads.
+  await page.reload();
+  await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10, null, { timeout: 90_000 });
+  await expect(page.locator('#waypoint .waypoint-pin')).toBeVisible();
+
+  // J jumps you there (onto the ground), and the marker stays.
+  const lonBefore = await hudNumber(page, 'lon');
+  await page.keyboard.press('KeyJ');
+  await expect
+    .poll(() => hudNumber(page, 'lon'), { timeout: 10_000 })
+    .toBeLessThan(lonBefore - 0.012);
+  await page.waitForTimeout(3000); // the sky transition lands
+  await expectOnGround(page);
+  await expect(page.locator('#waypoint .waypoint-info')).toHaveText(/^\d+ m/);
+
+  // Clicking the marker on the map removes it.
+  await page.keyboard.press('KeyM');
+  await page.mouse.click(at.x, at.y - 14);
+  await page.keyboard.press('KeyM');
+  await expect(page.locator('#waypoint .waypoint-pin')).toBeHidden();
 });

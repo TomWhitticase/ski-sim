@@ -37,7 +37,8 @@ const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCa
 
 /**
  * Fullscreen resort map: pan (drag), zoom (wheel), hover for coordinates and elevation,
- * click anywhere or pick a place from the list to teleport.
+ * right click anywhere or pick a place from the list to teleport, left click to drop a guide
+ * marker (shown in the world and on the minimap; click it again to remove it).
  */
 export class WorldMap {
   isOpen = false;
@@ -58,12 +59,15 @@ export class WorldMap {
   private hoverPlace: Place | null = null;
   private drag: { x: number; y: number; east: number; north: number; moved: boolean } | null = null;
   private frameRequested = false;
+  /** The guide marker, if one is placed. */
+  marker: { east: number; north: number } | null = null;
 
   constructor(
     private readonly root: HTMLElement,
     private readonly data: WorldMapData,
     private readonly onTeleport: (pose: Pose, lookAt?: Place['lookAt']) => void,
     private readonly onClose: () => void,
+    private readonly onMarker: (marker: { east: number; north: number } | null) => void = () => {},
   ) {
     this.canvas = root.querySelector('canvas')!;
     this.ctx = this.canvas.getContext('2d')!;
@@ -89,6 +93,7 @@ export class WorldMap {
     this.canvas.addEventListener('pointermove', this.onPointerMove);
     this.canvas.addEventListener('pointerup', this.onPointerUp);
     this.canvas.addEventListener('pointerleave', () => (this.cursorInfo.hidden = true));
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('resize', () => this.isOpen && this.requestDraw());
   }
 
@@ -190,6 +195,7 @@ export class WorldMap {
     };
 
     this.drawPlayer();
+    this.drawMarker();
     if (this.show.lift) this.drawLifts(tryPlace);
     if (this.show.piste && this.mpp < 6) this.drawPisteNames(tryPlace);
     if (this.show.peak) this.drawPeaks(tryPlace);
@@ -352,6 +358,30 @@ export class WorldMap {
     ctx.restore();
   }
 
+  private drawMarker(): void {
+    if (!this.marker) return;
+    const { ctx } = this;
+    const [x, y] = this.toScreen(this.marker.east, this.marker.north);
+    ctx.save();
+    ctx.fillStyle = '#ff8a1f';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    // A map pin: round head, point at the spot.
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.bezierCurveTo(x - 4, y - 8, x - 10, y - 13, x - 10, y - 20);
+    ctx.arc(x, y - 20, 10, Math.PI, 0);
+    ctx.bezierCurveTo(x + 10, y - 13, x + 4, y - 8, x, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(x, y - 20, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   private drawHighlight(pose: Pose): void {
     const { ctx } = this;
     const [x, y] = this.toScreen(pose.east, pose.north);
@@ -467,13 +497,27 @@ export class WorldMap {
     if (!drag || drag.moved) return;
     const [east, north] = this.toGround(e.offsetX, e.offsetY);
     if (!this.inMap(east, north)) return;
-    this.onTeleport({
-      east,
-      north,
-      altitude: this.data.groundHeight(east, north), // grounded by the handler
-      heading: this.player.heading,
-      pitch: 0,
-    });
+    if (e.button === 2) {
+      this.onTeleport({
+        east,
+        north,
+        altitude: this.data.groundHeight(east, north), // grounded by the handler
+        heading: this.player.heading,
+        pitch: 0,
+      });
+      return;
+    }
+    if (e.button !== 0) return;
+    // Left click drops the guide marker; clicking the marker again removes it.
+    let next: { east: number; north: number } | null = { east, north };
+    if (this.marker) {
+      const [mx, my] = this.toScreen(this.marker.east, this.marker.north);
+      if (Math.hypot(e.offsetX - mx, e.offsetY - (my - 14)) < 16) next = null;
+    }
+    this.marker = next;
+    this.onMarker(next);
+    this.requestDraw();
+    this.updateCursorInfo(e.offsetX, e.offsetY);
   };
 
   private updateCursorInfo(x: number, y: number): void {
@@ -487,7 +531,7 @@ export class WorldMap {
     this.canvas.style.cursor = 'crosshair';
     const { lat, lon } = this.data.toLatLon(east, north);
     const elevation = Math.round(this.data.groundHeight(east, north)).toLocaleString('en-GB');
-    info.textContent = `${lat.toFixed(5)}°, ${lon.toFixed(5)}°\n${elevation} m · click to teleport`;
+    info.textContent = `${lat.toFixed(5)}°, ${lon.toFixed(5)}°\n${elevation} m · left click: marker · right click: teleport`;
     info.style.transform = `translate(${x + 16}px, ${y + 16}px)`;
     info.hidden = false;
   }
