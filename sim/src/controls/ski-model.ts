@@ -160,6 +160,9 @@ export class SkierModel {
   /** Skis and bindings without the boots (stowed in a cabin's rack). */
   private readonly skiParts: Mesh[] = [];
   private stowed = false;
+  /** The stance and balance line last applied (what a remote copy needs to match it). */
+  lastStance: Stance | null = null;
+  readonly lastUp = new Vector3(0, 1, 0);
 
   constructor() {
     const mat = (color: number, roughness: number, metalness = 0) =>
@@ -384,6 +387,10 @@ export class SkierModel {
   }
 
   /** Skis and poles stowed (riding inside a cabin): just the boots stay on. */
+  get isStowed(): boolean {
+    return this.stowed;
+  }
+
   setStowed(stowed: boolean): void {
     this.stowed = stowed;
     for (const p of this.skiParts) p.visible = !stowed;
@@ -410,6 +417,8 @@ export class SkierModel {
 
   /** `up`: the direction the body balances along, in the skier's (slope-aligned) frame. */
   apply(stance: Stance, up: Vector3 = Y_AXIS): void {
+    this.lastStance = stance;
+    this.lastUp.copy(up);
     const place = (rig: SkiRig, pose: SkiPose) => {
       // Rolling about the centreline would sink one edge into the snow; rest it on top.
       const edgeLift = Math.abs(Math.sin(pose.roll)) * 0.06;

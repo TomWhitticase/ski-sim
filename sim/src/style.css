@@ -353,6 +353,16 @@ body {
   background: rgba(23, 92, 196, 0.82);
 }
 
+/* Other players in a multiplayer game, in their own colour. */
+.label-player {
+  background: var(--player);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.label-player::after {
+  border-top-color: var(--player);
+}
+
 .label-lift::after {
   border-top-color: rgba(23, 92, 196, 0.82);
 }
@@ -1135,4 +1145,129 @@ kbd {
 #time-modal .modal-card,
 #settings-modal .modal-card {
   width: min(640px, 94vw);
+}
+
+/* Multiplayer */
+#multiplayer-modal .modal-card {
+  width: min(620px, 94vw);
+}
+
+.multiplayer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.multiplayer section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.multiplayer section h3 {
+  margin: 0;
+}
+
+.multiplayer p {
+  margin: 0;
+}
+
+.mp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mp-row .menu-action,
+.mp-row .menu-primary {
+  flex: none;
+}
+
+.mp-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--panel-text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.mp-code-input {
+  max-width: 160px;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.mp-code {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  color: #74b3ff;
+}
+
+.mp-link {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.mp-players {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mp-player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.mp-dot {
+  width: 10px;
+  height: 10px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--player);
+}
+
+.mp-name {
+  flex: 1;
+}
+
+.mp-player .setup-option:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.mp-leave {
+  align-self: flex-start;
+  flex: none;
+}
+
+.mp-status:empty {
+  display: none;
+}
+
+.mp-status.error {
+  color: #ff8787;
+}
+
+.time-locked {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(61, 139, 253, 0.12);
 }

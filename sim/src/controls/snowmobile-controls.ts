@@ -84,8 +84,8 @@ export class SnowmobileControls {
   /** Riding it, parked (visible, settling under its own weight), or not out at all. */
   status: 'riding' | 'parked' | 'away' = 'away';
 
-  private readonly parts: SnowmobileParts;
-  private readonly rider = new SkierModel();
+  readonly parts: SnowmobileParts;
+  readonly rider = new SkierModel();
   private readonly stance = initialStance();
   private readonly state: SledState = createSledState();
   private readonly euler = new Euler(0, 0, 0, 'YXZ');
@@ -178,6 +178,11 @@ export class SnowmobileControls {
   /** Which way the sled points (degrees clockwise from north). */
   get sledHeading(): number {
     return ((((-this.state.yaw * 180) / Math.PI) % 360) + 360) % 360;
+  }
+
+  /** Steering angle of the skis (rad). */
+  get steer(): number {
+    return this.state.steer;
   }
 
   get airborne(): boolean {

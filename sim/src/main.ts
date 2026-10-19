@@ -70,6 +70,9 @@ import { Minimap } from './ui/minimap';
 import { WorldMap } from './ui/world-map';
 import { Pegman } from './controls/pegman';
 import { SkyTransition } from './nav/sky-transition';
+import { sampleAvatar } from './net/local-avatar';
+import { Multiplayer } from './net/multiplayer';
+import { parseRoomCode } from './net/room';
 
 declare global {
   interface Window {
@@ -195,6 +198,7 @@ async function main(): Promise<void> {
       environment.setTime(simDate(clock.seconds));
       saveTime(localStorage, clock);
       showClock();
+      multiplayer.clockChanged();
     },
   );
   $('#open-time').addEventListener('click', () => timeMenu.open());
@@ -210,7 +214,8 @@ async function main(): Promise<void> {
     if (clockRate.textContent !== rate) clockRate.textContent = rate;
   };
   showClock();
-  window.addEventListener('pagehide', () => saveTime(localStorage, clock));
+  // A guest's clock is the host's; keep their own for when they play alone again.
+  window.addEventListener('pagehide', () => !multiplayer.isGuest && saveTime(localStorage, clock));
 
   status.textContent = 'Building terrain…';
   await nextFrame();
@@ -412,6 +417,45 @@ async function main(): Promise<void> {
   hud.setToggle('restaurant', labels.isVisible('restaurant'));
   hud.setToggle('pistes', pisteTint.value > 0);
   const debug = $('#debug');
+  const multiplayer = new Multiplayer(
+    {
+      scene,
+      resort: resortId,
+      tags: $('#labels'),
+      groundHeight,
+      sample: (out) => sampleAvatar(mode, { fly, ski, glider, ride, sled }, out),
+      lifts,
+      clock,
+      timeChanged: () => {
+        environment.setTime(simDate(clock.seconds));
+        timeMenu.sync(true);
+        showClock();
+      },
+      goTo: (at) => {
+        // On the snow a few metres from them, looking their way.
+        if (mode === 'ride') setMode('ski');
+        const pose = groundedPose(
+          { east: at.x - 4, north: -at.z, altitude: at.y, heading: 90, pitch: 0 },
+          (east, north) => groundHeight(east, -north),
+          Math.max(EYE_HEIGHT, FLY.minHeightAboveGround) + 0.1,
+          { east: at.x, north: -at.z, altitude: at.y + 1 },
+        );
+        controls().place(pose);
+        speedReset = true;
+        persistPose();
+      },
+      roomChanged: () => {
+        timeMenu.setLocked(
+          multiplayer.isGuest ? 'In a multiplayer game the host sets the time of day.' : null,
+        );
+        ride.fastForward = !multiplayer.active; // the lift clock is shared
+      },
+    },
+    $('#multiplayer-modal'),
+    params.get('net') === 'loopback' ? 'loopback' : 'webrtc',
+    parseRoomCode(params.get('join') ?? ''),
+  );
+  $('#open-multiplayer').addEventListener('click', () => multiplayer.menu.open());
 
   // Teleports reset the speed readout so the jump doesn't register as motion.
   let speedReset = true;
@@ -620,6 +664,19 @@ async function main(): Promise<void> {
   document.addEventListener('keydown', (e) => {
     if (e.target instanceof HTMLInputElement) return; // typing in the map search box
     if (
+      e.code === 'KeyN' &&
+      !e.repeat &&
+      !worldMap.isOpen &&
+      !skiSetup.isOpen &&
+      !timeMenu.isOpen &&
+      !settingsMenu.isOpen
+    ) {
+      if (document.pointerLockElement) document.exitPointerLock();
+      multiplayer.menu.toggle();
+      return;
+    }
+    if (document.querySelector('#multiplayer-modal[open]')) return;
+    if (
       e.code === 'KeyG' &&
       !e.repeat &&
       !worldMap.isOpen &&
@@ -741,6 +798,7 @@ async function main(): Promise<void> {
       sled,
       environment,
       clock,
+      multiplayer,
     });
   let last = performance.now();
   let lastX = fly.position.x;
@@ -769,10 +827,12 @@ async function main(): Promise<void> {
     let text = '';
     if (mode === 'ride') {
       if (ride.phase === 'waiting') {
-        text = `Waiting for ${ride.name} · ${formatWait(ride.departsIn)} · hold W to fast-forward · E to step away`;
+        const ff = ride.fastForward ? ' · hold W to fast-forward' : '';
+        text = `Waiting for ${ride.name} · ${formatWait(ride.departsIn)}${ff} · E to step away`;
       } else {
+        const ff = ride.fastForward ? ' · hold W to fast-forward' : '';
         const end = ride.down ? 'bottom' : 'top';
-        text = `${ride.name} · hold W to fast-forward · S to skip to the ${end} · E to jump off`;
+        text = `${ride.name}${ff} · S to skip to the ${end} · E to jump off`;
       }
     } else if (mode !== 'glide' && mode !== 'sled') {
       const p = whereAmI();
@@ -925,6 +985,7 @@ async function main(): Promise<void> {
       camera.fov += (fov - camera.fov) * Math.min(1, dt * 3);
       camera.updateProjectionMatrix();
     }
+    multiplayer.update(dt, camera);
     renderer.render(scene, camera);
 
     const here = pos;
@@ -954,6 +1015,7 @@ async function main(): Promise<void> {
             ? { name: pisteTitle(piste), colour: DIFFICULTY[piste.difficulty].colour }
             : { name: 'Off-piste', colour: null },
     );
+    minimap.players = multiplayer.dots;
     minimap.draw(east, north, controls().heading);
     updatePrompt();
     labels.update(camera);
@@ -981,7 +1043,7 @@ async function main(): Promise<void> {
 
     if (now - lastPersist > 1000) {
       persistPose();
-      saveTime(localStorage, clock);
+      if (!multiplayer.isGuest) saveTime(localStorage, clock);
       lastPersist = now;
     }
 

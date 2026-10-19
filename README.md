@@ -27,18 +27,31 @@ Open http://localhost:5173, pick a ski area and where to start, then **Start ski
 | Mouse | Look |
 | 1 / 2 / 3 | Toggle lift names / peak names / piste colours (shown under the minimap) |
 | P | Paraglider: deploy / release (A/D bank, W speed bar, S brakes) |
-| E | Ride a lift: walks you to the loading point (or just stand on it and get scooped up). Hold W to fast-forward, S to skip to the top |
+| E | Ride a lift: puts you on the loading point (or just stand on it and get scooped up). Gondolas and cable cars also ride down from the top. Hold W to fast-forward (not in multiplayer), S to skip to the end |
 | M | Map: search pistes/lifts/peaks, right click to teleport, left click to drop a guide marker (click it again to remove) |
 | Shift + M | Drop a guide marker where you are |
 | J | Teleport to the guide marker |
 | K | Sound on / off |
 | G | Ski setup: presets (slalom, GS, all-mountain, freeride, park) and length, waist, sidecut, flex, profile, wax, tune and mount, which change how the skis handle |
 | T | Time of day: slider and presets (sunrise to night) that move the sun, and the clock speed (paused, real time, ×10, ×60, ×600) |
+| N | Multiplayer: host a game or join one with a code (see below) |
 | **Ski mode** | Mouse or A/D steer · W skate (or walk up steep slopes) · Ctrl toggle tuck · Shift snowplough · hold S + A/D to pivot the skis (hockey stop) · Space jump · [ / ] lean forward / back (front flip / backflip in the air: land with your skis near the slope or you crash) · V camera · O settings (first/third-person field of view, mouse sensitivity, invert Y, camera distance) |
 | Scroll | Fly speed |
 | - / = | Minimap zoom |
 | F3 | Debug info |
 | Esc | Release mouse |
+
+## Multiplayer
+
+Ski with friends, free and with no server to run. Press **N** (or **Multiplayer** in the menu) and set your name, then:
+
+- **Host a game** gives you a 6-character code and an invite link (`?resort=…&join=CODE`). Share either one, and keep your tab open: your browser relays everyone's position.
+- **Join**: type the code, or open the invite link. You're moved to the host's ski area if you're on another one.
+- Everyone's skier (or sled, paraglider or flying figure) shows with a name tag and a dot on the minimap. **Go to** next to a name teleports you beside them.
+- The host's time of day and lift clock are shared. Guests can't change the time, and lift fast-forward is off for everyone.
+- Up to 16 players. If the host leaves, the game ends for everyone.
+
+Players connect directly over WebRTC. They find each other through public Nostr relays ([Trystero](https://github.com/dmotz/trystero)) and Google's public STUN servers. There's no TURN relay, so very strict networks (some offices, schools and mobile carriers) may not connect. Nothing touches the network until you host or join.
 
 ## Adding another resort
 

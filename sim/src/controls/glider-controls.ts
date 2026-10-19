@@ -20,7 +20,7 @@ import { type Input, Look } from './input';
 import { SkierModel } from './ski-model';
 import { EYE_HEIGHT } from './ski-controls';
 import { type GliderState, stepGlider } from './glider-physics';
-import { initialStance } from './ski-stance';
+import { initialStance, type Stance } from './ski-stance';
 
 /** Wing: an arched canopy ~10 m across, ~7 m above the pilot. */
 const WING = { span: 10.5, chord: 2.6, height: 7, arc: 0.85, cells: 28, thickness: 0.18 };
@@ -110,13 +110,49 @@ function createWing(): Group {
  * Paragliding: A/D bank and turn, W speed bar, S brakes, mouse looks around freely.
  * Touching the ground hands you back to ski mode.
  */
+/** Pilot hanging under a wing; `poseGlider` places and banks it. */
+export interface GliderRig {
+  root: Group;
+  swing: Group;
+  pilot: SkierModel;
+}
+
+export function createGliderRig(): GliderRig {
+  const root = new Group();
+  root.name = 'glider';
+  const swing = new Group();
+  const pilot = new SkierModel();
+  swing.add(pilot.root, createWing());
+  root.add(swing);
+  return { root, swing, pilot };
+}
+
+/** Pilot's feet at `position`, wing heading `heading` (rad), swung out by `bank`. */
+export function poseGlider(rig: GliderRig, position: Vector3, heading: number, bank: number): void {
+  // Pilot and wing swing out together around the wing in a turn.
+  rig.root.position.copy(position);
+  rig.root.rotation.set(0, heading, 0);
+  rig.swing.position.set(0, WING.height, 0);
+  rig.swing.rotation.set(0, 0, bank);
+  rig.swing.children.forEach((c) => c.position.set(0, -WING.height, 0));
+}
+
+/** Seated in the harness. */
+export function gliderStance(): Stance {
+  const stance = initialStance();
+  stance.crouch = 0.3;
+  stance.poleSweep = 1.2;
+  return stance;
+}
+
 export class GliderControls {
   readonly look = new Look(FLY.mouseSensitivity);
-  readonly root = new Group();
+  private readonly rig = createGliderRig();
+  readonly root = this.rig.root;
+  readonly pilot = this.rig.pilot;
   view: 'first-person' | 'chase' = 'first-person';
 
-  private readonly pilot = new SkierModel();
-  private readonly stance = initialStance();
+  private readonly stance = gliderStance();
   private readonly state: GliderState = {
     position: new Vector3(),
     velocity: new Vector3(),
@@ -124,7 +160,6 @@ export class GliderControls {
     bank: 0,
   };
   private readonly euler = new Euler(0, 0, 0, 'YXZ');
-  private readonly swing = new Group();
   /** Seconds since launch: touching the snow while the wing inflates isn't a landing. */
   private airTime = 0;
 
@@ -133,11 +168,6 @@ export class GliderControls {
     private readonly groundHeight: (x: number, z: number) => number,
     private readonly bounds: Bounds,
   ) {
-    this.root.name = 'glider';
-    this.stance.crouch = 0.3; // seated in the harness
-    this.stance.poleSweep = 1.2;
-    this.swing.add(this.pilot.root, createWing());
-    this.root.add(this.swing);
     this.root.visible = false;
   }
 
@@ -159,6 +189,11 @@ export class GliderControls {
 
   get speed(): number {
     return this.state.velocity.length();
+  }
+
+  /** How far the pilot and wing swing out in a turn (rad). */
+  get bank(): number {
+    return this.state.bank;
   }
 
   setActive(active: boolean): void {
@@ -226,12 +261,7 @@ export class GliderControls {
 
   private updateView(): void {
     const p = this.state.position;
-    // Pilot and wing swing out together around the wing in a turn.
-    this.root.position.copy(p);
-    this.root.rotation.set(0, this.state.heading, 0);
-    this.swing.position.set(0, WING.height, 0);
-    this.swing.rotation.set(0, 0, this.state.bank);
-    this.swing.children.forEach((c) => c.position.set(0, -WING.height, 0));
+    poseGlider(this.rig, p, this.state.heading, this.state.bank);
     this.pilot.apply(this.stance);
 
     if (this.view === 'first-person') {
