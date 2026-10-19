@@ -45,7 +45,7 @@ import {
   pisteTitle,
 } from './pistes/pistes';
 import { loadPose, type Pose, savePose } from './nav/pose';
-import { Hud } from './ui/hud';
+import { Hud, landingToast, Toast } from './ui/hud';
 import { type LabelKind, type LabelSpec, Labels, liftLabel, peakLabel } from './ui/labels';
 import { LAST_RESORT_KEY, MainMenu, type ResortEntry, type StartChoice } from './ui/main-menu';
 import { SkiSetupMenu } from './ui/ski-setup-menu';
@@ -89,14 +89,15 @@ function migrateStorage(): void {
 async function main(): Promise<void> {
   migrateStorage();
   const params = new URLSearchParams(location.search);
-  // Ski areas come from the pipeline's index; pick the URL's, else the last one played.
+  // Ski areas come from the pipeline's index; pick the URL's, else the last one played,
+  // else the default (if it's been built).
   const resorts = await fetchJson<{ resorts: ResortEntry[] }>('/resorts.json')
     .then((r) => r.resorts)
     .catch((): ResortEntry[] => []);
   const known = (id: string | null) => !!id && resorts.some((r) => r.id === id);
   const lastResort = localStorage.getItem(LAST_RESORT_KEY);
-  const resortId =
-    params.get('resort') ?? (known(lastResort) ? lastResort! : (resorts[0]?.id ?? DEFAULT_RESORT));
+  const fallback = known(DEFAULT_RESORT) ? DEFAULT_RESORT : (resorts[0]?.id ?? DEFAULT_RESORT);
+  const resortId = params.get('resort') ?? (known(lastResort) ? lastResort! : fallback);
   localStorage.setItem(LAST_RESORT_KEY, resortId);
 
   let play: (choice: StartChoice) => void = () => {};
@@ -289,6 +290,7 @@ async function main(): Promise<void> {
   farTerrain.update(camera.position, Infinity);
 
   const hud = new Hud($('#hud'));
+  const toast = new Toast($('#toast'));
   const minimap = await Minimap.load(
     $<HTMLCanvasElement>('#minimap canvas'),
     resortUrl(resortId, manifest.minimap.file),
@@ -548,7 +550,8 @@ async function main(): Promise<void> {
   const sim = { ready: false, frames: 0 };
   window.__sim = sim;
   // Dev-only handles for profiling scripts and debugging from the console.
-  if (import.meta.env.DEV) Object.assign(sim, { scene, renderer, camera, labels, minimap, lifts });
+  if (import.meta.env.DEV)
+    Object.assign(sim, { scene, renderer, camera, labels, minimap, lifts, ski });
   let last = performance.now();
   let lastX = fly.position.x;
   let lastY = fly.position.y;
@@ -620,6 +623,9 @@ async function main(): Promise<void> {
     trails.flush();
     sound.update(soundLevels(airSpeed, contact));
     if (mode === 'ski' && ski.landingImpact > 0) sound.thump(ski.landingImpact);
+    const trick = mode === 'ski' && ski.landing;
+    const named = trick && landingToast(trick.flips, trick.outcome);
+    if (named) toast.show(named);
     if (mode === 'ski' && ski.footstep) sound.step();
     if (mode === 'ski' && ski.polePlant) sound.polePlant();
   };

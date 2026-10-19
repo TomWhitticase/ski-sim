@@ -408,15 +408,24 @@ export class SkierModel {
     const c = stance.crouch;
     const feet = ankles[0]!.clone().add(ankles[1]!).multiplyScalar(0.5);
     // The body stands along `up` (its balance line, which needn't be the slope normal),
-    // dropping and sitting back as you crouch.
-    const align = new Quaternion().setFromUnitVectors(Y_AXIS, up);
-    const hipHeight = (THIGH + SHIN) * (0.95 - 0.36 * c);
-    const pelvis = new Vector3(0, hipHeight, 0.04 + 0.16 * c).applyQuaternion(align).add(feet);
+    // dropping and sitting back as you crouch. Leaning forward tips the balance line over
+    // the toes and the chest down; leaning back drops the hips behind the heels.
+    const f = stance.foreAft;
+    const back = Math.max(0, -f);
+    const align = new Quaternion()
+      .setFromUnitVectors(Y_AXIS, up)
+      .multiply(new Quaternion().setFromAxisAngle(X_AXIS, -0.12 * f));
+    const hipHeight = (THIGH + SHIN) * (0.95 - 0.36 * c - 0.08 * back);
+    const pelvis = new Vector3(0, hipHeight, 0.04 + 0.16 * c + 0.1 * back)
+      .applyQuaternion(align)
+      .add(feet);
     this.chest.position.copy(pelvis);
     this.chest.quaternion
       .copy(align)
       .multiply(
-        new Quaternion().setFromEuler(new Euler(-(0.12 + 0.85 * c), stance.twist, 0, 'YXZ')),
+        new Quaternion().setFromEuler(
+          new Euler(-(0.12 + 0.85 * c) - 0.25 * f + 0.2 * back, stance.twist, 0, 'YXZ'),
+        ),
       );
     this.chest.updateMatrix();
 
@@ -463,6 +472,7 @@ const UPPER_ARM = 0.3;
 const FOREARM = 0.28;
 const KNEE_HINT = new Vector3(0, 0.2, -1);
 const Y_AXIS = new Vector3(0, 1, 0);
+const X_AXIS = new Vector3(1, 0, 0);
 
 /**
  * Two-bone IK: where the middle joint goes so bones of length a and b join `from` to

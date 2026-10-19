@@ -67,6 +67,15 @@ describe('targetStance', () => {
     expect(t.crouch).toBe(1);
     expect(t.poleSweep).toBeGreaterThan(1);
   });
+
+  it('leans fore and aft with [ and ], and tucks up for a flip in the air', () => {
+    expect(targetStance({ ...cruising, foreAft: 1 }, 0).foreAft).toBe(1);
+    expect(targetStance({ ...cruising, foreAft: -3 }, 0).foreAft).toBe(-1);
+    const air = { ...cruising, airborne: true };
+    expect(targetStance({ ...air, foreAft: -1 }, 0).crouch).toBeGreaterThan(
+      targetStance(air, 0).crouch + 0.3,
+    );
+  });
 });
 
 describe('updateStance', () => {
