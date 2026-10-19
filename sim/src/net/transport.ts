@@ -84,7 +84,8 @@ export async function openLoopback(room: string): Promise<Transport> {
   const channel = new BroadcastChannel(`ski-sim-net:${room}`);
   const selfId = Math.random().toString(36).slice(2, 10);
   const peers = new Set<string>();
-  const post = (e: Envelope) => channel.postMessage(e);
+  let closed = false;
+  const post = (e: Envelope) => !closed && channel.postMessage(e);
   const t: Transport = {
     selfId,
     onPeerJoin: ignore,
@@ -95,6 +96,7 @@ export async function openLoopback(room: string): Promise<Transport> {
     sendControl: (message, to) => post({ kind: 'control', from: selfId, to, message }),
     leave: () => {
       post({ kind: 'gone', from: selfId });
+      closed = true;
       channel.close();
     },
   };

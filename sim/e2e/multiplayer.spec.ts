@@ -160,3 +160,31 @@ test('host and guest see each other skiing, on the host clock', async ({ context
 
   expect(errors).toEqual([]);
 });
+
+test('a double-clicked Join joins once', async ({ context }) => {
+  test.setTimeout(240_000);
+  const errors: string[] = [];
+  const host = await open(context, HOST_AT, errors);
+  await host.keyboard.press('KeyN');
+  const modal = host.locator('#multiplayer-modal');
+  await modal.locator('.mp-host').click();
+  await expect(modal.locator('.mp-code')).toHaveText(/^[A-Z2-9]{6}$/);
+  const code = (await modal.locator('.mp-code').textContent())!;
+
+  const guest = await open(context, GUEST_AT, errors);
+  await guest.keyboard.press('KeyN');
+  const guestModal = guest.locator('#multiplayer-modal');
+  await guestModal.locator('.mp-code-input').fill(code);
+  // Both clicks land before the first connection is open.
+  await guestModal.locator('.mp-join').evaluate((b: HTMLElement) => {
+    b.click();
+    b.click();
+  });
+  await expect(guestModal.locator('.mp-status')).toHaveText('Connected');
+  await expect(modal.locator('.mp-player')).toHaveCount(2);
+  // Past the peer timeout, still in the game exactly once.
+  await guest.waitForTimeout(6500);
+  expect(await sim(host, (s) => s.multiplayer.debug.players.length)).toBe(2);
+  expect(await sim(guest, (s) => s.multiplayer.debug.connected)).toBe(true);
+  expect(errors).toEqual([]);
+});

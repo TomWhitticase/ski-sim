@@ -50,6 +50,8 @@ export class Multiplayer {
   /** Guest: how far the local lift clock is behind the host's, still to make up (s). */
   private liftError = 0;
   private name: string;
+  /** Host/Join presses so far (connecting is async). */
+  private attempts = 0;
 
   constructor(
     private readonly sim: MultiplayerSim,
@@ -139,15 +141,19 @@ export class Multiplayer {
 
   private async start(role: Role, code: string): Promise<void> {
     if (this.session) this.leave();
+    // A second click while the first is still connecting: only the latest goes ahead.
+    const attempt = ++this.attempts;
     this.setStatus(role === 'host' ? 'Opening a game…' : `Looking for game ${code}…`);
     let transport;
     try {
       transport = await openTransport(this.transport)(roomId(code));
     } catch (e) {
+      if (attempt !== this.attempts) return;
       console.warn('[net] could not connect', e);
       this.setStatus('Could not reach the matchmaking relays. Are you online?', true);
       return;
     }
+    if (attempt !== this.attempts) return transport.leave();
     this.liftError = 0;
     this.session = new NetSession(
       transport,
