@@ -1,5 +1,7 @@
 import { Vector3 } from 'three/webgpu';
 
+import { DEFAULT_HANDLING, type SkiHandling } from './ski-setup';
+
 /**
  * Skier as a point mass on the terrain surface. Deliberately forgiving: no falls or
  * crashes, a speed cap, and skis that grip well. Forces per unit mass:
@@ -8,22 +10,16 @@ import { Vector3 } from 'three/webgpu';
  * - air drag (k · v²; lower in a tuck)
  * - skidding: when velocity and skis disagree, velocity swings toward the skis
  *   (carving) and the sideways component scrubs speed; a 90° turn is a hockey stop
+ * - chatter: past the skis' stable speed they wash out and scrub speed
  * Leaving a convex roll faster than the slope falls away makes you airborne.
+ * Ski-dependent numbers (friction, carve rate, float, speed cap...) come from the
+ * `SkiHandling` passed to `stepSki`; the rest are the skier and the mountain.
  */
 export const SKI = {
   gravity: 9.81,
-  /** Groomed piste. */
-  snowFriction: 0.045,
-  /** Ungroomed off-piste snow: more resistance, plus extra drag ploughing through it. */
-  powderFriction: 0.08,
-  powderDrag: 0.0015,
   /** Drag coefficient (1/m): 0.5·ρ·CdA/m for ~0.6 m² upright, ~0.25 m² tucked, 80 kg. */
   dragUpright: 0.0045,
   dragTuck: 0.0018,
-  /** How quickly velocity direction swings toward the skis (1/s). */
-  carveRate: 2.8,
-  /** Deceleration at a full sideways skid (m/s²): a hockey stop bites at ~0.7 g. */
-  skidDecel: 8,
   /** Snowplough braking (m/s²). */
   brakeDecel: 4,
   /** Skating: strong enough to get moving on the flat, useless once you're quick. */
@@ -32,7 +28,6 @@ export const SKI = {
   /** Double-poling: a gentler push that keeps you going on the flat. */
   poleAccel: 1.5,
   poleMaxSpeed: 9,
-  maxSpeed: 38,
   /** Walking uphill: fastest on gentle grades, a slow plod on steep ones (m/s). */
   climbSpeedMax: 1.3,
   climbSpeedMin: 0.35,
@@ -93,18 +88,30 @@ export function skiDirection(yaw: number, normal: Vector3, out: Vector3): Vector
   return out.addScaledVector(normal, -out.dot(normal)).normalize();
 }
 
-export function stepSki(state: SkiState, intent: SkiIntent, dt: number, terrain: SkiTerrain) {
+export function stepSki(
+  state: SkiState,
+  intent: SkiIntent,
+  dt: number,
+  terrain: SkiTerrain,
+  skis: SkiHandling = DEFAULT_HANDLING,
+) {
   let remaining = dt;
   let jump = intent.jump;
   while (remaining > 1e-6) {
     const h = Math.min(remaining, SKI.maxStep);
-    substep(state, { ...intent, jump }, h, terrain);
+    substep(state, { ...intent, jump }, h, terrain, skis);
     jump = false;
     remaining -= h;
   }
 }
 
-function substep(state: SkiState, intent: SkiIntent, h: number, terrain: SkiTerrain): void {
+function substep(
+  state: SkiState,
+  intent: SkiIntent,
+  h: number,
+  terrain: SkiTerrain,
+  ski: SkiHandling,
+): void {
   const p = state.position;
   const v = state.velocity;
 
@@ -158,17 +165,25 @@ function substep(state: SkiState, intent: SkiIntent, h: number, terrain: SkiTerr
     dir.copy(v).divideScalar(speed);
     const cos = Math.min(1, Math.abs(dir.dot(target)));
     const sideways = Math.sqrt(1 - cos * cos);
-    // Skis grip and steer when roughly aligned (carving); the further across the path they
-    // are, the more they just scrape sideways instead (skidding, hockey stop).
-    const grip = cos * cos;
-    dir.lerp(target, 1 - Math.exp(-SKI.carveRate * grip * h)).normalize();
-
     const groomed = terrain.groomed?.(p.x, p.z) ?? true;
-    const friction = groomed ? SKI.snowFriction : SKI.powderFriction;
-    const drag = (intent.tuck ? SKI.dragTuck : SKI.dragUpright) + (groomed ? 0 : SKI.powderDrag);
+    // Skis grip and steer when roughly aligned (carving); the further across the path they
+    // are, the more they just scrape sideways instead (skidding, hockey stop). On hard snow
+    // sharp edges and camber hold further across the path; in powder, float steers.
+    const bite = groomed ? ski.hardGrip : 1;
+    const grip = cos ** (2 / bite);
+    // Stiff skis need speed to bend into a carve; past their stable speed any ski chatters.
+    const bend = 1 - 0.4 * ski.stiffness * Math.max(0, 1 - speed / 8);
+    const over = Math.max(0, speed - ski.stableSpeed);
+    const washout = 1 / (1 + over / 10);
+    const carve = ski.carveRate * (groomed ? bite : ski.powderGrip) * bend * washout;
+    dir.lerp(target, 1 - Math.exp(-carve * grip * h)).normalize();
+
+    const friction = groomed ? ski.snowFriction : ski.powderFriction;
+    const drag = (intent.tuck ? SKI.dragTuck : SKI.dragUpright) + (groomed ? 0 : ski.powderDrag);
     const decel =
       friction * SKI.gravity * n.y +
-      SKI.skidDecel * sideways +
+      ski.skidDecel * Math.sqrt(bite) * sideways +
+      ski.chatter * over +
       (intent.brake ? SKI.brakeDecel : 0) +
       drag * speed * speed;
     speed = Math.max(0, speed - decel * h);
@@ -181,7 +196,7 @@ function substep(state: SkiState, intent: SkiIntent, h: number, terrain: SkiTerr
   if (intent.pole && !intent.brake && speed < SKI.poleMaxSpeed) {
     v.addScaledVector(skis, SKI.poleAccel * h);
   }
-  if (v.length() > SKI.maxSpeed) v.setLength(SKI.maxSpeed);
+  if (v.length() > ski.maxSpeed) v.setLength(ski.maxSpeed);
 
   if (intent.jump) {
     v.addScaledVector(n, SKI.jumpSpeed);

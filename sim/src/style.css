@@ -477,15 +477,6 @@ body.map-open #overlay {
   pointer-events: none;
 }
 
-.controls .controls-heading {
-  margin-top: 6px;
-  color: var(--muted);
-  font-family: inherit;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
 #prompt {
   position: fixed;
   left: 50%;
@@ -585,9 +576,285 @@ body.map-open #overlay {
   cursor: progress;
 }
 
-.menu-controls summary {
-  cursor: pointer;
-  color: var(--muted);
+.menu-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.menu-action {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--panel-text);
+  font: inherit;
   font-size: 13px;
-  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.menu-action:hover {
+  background: rgba(61, 139, 253, 0.18);
+}
+
+kbd {
+  display: inline-block;
+  min-width: 1.4em;
+  padding: 0 4px;
+  margin-left: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.menu-primary {
+  padding: 8px 22px;
+  border: none;
+  border-radius: 8px;
+  background: #3d8bfd;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.menu-primary:hover {
+  background: #2f78e6;
+}
+
+/* Modal dialogs (controls, ski setup), in the main menu's style. */
+.modal {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--panel-text);
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+}
+
+.modal::backdrop {
+  background: rgba(8, 12, 20, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+.modal-card {
+  display: flex;
+  flex-direction: column;
+  width: min(900px, 94vw);
+  max-height: 90vh;
+  background: rgba(14, 20, 30, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.modal-header .modal-close {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--panel-text);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.modal-header .modal-close:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.modal-body {
+  padding: 16px 24px 20px;
+  overflow-y: auto;
+}
+
+.modal-body h3 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 24px 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.modal-footer .menu-action {
+  flex: none;
+}
+
+.controls-sections {
+  columns: 3 250px;
+  column-gap: 18px;
+}
+
+.controls-sections section {
+  break-inside: avoid;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.controls-sections .controls {
+  grid-template-columns: minmax(70px, auto) 1fr;
+}
+
+/* Ski setup */
+.ski-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.setup-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.setup-preset,
+.setup-option {
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--panel-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.setup-preset:hover,
+.setup-option:hover {
+  background: rgba(61, 139, 253, 0.18);
+}
+
+.setup-preset.selected,
+.setup-option.selected {
+  border-color: #3d8bfd;
+  background: rgba(61, 139, 253, 0.28);
+}
+
+.setup-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px 28px;
+}
+
+.setup-columns > div {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.setup-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.setup-field {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 8px;
+  align-items: baseline;
+}
+
+.setup-label {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.setup-value {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 13px;
+  color: #74b3ff;
+}
+
+.setup-field input[type='range'],
+.setup-options,
+.setup-hint {
+  grid-column: 1 / -1;
+}
+
+.setup-field input[type='range'] {
+  width: 100%;
+  margin: 2px 0;
+  accent-color: #3d8bfd;
+}
+
+.setup-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.setup-option {
+  padding: 4px 9px;
+  font-size: 12px;
+}
+
+.setup-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.setup-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.setup-bar {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.setup-bar-track {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.setup-bar-track div {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #3d8bfd, #74b3ff);
+  transition: width 0.15s;
+}
+
+@media (max-width: 720px) {
+  .setup-columns {
+    grid-template-columns: 1fr;
+  }
 }

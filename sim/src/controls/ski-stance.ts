@@ -68,6 +68,8 @@ export interface StanceInput {
   pole?: boolean;
   tuck: boolean;
   airborne: boolean;
+  /** How quickly the skis roll edge to edge, 1 = reference (narrow skis are quicker). */
+  edgeRate?: number;
 }
 
 const G = 9.81;
@@ -203,12 +205,13 @@ export function updateStance(stance: Stance, input: StanceInput, dt: number): St
   }
   const target = targetStance(input, stance.skatePhase, stance.polePhase);
   const k = 1 - Math.exp(-RESPONSE * dt);
+  const kRoll = 1 - Math.exp(-RESPONSE * (input.edgeRate ?? 1) * dt);
   const ease = (a: SkiPose, b: SkiPose) => {
     a.x += (b.x - a.x) * k;
     a.lift += (b.lift - a.lift) * k;
     a.z += (b.z - a.z) * k;
     a.yaw += (b.yaw - a.yaw) * k;
-    a.roll += (b.roll - a.roll) * k;
+    a.roll += (b.roll - a.roll) * kRoll;
   };
   ease(stance.left, target.left);
   ease(stance.right, target.right);
