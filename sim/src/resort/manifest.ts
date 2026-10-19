@@ -44,6 +44,8 @@ export interface StartBase {
 
 export interface ResortManifest {
   version: number;
+  /** When the pipeline built this resort (ISO 8601). */
+  generatedAt: string;
   resort: { id: string; name: string; country: string };
   origin: { lat: number; lon: number };
   projection: string;
@@ -93,12 +95,21 @@ const SUPPORTED_VERSION = 9;
 export const DATA_URL =
   (import.meta.env.VITE_DATA_URL as string | undefined) ?? import.meta.env.BASE_URL;
 
+/**
+ * The loaded build's timestamp, added to every data URL so a new deploy's files are
+ * fetched fresh while an unchanged build stays cached (Pages caches files for 10 min,
+ * which otherwise mixes old data with new code).
+ */
+let buildStamp = '';
+
 export function resortUrl(resortId: string, file: string): string {
-  return `${DATA_URL}${resortId}/${file}`;
+  const stamp = buildStamp && file !== 'manifest.json' ? `?v=${buildStamp}` : '';
+  return `${DATA_URL}${resortId}/${file}${stamp}`;
 }
 
 export async function loadManifest(resortId: string): Promise<ResortManifest> {
-  const res = await fetch(resortUrl(resortId, 'manifest.json'));
+  // Revalidate (ETag), so a new deploy's data is picked up at once, not after the cache expires.
+  const res = await fetch(resortUrl(resortId, 'manifest.json'), { cache: 'no-cache' });
   if (!res.ok) {
     throw new Error(
       `No processed data for "${resortId}" (HTTP ${res.status}). ` +
@@ -112,5 +123,6 @@ export async function loadManifest(resortId: string): Promise<ResortManifest> {
         `Rebuild: cd pipeline && uv run ski-sim build ${resortId}`,
     );
   }
+  buildStamp = encodeURIComponent(manifest.generatedAt);
   return manifest;
 }
