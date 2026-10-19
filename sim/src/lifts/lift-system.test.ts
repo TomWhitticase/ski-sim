@@ -68,3 +68,42 @@ describe('LiftLine', () => {
     expect(line.inLoadingZone(line.loadPoint)).toBe(true);
   });
 });
+
+describe('LiftLine both ways', () => {
+  const asKind = (type: string, kind: 'gondola' | 'cabin') =>
+    ({
+      ...lift,
+      type,
+      occupancy: kind === 'gondola' ? 8 : 80,
+      terminals: lift.terminals.map((t) => ({ ...t, kind })),
+    }) as Lift;
+
+  it('chairs only go up', () => {
+    expect(new LiftLine(lift).down).toBeNull();
+  });
+
+  it('a gondola also loads at the top, on the down track, and unloads at the bottom', () => {
+    const g = new LiftLine(asKind('gondola', 'gondola'));
+    const down = g.down!;
+    expect(down.loadPoint.y).toBe(2300);
+    expect(down.loadPoint.x).toBeCloseTo(-2.5); // the -across (down) track
+    expect(down.unloadPoint.y).toBe(2000);
+    expect(down.unloadPoint.x).toBeCloseTo(-2.5);
+    // A carrier leaving the top reaches the bottom later in the loop.
+    const p = g.loop!.period;
+    const ride = (((down.unloadTime - down.loadTime) % p) + p) % p;
+    expect(ride).toBeGreaterThan(p * 0.3);
+    expect(ride).toBeLessThan(p * 0.7);
+    const { carrier, inSeconds } = g.nextToLoad(10, true);
+    expect(g.passed(carrier, down.loadTime, 10, 10 + inSeconds + 0.01)).toBe(true);
+    expect(g.loadingSpot(true).x).toBeLessThan(-2.5); // beside the down track
+  });
+
+  it('a cable car boards its top cabin going down', () => {
+    const c = new LiftLine(asKind('cable_car', 'cabin'));
+    expect(c.down).not.toBeNull();
+    expect(c.nextToLoad(0, true).carrier).toBe(1);
+    const at = c.pose(1, 0, c.down!.loadPoint.clone(), c.down!.loadPoint.clone());
+    expect(at.distance).toBeCloseTo(c.op.length); // docked at the top when cabin 0 boards
+  });
+});

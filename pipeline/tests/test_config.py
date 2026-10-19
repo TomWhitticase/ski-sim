@@ -24,6 +24,10 @@ def test_minimal_config_derives_everything(tmp_path):
     # ~7.9 km x 11.1 km, snapped outward to whole kilometres.
     assert e.west <= -3900 and e.east >= 3900 and e.south <= -5550 and e.north >= 5550
     assert e.width % 1000 == 0
+    # The unsnapped box is kept too (start villages must be inside it).
+    a = cfg.area
+    assert a.west > e.west and a.east < e.east and a.north < e.north
+    assert a.width == pytest.approx(7860, abs=50)
     assert cfg.near.sources == ("ign-lidar-hd", "ign-rge-alti")
     assert cfg.far.extent.west == pytest.approx(e.west - 55_000)
     assert cfg.spawn.altitude is None

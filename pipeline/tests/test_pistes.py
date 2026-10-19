@@ -68,3 +68,28 @@ def test_named_centrelines_win_over_unnamed_areas():
     blob = LineString([(0, -20), (40, -20)]).buffer(6)
     fine = rasterise([(1, blob, False, None), (2, blob, True, None)], grid, runs)
     assert fine[10, 10] == 1
+
+
+def test_pistes_mostly_outside_the_resort_are_left_out():
+    from ski_sim_pipeline.config import GeoPoint
+    from ski_sim_pipeline.frame import LocalFrame
+    from ski_sim_pipeline.pistes import collect
+
+    frame = LocalFrame(GeoPoint(45.0, 6.0))
+
+    def way(i, name, points):
+        geometry = []
+        for east, north in points:
+            lon, lat = frame.to_lonlat(east, north)
+            geometry.append({"lat": lat, "lon": lon})
+        tags = {"piste:type": "downhill", "piste:difficulty": "easy", "name": name}
+        return {"type": "way", "id": i, "tags": tags, "geometry": geometry}
+
+    elements = [
+        way(1, "Ours", [(0, 0), (100, -200), (200, -400)]),
+        way(2, "Next door", [(450, 0), (600, -100), (700, -200)]),
+    ]
+    extent = Extent(-1000, 1000, -1000, 1000)
+    assert len(collect(elements, frame, extent)[0]) == 2
+    runs, _ = collect(elements, frame, extent, area=Extent(-500, 500, -500, 500))
+    assert [r["name"] for r in runs] == ["Ours"]

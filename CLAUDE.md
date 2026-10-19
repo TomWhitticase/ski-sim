@@ -82,9 +82,13 @@ The whole pipeline is driven by `data/resorts/<id>/resort.json`, and only `id`, 
 - spawn height (150 m above the DEM);
 - summit validation against every OSM peak with an `ele` tag.
 
-Lifts, stations, signs, buildings, mountain restaurants, pistes, peaks and sounds all come from OSM with no per-resort code. Optional overrides: `origin`, `spawn` (lat/lon/heading/altitude), `terrain.near/far`, `minimap`, `landmarks`. Then open `?resort=<id>`, or set `DEFAULT_RESORT` in `sim/src/config.ts`.
+Lifts, stations, signs, buildings, mountain restaurants, pistes, peaks and sounds all come from OSM with no per-resort code.
+- **Neighbours are left out** (`territory.py`): the near terrain reaches past `bounds`, and a padded box often clips the next resort along. OSM `landuse=winter_sports` outlines centred inside our bounds are ours, the rest are neighbours. Lifts need a station on our ground, pistes need most of their points on it, and start villages and restaurants must be on it. Optional overrides: `origin`, `spawn` (lat/lon/heading/altitude), `terrain.near/far`, `minimap`, `landmarks`. Then open `?resort=<id>`, or set `DEFAULT_RESORT` in `sim/src/config.ts`.
 
-Current resorts: `les-3-vallees` (Val Thorens, Orelle, Les Menuires, Saint-Martin, Méribel incl. Mont Vallon, Courchevel) and `arlberg` (St. Anton, St. Christoph, Stuben, Zürs, Lech, Warth, Schröcken, plus Sonnenkopf; Copernicus terrain until an Austrian lidar source exists).
+Current resorts:
+- `les-3-vallees`: Val Thorens, Orelle, Les Menuires, Saint-Martin, Méribel incl. Mont Vallon, Courchevel.
+- `arlberg`: St. Anton, St. Christoph, Stuben, Zürs, Lech, Warth, Schröcken, plus Sonnenkopf. Copernicus terrain until an Austrian lidar source exists.
+- `paradiski`: La Plagne (incl. Montalbert, Champagny, Montchavin–Les Coches) and Les Arcs (incl. Peisey-Vallandry, Villaroger), linked by the Vanoise Express. Tignes and La Rosière next door are excluded.
 
 ### Main menu
 
@@ -269,9 +273,10 @@ B gets on a snowmobile from fly or ski mode, keeping your momentum (mid-air, it 
 **Boarding** (`lifts/ride.ts`):
 - **Manual:** stand in the loading zone and the next carrier scoops you up (`LiftSystem.scoop`).
 - **E:** you're put straight on the loading point (beside the track for cabins), facing up the line, and wait.
+- **Both ways:** gondolas and cable cars (some just cross a valley) also board at the top station (`LiftLine.down`: the down track's loading point, loop times, and cabin 1 for jig-backs). E there rides you down, and you're let off on the bottom platform, heading out the way in.
 - **Seat:** a 0.5 s blend into the seat.
 - **Top:** released at the unload point, moving: onto the ramp for chairs and drags, out of the side door for halls.
-- **Skip:** S skips to the top from any phase; W fast-forwards (×8).
+- **Skip:** S skips to the end (top, or bottom riding down) from any phase; W fast-forwards (×8).
 - **Cabins** (gondolas, cable cars): you step in through the door and sit on the back bench facing uphill (gondola) or stand at the front window (cable car), with skis and poles stowed. The instanced cabins are the outside only (`carriers.ts`, `cabinParts`), with opaque tinted windows. The one you ride in is left out of the instances (`LiftSystem.hidden`) and drawn by `lifts/cabin-view.ts` with its interior (benches, linings, ceiling, rails) and see-through glass. The camera near plane drops to 5 cm inside, so close walls don't clip.
 
 **Collisions** (`features/obstacles.ts`): the skier is pushed out of buildings and terminal walls, with the into-wall velocity removed.
@@ -291,7 +296,7 @@ B gets on a snowmobile from fly or ski mode, keeping your momentum (mid-air, it 
 Both come from OSM through Overpass (`sources/osm.py`). The response is cached under `data/raw/osm/`; delete the cache to refresh.
 - **Lifts:** stations sit at the way's ends and intermediate nodes become towers. `features.place_supports` adds `synthetic-tower`s wherever the straight cable would drop below the type's minimum clearance or a span is too long. Per-type dimensions live in `LIFT_PROFILES`.
 - **Buildings:** gable roofs are computed in the pipeline (`gable_roof`): the ridge runs along the long axis of the footprint's oriented bounding box, and the footprint is split along the ridge into planar faces. Large industrial buildings keep flat roofs. Facades (windows, floors, balconies, stone plinth; timber, render, stone or metal) are procedural in `createBuildingMaterial` from a per-vertex `facade` attribute, so it stays one mesh and one draw call, fading to an average colour beyond ~150 m to avoid aliasing. Near-duplicate OSM footprints are merged (`dedupe_buildings`) because coincident walls z-fight. OSM height tags are used when present; otherwise height is estimated from footprint area (`heightSource: "estimate"`, about 98% of Val Thorens). Ruins and roofs are skipped. Lift-station footprints replace the sim's placeholder station boxes.
-- Lifts that leave the near terrain extent are skipped (logged), e.g. links into neighbouring valleys.
+- Lifts that leave the near terrain extent are skipped (logged), e.g. links into neighbouring valleys, and so are ways under 40 m (a station's turn mapped as its own lift).
 - **Peaks:** named `natural=peak` nodes, snapped to the highest DEM sample within 30 m. Every peak in the near extent is kept. Beyond it, only peaks of at least 3500 m (`FAR_PEAK_MIN_ELE`), so the horizon shows the big names.
 
 ### Mountain restaurants

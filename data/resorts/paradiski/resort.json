@@ -1,0 +1,11 @@
+{
+  "id": "paradiski",
+  "name": "Paradiski",
+  "country": "FR",
+  "bounds": {
+    "south": 45.441,
+    "west": 6.6096,
+    "north": 45.621,
+    "east": 6.885
+  }
+}

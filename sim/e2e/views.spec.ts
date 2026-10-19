@@ -35,6 +35,22 @@ const VIEWS = [
     name: 'arlberg-sonnenkopf',
     query: 'resort=arlberg&at=47.0960,10.0560,2200&heading=0&pitch=-12',
   },
+  {
+    name: 'paradiski-arc-1950',
+    query: 'resort=paradiski&at=45.5700,6.8250,2150&heading=60&pitch=-8',
+  },
+  {
+    name: 'paradiski-aiguille-rouge',
+    query: 'resort=paradiski&at=45.5540,6.8440,3260&heading=40&pitch=-10',
+  },
+  {
+    name: 'paradiski-vanoise-express',
+    query: 'resort=paradiski&at=45.5510,6.7680,2050&heading=262&pitch=-14',
+  },
+  {
+    name: 'paradiski-plagne-centre',
+    query: 'resort=paradiski&at=45.5030,6.6700,2150&heading=40&pitch=-12',
+  },
 ];
 
 for (const view of VIEWS) {

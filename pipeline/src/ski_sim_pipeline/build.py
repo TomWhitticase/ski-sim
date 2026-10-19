@@ -11,9 +11,9 @@ from pathlib import Path
 import numpy as np
 from rasterio.warp import Resampling
 
-from . import approach, features, grading, minimap, pistes, restaurants, terminals
+from . import approach, features, grading, minimap, pistes, restaurants, terminals, territory
 from . import bases as base_finder
-from .config import ResortConfig, load_resort
+from .config import Area, ResortConfig, load_resort
 from .export import write_heightmap
 from .frame import LocalFrame
 from .grid import Grid, despike, reproject_into, sample_bilinear, stitch_far_to_near
@@ -98,6 +98,7 @@ def build_features(
     near_grid: Grid,
     far: np.ndarray,
     far_grid: Grid,
+    area: Area | None = None,
 ) -> dict:
     """Lifts, buildings and peaks from OSM, placed on the terrain."""
     bounds = frame.bounds_in("EPSG:4326", near_grid.extent)
@@ -108,13 +109,13 @@ def build_features(
 
     # Lift terminals first: they flatten pads into the terrain (in place), and everything
     # else is then placed on the flattened ground.
-    first_pass = features.extract_lifts(elements, frame, near_grid.extent, ground, [])
+    first_pass = features.extract_lifts(elements, frame, near_grid.extent, ground, [], area)
     terms = terminals.plan(first_pass)
     terminals.flatten(terms, near, near_grid, ground)
     log.info("Flattened %d lift terminal pads", len(terms))
 
     buildings, stations = features.extract_buildings(elements, frame, near_grid.extent, ground)
-    lifts = features.extract_lifts(elements, frame, near_grid.extent, ground, stations)
+    lifts = features.extract_lifts(elements, frame, near_grid.extent, ground, stations, area)
     by_lift: dict[int, list[dict]] = {}
     for t in terms:
         by_lift.setdefault(t["lift"], []).append(t)
@@ -204,12 +205,17 @@ def build_features(
 
 
 def build_pistes(
-    frame: LocalFrame, raw_dir: Path, near: np.ndarray, near_grid: Grid, out_dir: Path
+    frame: LocalFrame,
+    raw_dir: Path,
+    near: np.ndarray,
+    near_grid: Grid,
+    out_dir: Path,
+    area: Area | None = None,
 ) -> dict:
     """Piste overlay texture, lookup grid, edge markers and run records."""
     extent = near_grid.extent
     elements = osm.fetch_pistes(frame.bounds_in("EPSG:4326", extent), raw_dir)
-    runs, shapes = pistes.collect(elements, frame, extent)
+    runs, shapes = pistes.collect(elements, frame, extent, area)
 
     def ground(east: np.ndarray, north: np.ndarray) -> np.ndarray:
         return sample_bilinear(near, near_grid, east, north)
@@ -346,10 +352,15 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     far, far_grid = build_far(cfg, frame, raw_root)
     log.info("Building near terrain (%s)", ", ".join(cfg.near.sources))
     near, near_grid, coverage = build_near(cfg, frame, raw_root, far, far_grid)
+    ours = territory.from_osm(
+        osm.fetch_ski_areas(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root),
+        frame,
+        cfg.area or near_grid.extent,
+    )
     log.info("Grading pistes into the terrain")
     piste_elements = osm.fetch_pistes(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root)
     graded = grading.grade(
-        pistes.collect(piste_elements, frame, near_grid.extent)[0], near, near_grid
+        pistes.collect(piste_elements, frame, near_grid.extent, ours)[0], near, near_grid
     )
     log.info(
         "Graded %d runs (%.0f km): climbing along them %.0f m -> %.0f m, max fill %.1f m",
@@ -362,7 +373,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     stitch_far_to_near(far, far_grid, near, near_grid)
 
     log.info("Building lifts and buildings (OpenStreetMap)")
-    feature_data = build_features(cfg, frame, raw_root, near, near_grid, far, far_grid)
+    feature_data = build_features(cfg, frame, raw_root, near, near_grid, far, far_grid, ours)
     clearance = feature_data.pop("_clearance")
     places = osm.fetch_places(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root)
     start_bases = base_finder.find_bases(
@@ -370,7 +381,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         feature_data["lifts"],
         feature_data["buildings"],
         frame,
-        near_grid.extent,
+        ours,  # not the villages of a neighbouring resort
         lambda e, n: sample_bilinear(near, near_grid, e, n),
     )
     log.info("Start locations: %s", ", ".join(b["name"] for b in start_bases) or "none")
@@ -380,12 +391,12 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         validation = validate_peaks(feature_data["peaks"], near_grid.extent)
 
     log.info("Building pistes (OpenStreetMap)")
-    pistes_meta = build_pistes(frame, raw_root, near, near_grid, out_dir)
+    pistes_meta = build_pistes(frame, raw_root, near, near_grid, out_dir, ours)
     piste_records = json.loads((out_dir / "pistes.json").read_text())["pistes"]
     feature_data["restaurants"] = restaurants.extract(
         osm.fetch_restaurants(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root),
         frame,
-        near_grid.extent,
+        ours,
         near,
         near_grid,
         feature_data["buildings"],

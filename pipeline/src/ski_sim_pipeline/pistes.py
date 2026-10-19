@@ -18,7 +18,7 @@ from rasterio import features as rio_features
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
-from .config import Extent
+from .config import Area, Extent
 from .frame import LocalFrame
 from .grid import Grid
 
@@ -59,10 +59,12 @@ def _difficulty(tags: dict) -> int:
 
 
 def collect(
-    elements: list[dict], frame: LocalFrame, extent: Extent
+    elements: list[dict], frame: LocalFrame, extent: Extent, area: Area | None = None
 ) -> tuple[list[dict], list[tuple]]:
     """Group OSM ways into pistes. Returns (pistes, shapes) where shapes are
-    (piste_index, shapely geometry already buffered to width, is_area, centreline|None)."""
+    (piste_index, shapely geometry already buffered to width, is_area, centreline|None).
+    With an `area` (the resort's own bounds), ways mostly outside it belong to a
+    neighbouring resort and are left out."""
     pistes: list[dict] = []
     index_of: dict[tuple, int] = {}
     shapes = []
@@ -85,6 +87,10 @@ def collect(
         )
         if not inside.any():
             continue
+        if area is not None:
+            ours = [area.contains(e, n) for e, n in pts]
+            if sum(ours) * 2 < len(ours):
+                continue
 
         name = _name(tags)
         difficulty = _difficulty(tags)

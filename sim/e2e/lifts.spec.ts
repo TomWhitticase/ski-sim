@@ -147,3 +147,40 @@ test('E puts you on the gondola loading point and you board as a cabin passes', 
   await page.waitForTimeout(800);
   await page.screenshot({ path: 'test-results/views/lift-gondola-boarded.png' });
 });
+
+test('gondolas run both ways: E at the top station rides you down', async ({ page }) => {
+  test.setTimeout(150_000);
+  await start(page, 'at=45.2729723,6.6060685,2830&heading=313&pitch=-5'); // Moraine top
+  await page.keyboard.press('KeyF');
+  await expect(page.locator('#prompt')).toContainText(/ride Moraine down \(.*m down\)/);
+  await page.keyboard.press('KeyE');
+  await expect(page.locator('#prompt')).toContainText('Waiting for Moraine');
+  await expect(page.locator('#prompt')).toContainText('S to skip to the bottom', {
+    timeout: 60_000,
+  });
+  const boarded = await altitude(page);
+  // Fast-forward through the station crawl and out onto the line.
+  await page.keyboard.down('KeyW');
+  await expect.poll(() => altitude(page), { timeout: 30_000 }).toBeLessThan(boarded - 20);
+  await page.keyboard.up('KeyW');
+  await page.keyboard.press('KeyV');
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: 'test-results/views/lift-gondola-down.png' });
+  await page.keyboard.press('KeyS');
+  await page.waitForTimeout(500);
+  expect(await mode(page)).toBe('SKI');
+  expect(await altitude(page)).toBeLessThan(2400); // Moraine bottom ~2350 m
+});
+
+test('cable car: ride the top cabin down to the valley station', async ({ page }) => {
+  test.setTimeout(180_000);
+  await start(page, 'at=45.264017,6.560409,3185&heading=6&pitch=0'); // Cime Caron top
+  await page.keyboard.press('KeyF');
+  await expect(page.locator('#prompt')).toContainText('ride Cime Caron down');
+  await page.keyboard.press('KeyE');
+  expect(await mode(page)).toBe('LIFT');
+  await page.keyboard.down('KeyW');
+  await expect.poll(() => mode(page), { timeout: 150_000 }).toBe('SKI');
+  await page.keyboard.up('KeyW');
+  expect(await altitude(page)).toBeLessThan(2400); // Cime Caron valley station ~2300 m
+});

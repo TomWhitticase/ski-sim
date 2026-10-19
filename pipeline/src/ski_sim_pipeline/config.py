@@ -6,6 +6,13 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
+
+
+class Area(Protocol):
+    """Anything that can say whether a local point belongs to the resort."""
+
+    def contains(self, east: float, north: float) -> bool: ...
 
 
 @dataclass(frozen=True)
@@ -83,6 +90,9 @@ class ResortConfig:
     far: TerrainLayerConfig
     minimap: MinimapConfig
     landmarks: tuple[Landmark, ...]
+    # The resort's own `bounds` in local metres (None without bounds). The near terrain
+    # is snapped outward from it, so it can reach into a neighbouring resort.
+    area: Extent | None = None
 
 
 # Defaults that make a resort config just id + name + country + lat/lon bounds.
@@ -213,4 +223,18 @@ def load_resort(path: Path) -> ResortConfig:
             )
             for lm in raw.get("landmarks", [])
         ),
+        area=_area(b, origin) if b else None,
     )
+
+
+def _area(b: dict, origin: GeoPoint) -> Extent:
+    from .frame import LocalFrame
+
+    frame = LocalFrame(origin)
+    corners = [
+        frame.to_local(lon, lat)
+        for lat in (b["south"], b["north"])
+        for lon in (b["west"], b["east"])
+    ]
+    xs, ys = zip(*corners, strict=True)
+    return Extent(west=min(xs), east=max(xs), south=min(ys), north=max(ys))

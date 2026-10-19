@@ -82,6 +82,16 @@ def fetch_places(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict
     return _query(query, cache_dir, "places")
 
 
+def fetch_ski_areas(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict]:
+    """Ski area outlines (`landuse=winter_sports` ways) within the bounds, with geometry."""
+    query = (
+        "[out:json][timeout:120];"
+        f'way["landuse"="winter_sports"]({_bbox(lonlat_bounds)});'
+        "out tags geom;"
+    )
+    return _query(query, cache_dir, "ski areas")
+
+
 def find_ski_area(name: str, cache_dir: Path) -> tuple[float, float, float, float] | None:
     """Lat/lon bounds (south, west, north, east) of OSM ski areas (`landuse=winter_sports`)
     whose name matches, unioned. None if nothing matches."""

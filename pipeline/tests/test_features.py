@@ -96,7 +96,7 @@ def test_peaks_snap_to_summit_and_filter_far_minor_peaks():
     assert by_name["Near"]["ele"] == 2501
 
 
-def test_closed_aerialway_ways_are_not_lifts():
+def test_closed_and_tiny_aerialway_ways_are_not_lifts():
     from ski_sim_pipeline.config import Extent, GeoPoint
     from ski_sim_pipeline.features import extract_lifts
     from ski_sim_pipeline.frame import LocalFrame
@@ -117,6 +117,7 @@ def test_closed_aerialway_ways_are_not_lifts():
         [
             way(1, [(0, 0), (0, 800)]),
             way(2, [(100, 0), (110, 0), (110, 10), (100, 10), (100, 0)]),  # station outline
+            way(3, [(300, 0), (314, 0)]),  # an angle station's turn, mapped as its own way
         ],
         frame,
         Extent(-1000, 1000, -1000, 1000),
@@ -124,6 +125,35 @@ def test_closed_aerialway_ways_are_not_lifts():
         [],
     )
     assert [lift["id"] for lift in lifts] == [1]
+
+
+def test_lifts_of_a_neighbouring_resort_are_left_out():
+    from ski_sim_pipeline.config import Extent, GeoPoint
+    from ski_sim_pipeline.features import extract_lifts
+    from ski_sim_pipeline.frame import LocalFrame
+
+    frame = LocalFrame(GeoPoint(45.0, 6.0))
+
+    def way(i, corners):
+        geometry = []
+        for east, north in corners:
+            lon, lat = frame.to_lonlat(east, north)
+            geometry.append({"lat": lat, "lon": lon})
+        return {"type": "way", "id": i, "tags": {"aerialway": "chair_lift"}, "geometry": geometry}
+
+    lifts = extract_lifts(
+        [
+            way(1, [(0, 0), (0, 800)]),  # ours
+            way(2, [(400, 0), (700, 300)]),  # top station just past our bounds: still ours
+            way(3, [(800, 0), (800, 700)]),  # the resort next door, in the terrain margin
+        ],
+        frame,
+        Extent(-1000, 1000, -1000, 1000),
+        lambda east, north: 2000.0 + np.asarray(north) * 0.3,
+        [],
+        area=Extent(-500, 500, -500, 900),
+    )
+    assert [lift["id"] for lift in lifts] == [1, 2]
 
 
 @pytest.mark.parametrize(

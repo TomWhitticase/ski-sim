@@ -21,7 +21,7 @@ import numpy as np
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import split
 
-from .config import Extent
+from .config import Area, Extent
 from .frame import LocalFrame
 
 log = logging.getLogger(__name__)
@@ -56,6 +56,8 @@ SKIPPED_BUILDING_TYPES = {"ruins", "roof", "construction"}
 BUILDING_TYPE_HEIGHTS = {"church": 14.0, "chapel": 7.0, "garage": 3.0, "service": 4.0}
 STATION_BUILDING_HEIGHT = 8.0
 STATION_MATCH_DISTANCE = 15.0
+# Shorter ways are mapped station pieces (e.g. a turn at an angle station), not lifts.
+MIN_LIFT_LENGTH = 40.0
 CABLE_SAMPLE_STEP = 4.0
 
 
@@ -135,7 +137,10 @@ def extract_lifts(
     extent: Extent,
     ground: GroundSampler,
     station_footprints: list[Polygon],
+    area: Area | None = None,
 ) -> list[dict]:
+    """Lifts inside the terrain `extent`; with an `area` (the resort's own bounds), only
+    those with a station in it, so a neighbouring resort's lifts at the edge are left out."""
     lifts = []
     for el in elements:
         tags = el.get("tags", {})
@@ -151,6 +156,13 @@ def extract_lifts(
         if not _inside(extent, points):
             log.info("Skipping lift %s (%s): outside terrain extent", tags.get("name"), el["id"])
             continue
+        if area is not None and not any(area.contains(e, n) for e, n in points[[0, -1]]):
+            log.info("Skipping lift %s (%s): outside the resort", tags.get("name"), el["id"])
+            continue
+        length = float(np.sum(np.hypot(*np.diff(points, axis=0).T)))
+        if length < MIN_LIFT_LENGTH:
+            log.info("Skipping lift %s (%s): %.0f m long", tags.get("name"), el["id"], length)
+            continue
         # Orient bottom -> top so the first support is always the lower station.
         ends = ground(points[[0, -1], 0], points[[0, -1], 1])
         if ends[0] > ends[1]:
@@ -163,7 +175,6 @@ def extract_lifts(
                 fp.distance(p) <= STATION_MATCH_DISTANCE for fp in station_footprints
             )
 
-        length = float(np.sum(np.hypot(*np.diff(points, axis=0).T)))
         lifts.append(
             {
                 "id": el["id"],

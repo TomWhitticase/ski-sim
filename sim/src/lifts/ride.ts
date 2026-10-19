@@ -33,13 +33,17 @@ export type RidePhase = 'waiting' | 'boarding' | 'riding';
  *   you at `boarding`);
  * - boarding: settle into the seat/cabin as it carries you along;
  * - riding: until your carrier passes the unloading point, where you're released.
- * Hold W to fast-forward the lift clock; S skips straight to the top.
+ * Gondolas and cable cars run both ways: boarding at the top (`down`) rides the down
+ * track and lets you off at the bottom.
+ * Hold W to fast-forward the lift clock; S skips straight to the end.
  */
 export class RideControls {
   readonly look = new Look(FLY.mouseSensitivity);
   line = 0;
   carrier = 0;
   phase: RidePhase = 'waiting';
+  /** Riding down (boarded at the top station). */
+  down = false;
   readonly velocity = new Vector3();
   private blend = 0;
   private moved = false;
@@ -95,7 +99,7 @@ export class RideControls {
   get departsIn(): number {
     const line = this.lineObj;
     if (line.tracks) return nextDeparture(line.op, this.lifts.time);
-    return line.nextToLoad(this.lifts.time).inSeconds;
+    return line.nextToLoad(this.lifts.time, this.down).inSeconds;
   }
 
   /** How far from the loading point you are (m, for tower clacks): 0 until riding. */
@@ -106,12 +110,16 @@ export class RideControls {
   /** Teleports end the ride first (see main.ts), so there's nothing to place here. */
   place(): void {}
 
-  /** Press-E boarding: step straight onto the loading point, facing up the line, and wait. */
-  approach(line: number): void {
+  /**
+   * Press-E boarding: step straight onto the loading point, facing along the line, and
+   * wait. `down`: at the top station, to ride down.
+   */
+  approach(line: number, down = false): void {
     this.setLine(line);
+    this.down = down && this.lineObj.down !== null;
     const l = this.lineObj;
-    const t = l.bottomTerminal;
-    this.feet.copy(l.loadingSpot());
+    const t = this.startTerminal;
+    this.feet.copy(l.loadingSpot(this.down));
     this.feet.y = this.skier.groundAt(this.feet.x, this.feet.z);
     this.lastFeet.copy(this.feet);
     this.bodyYaw = Math.atan2(-t.dir[0], t.dir[1]);
@@ -124,6 +132,7 @@ export class RideControls {
   /** Start boarding a specific carrier from where you are (skied into the loading zone). */
   boardFrom(line: number, carrier: number, from: Vector3, lookYaw: number): void {
     this.setLine(line);
+    this.down = false;
     this.feet.copy(from);
     this.lastFeet.copy(from);
     this.look.yaw = lookYaw;
@@ -131,25 +140,26 @@ export class RideControls {
     this.startBoarding(carrier);
   }
 
-  /** Returns true once you've been released at the top (or S skipped there). */
+  /** Returns true once you've been released at the end (or S skipped there). */
   update(dt: number, input: Input): boolean {
     this.look.apply(input);
     const lifts = this.lifts;
     lifts.rate = input.down('KeyW') ? FAST_FORWARD : 1;
     if (input.wasPressed('KeyS')) {
-      this.skipToTop();
+      this.skipToEnd();
       return true;
     }
     const line = this.lineObj;
 
     if (this.phase === 'waiting') {
-      const t = line.bottomTerminal;
+      const t = this.startTerminal;
       this.bodyYaw = Math.atan2(-t.dir[0], t.dir[1]);
       if (line.tracks) {
-        if (nextDeparture(line.op, lifts.time) === 0) this.startBoarding(0);
+        if (nextDeparture(line.op, lifts.time) === 0) this.startBoarding(this.down ? 1 : 0);
       } else {
-        const { carrier } = line.nextToLoad(lifts.previousTime);
-        if (line.passed(carrier, line.loadTime, lifts.previousTime, lifts.time)) {
+        const { carrier } = line.nextToLoad(lifts.previousTime, this.down);
+        const mark = this.down ? line.down!.loadTime : line.loadTime;
+        if (line.passed(carrier, mark, lifts.previousTime, lifts.time)) {
           this.startBoarding(carrier);
         }
       }
@@ -186,14 +196,32 @@ export class RideControls {
     if (this.phase !== 'riding') return false;
     if (line.tracks) {
       const p = line.pose(this.carrier, lifts.time, new Vector3(), new Vector3());
-      return this.moved && !p.moving && p.distance > line.op.length / 2;
+      const atTop = p.distance > line.op.length / 2;
+      return this.moved && !p.moving && atTop !== this.down;
     }
-    return line.passed(this.carrier, line.unloadTime, lifts.previousTime, lifts.time);
+    const mark = this.down ? line.down!.unloadTime : line.unloadTime;
+    return line.passed(this.carrier, mark, lifts.previousTime, lifts.time);
+  }
+
+  /** The station you board at: the bottom, or the top riding down. */
+  private get startTerminal() {
+    return this.down ? this.lineObj.topTerminal : this.lineObj.bottomTerminal;
   }
 
   /** Where to put you when you get off, and how you're moving. */
   release(): { feet: Vector3; velocity: Vector3; heading: number } {
     const line = this.lineObj;
+    if (this.down) {
+      // Off on the down track's platform, then out the way you'd come in to ride up.
+      const t = line.bottomTerminal;
+      const feet = line.loadingSpot();
+      feet.y = this.skier.groundAt(feet.x, feet.z);
+      const out = new Vector3(-t.dir[0], 0, t.dir[1]); // behind the bullwheel
+      const velocity =
+        t.entrance === 'back' ? out.multiplyScalar(2) : line.across.clone().multiplyScalar(2);
+      const heading = (Math.atan2(velocity.x, -velocity.z) * 180) / Math.PI;
+      return { feet, velocity, heading };
+    }
     const t = line.topTerminal;
     const out = new Vector3(-t.dir[0], 0, t.dir[1]); // onward, past the bullwheel
     const velocity = new Vector3();
@@ -242,9 +270,9 @@ export class RideControls {
     }
   }
 
-  /** S: off at the top unloading point, as if you'd ridden it. */
-  private skipToTop(): void {
-    this.feet.copy(this.lineObj.unloadPoint);
+  /** S: off at the unloading point (top, or bottom riding down), as if you'd ridden it. */
+  private skipToEnd(): void {
+    this.feet.copy(this.down ? this.lineObj.down!.unloadPoint : this.lineObj.unloadPoint);
     this.velocity.set(0, 0, 0);
     this.phase = 'riding';
     this.skipped = true;

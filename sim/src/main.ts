@@ -561,9 +561,9 @@ async function main(): Promise<void> {
   document.body.classList.toggle('skiing', mode !== 'fly');
   let nearTower = false;
   /** E: straight onto the loading point, to wait for the next carrier. */
-  const boardLift = (line: number) => {
+  const boardLift = (line: number, down: boolean) => {
     setMode('ride');
-    ride.approach(line);
+    ride.approach(line, down);
   };
   /** Skied into a loading zone just as a carrier arrived: on you get. */
   const scooped = (line: number, carrier: number) => {
@@ -671,8 +671,8 @@ async function main(): Promise<void> {
         setMode('ski'); // step off (or jump!) where you are
       } else if (mode !== 'glide' && mode !== 'sled') {
         const p = whereAmI();
-        const line = lifts.boardingNear(p.x, p.z);
-        if (line !== null) boardLift(line);
+        const near = lifts.boardingNear(p.x, p.z);
+        if (near) boardLift(near.line, near.down);
       }
     } else if (e.code === 'KeyF' && !e.repeat && !worldMap.isOpen) {
       setMode(mode === 'fly' ? 'ski' : 'fly');
@@ -771,16 +771,19 @@ async function main(): Promise<void> {
       if (ride.phase === 'waiting') {
         text = `Waiting for ${ride.name} · ${formatWait(ride.departsIn)} · hold W to fast-forward · E to step away`;
       } else {
-        text = `${ride.name} · hold W to fast-forward · S to skip to the top · E to jump off`;
+        const end = ride.down ? 'bottom' : 'top';
+        text = `${ride.name} · hold W to fast-forward · S to skip to the ${end} · E to jump off`;
       }
     } else if (mode !== 'glide' && mode !== 'sled') {
       const p = whereAmI();
-      const line = lifts.boardingNear(p.x, p.z);
-      if (line !== null) {
-        const l = lifts.lines[line]!;
-        text = l.inLoadingZone(p)
-          ? `${l.name} loading point · wait here to be picked up (or press E)`
-          : `E — ride ${l.name} (${liftTypeName(l.lift.type)}, ${Math.round(l.lift.vertical)} m up)`;
+      const near = lifts.boardingNear(p.x, p.z);
+      if (near) {
+        const l = lifts.lines[near.line]!;
+        const vertical = `${Math.round(l.lift.vertical)} m ${near.down ? 'down' : 'up'}`;
+        text =
+          !near.down && l.inLoadingZone(p)
+            ? `${l.name} loading point · wait here to be picked up (or press E)`
+            : `E — ride ${l.name}${near.down ? ' down' : ''} (${liftTypeName(l.lift.type)}, ${vertical})`;
       } else if (mode === 'ski' && sled.canRemount(p)) {
         text = 'B — get back on the snowmobile';
       }

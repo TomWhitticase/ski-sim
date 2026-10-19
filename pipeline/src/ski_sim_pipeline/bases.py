@@ -13,7 +13,7 @@ import numpy as np
 from shapely.geometry import Point, Polygon
 from shapely.strtree import STRtree
 
-from .config import Extent
+from .config import Area
 from .frame import LocalFrame
 
 VILLAGE_RADIUS = 700.0  # lifts this close to a place make it a ski village (m)
@@ -31,7 +31,7 @@ def find_bases(
     lifts: list[dict],
     buildings: list[dict],
     frame: LocalFrame,
-    extent: Extent,
+    extent: Area,
     ground,
 ) -> list[dict]:
     footprints = [Polygon(b["footprint"]).buffer(2) for b in buildings]

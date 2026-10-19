@@ -103,6 +103,17 @@ export class LiftLine {
   /** World positions (on the pad) of the loading and unloading points. */
   readonly loadPoint: Vector3;
   readonly unloadPoint: Vector3;
+  /**
+   * Gondolas and cable cars also carry you down (some just cross a valley): boarding
+   * on the down track at the top station, off at the bottom. Null for chairs and drags.
+   */
+  readonly down: {
+    loadPoint: Vector3;
+    unloadPoint: Vector3;
+    /** Loop times at the down track's loading (top) and unloading (bottom) points. */
+    loadTime: number;
+    unloadTime: number;
+  } | null = null;
   private readonly bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
 
   constructor(readonly lift: Lift) {
@@ -135,6 +146,9 @@ export class LiftLine {
         .addScaledVector(this.across, side * r);
     this.loadPoint = onPad(bottomT, bottomT.load, 1);
     this.unloadPoint = onPad(topT, topT.unload, 1);
+    const enclosed = base.kind === 'gondola' || base.kind === 'cabin';
+    const downLoad = onPad(topT, topT.load, -1);
+    const downUnload = onPad(bottomT, bottomT.load, -1);
 
     if (base.kind === 'cabin') {
       // Jig-back: two cabins shuttle between docks, one on each track.
@@ -152,6 +166,8 @@ export class LiftLine {
       this.tracks = [track(1), track(-1)];
       this.op = { ...base, length: this.tracks[0].length, carriers: 2 };
       this.headway = 0;
+      // Cabin 1 docks at the top (on the -across track) while cabin 0 boards below.
+      this.down = { loadPoint: downLoad, unloadPoint: downUnload, loadTime: 0, unloadTime: 0 };
     } else {
       const stationSpeed =
         bottomT.detachable && (base.kind === 'chair' || base.kind === 'gondola')
@@ -175,6 +191,15 @@ export class LiftLine {
       this.unloadTime = this.loop.timeAt(
         this.loop.nearestIndex(rail(this.unloadPoint), 0, this.loop.points.length),
       );
+      if (enclosed) {
+        const n = this.loop.points.length;
+        this.down = {
+          loadPoint: downLoad,
+          unloadPoint: downUnload,
+          loadTime: this.loop.timeAt(this.loop.nearestIndex(rail(downLoad), half, n)),
+          unloadTime: this.loop.timeAt(this.loop.nearestIndex(rail(downUnload), half, n)),
+        };
+      }
     }
 
     const xs = [fb.wheel.x, ft.wheel.x, ...this.towers.map((p) => p.x)];
@@ -238,13 +263,14 @@ export class LiftLine {
     return (((time + ci * this.headway) % p) + p) % p;
   }
 
-  /** The carrier that next reaches the loading point, and in how many seconds. */
-  nextToLoad(time: number): { carrier: number; inSeconds: number } {
-    if (this.tracks) return { carrier: 0, inSeconds: nextDeparture(this.op, time) };
+  /** The carrier that next reaches the loading point (`down`: the top one), and when. */
+  nextToLoad(time: number, down = false): { carrier: number; inSeconds: number } {
+    if (this.tracks) return { carrier: down ? 1 : 0, inSeconds: nextDeparture(this.op, time) };
     // Carrier ci is at loop time (time + ci·h). It reaches loadTime after
     // δ = (loadTime − time − ci·h) mod period seconds; the smallest δ is next.
     const p = this.loop!.period;
-    const x = (((this.loadTime - time) % p) + p) % p;
+    const mark = down ? this.down!.loadTime : this.loadTime;
+    const x = (((mark - time) % p) + p) % p;
     const carrier = Math.min(Math.floor(x / this.headway), this.op.carriers - 1);
     return { carrier, inSeconds: x - carrier * this.headway };
   }
@@ -261,13 +287,13 @@ export class LiftLine {
    * Where you stand to board (world, on the pad): on the loading line for chairs and
    * drags, beside the track for gondolas and cable cars (cabins pass alongside).
    */
-  loadingSpot(): Vector3 {
-    const t = this.bottomTerminal;
+  loadingSpot(down = false): Vector3 {
+    const t = down ? this.topTerminal : this.bottomTerminal;
     const r = t.gauge / 2;
     const enclosed = this.op.kind === 'gondola' || this.op.kind === 'cabin';
     return new Vector3(t.east, t.pad, -t.north)
       .addScaledVector(new Vector3(t.dir[0], 0, -t.dir[1]), t.load)
-      .addScaledVector(this.across, enclosed ? r + 1.4 : r);
+      .addScaledVector(this.across, (enclosed ? r + 1.4 : r) * (down ? -1 : 1));
   }
 
   /** Whether a world point is in this lift's loading zone (on the pad by the loading point). */
@@ -540,15 +566,19 @@ export class LiftSystem {
   }
 
   /** The lift whose loading point is nearest (x, z), within BOARDING_RADIUS. */
-  boardingNear(x: number, z: number): number | null {
-    let best: number | null = null;
+  boardingNear(x: number, z: number): { line: number; down: boolean } | null {
+    let best: { line: number; down: boolean } | null = null;
     let bestDistance = BOARDING_RADIUS;
-    this.lines.forEach((line, li) => {
-      const d = Math.hypot(line.loadPoint.x - x, line.loadPoint.z - z);
+    const consider = (p: Vector3, line: number, down: boolean) => {
+      const d = Math.hypot(p.x - x, p.z - z);
       if (d < bestDistance) {
         bestDistance = d;
-        best = li;
+        best = { line, down };
       }
+    };
+    this.lines.forEach((line, li) => {
+      consider(line.loadPoint, li, false);
+      if (line.down) consider(line.down.loadPoint, li, true);
     });
     return best;
   }

@@ -23,7 +23,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.strtree import STRtree
 
 from . import terminals as terminal_pads
-from .config import Extent
+from .config import Area
 from .features import GroundSampler, _project, gable_roof
 from .frame import LocalFrame
 from .grid import Grid, sample_bilinear
@@ -92,7 +92,7 @@ def on_mountain(piste_distance: float, height_above_village: float, neighbours: 
 def extract(
     elements: list[dict],
     frame: LocalFrame,
-    extent: Extent,
+    extent: Area,
     heights: np.ndarray,
     grid: Grid,
     buildings: list[dict],
