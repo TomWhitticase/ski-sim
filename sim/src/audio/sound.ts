@@ -1,4 +1,4 @@
-import type { SoundLevels } from './levels';
+import type { EngineSound, SoundLevels } from './levels';
 
 const SMOOTHING = 0.08; // s: time constant for level changes (avoids zipper noise)
 
@@ -8,6 +8,8 @@ const SMOOTHING = 0.08; // s: time constant for level changes (avoids zipper noi
  * - glide: band-passed hiss of skis running on snow
  * - skid: brighter, gritty scrape, gated by a fast random flutter
  * - thump: a short low burst on landing
+ * - engine: a snowmobile's twin two-stroke, sawtooth harmonics at the firing frequency
+ *   through a low-pass, with a warble at idle and exhaust rasp from band-passed noise
  * Browsers only allow audio after a user gesture, so start() is called from a click.
  */
 export class Sound {
@@ -18,6 +20,14 @@ export class Sound {
   private skid!: { gain: GainNode; filter: BiquadFilterNode };
   private noise!: AudioBuffer;
   private hum!: GainNode;
+  private engine!: {
+    gain: GainNode;
+    filter: BiquadFilterNode;
+    oscillators: { osc: OscillatorNode; ratio: number }[];
+    warble: OscillatorNode;
+    warbleDepth: GainNode;
+    rasp: BiquadFilterNode;
+  };
   private muted: boolean;
 
   constructor(muted = false) {
@@ -97,6 +107,72 @@ export class Sound {
       osc.connect(g).connect(humFilter);
       osc.start();
     }
+
+    // Snowmobile engine: firing-frequency sawtooth plus a sub-harmonic and the 2nd
+    // harmonic (a little detuned, for the beat between two cylinders), through a
+    // low-pass. The warble modulates the level at idle; the rasp is noise around the
+    // exhaust note.
+    const engineGain = ctx.createGain();
+    engineGain.gain.value = 0;
+    const engineFilter = ctx.createBiquadFilter();
+    engineFilter.type = 'lowpass';
+    engineFilter.frequency.value = 400;
+    engineFilter.Q.value = 2;
+    const pulse = ctx.createGain(); // the warble swings this around 1
+    engineFilter.connect(pulse).connect(engineGain).connect(this.master);
+    const oscillators = (
+      [
+        [1, 'sawtooth', 0.5],
+        [0.5, 'square', 0.25],
+        [2.01, 'sawtooth', 0.18],
+      ] as const
+    ).map(([ratio, type, level]) => {
+      const osc = ctx.createOscillator();
+      osc.type = type;
+      osc.frequency.value = 50 * ratio;
+      const g = ctx.createGain();
+      g.gain.value = level;
+      osc.connect(g).connect(engineFilter);
+      osc.start();
+      return { osc, ratio };
+    });
+    const warble = ctx.createOscillator();
+    warble.type = 'square';
+    warble.frequency.value = 12;
+    const warbleDepth = ctx.createGain();
+    warbleDepth.gain.value = 0;
+    warble.connect(warbleDepth).connect(pulse.gain);
+    warble.start();
+    const rasp = ctx.createBiquadFilter();
+    rasp.type = 'bandpass';
+    rasp.Q.value = 1.2;
+    const raspGain = ctx.createGain();
+    raspGain.gain.value = 0.35;
+    source.connect(rasp).connect(raspGain).connect(engineFilter);
+    this.engine = {
+      gain: engineGain,
+      filter: engineFilter,
+      oscillators,
+      warble,
+      warbleDepth,
+      rasp,
+    };
+  }
+
+  /** The snowmobile's engine (level 0 when you're not on one). */
+  setEngine(engine: EngineSound): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const e = this.engine;
+    e.gain.gain.setTargetAtTime(engine.level, t, SMOOTHING);
+    e.filter.frequency.setTargetAtTime(engine.cutoff, t, SMOOTHING);
+    for (const { osc, ratio } of e.oscillators) {
+      osc.frequency.setTargetAtTime(engine.frequency * ratio, t, 0.04);
+    }
+    e.warble.frequency.setTargetAtTime(engine.frequency / 4, t, 0.04);
+    e.warbleDepth.gain.setTargetAtTime(engine.warble, t, SMOOTHING);
+    e.rasp.frequency.setTargetAtTime(engine.frequency * 3, t, 0.04);
   }
 
   setLiftHum(level: number): void {

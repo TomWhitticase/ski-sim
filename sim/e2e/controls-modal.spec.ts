@@ -13,6 +13,7 @@ test('controls modal opens from the main menu, in sections, and closes with ✕ 
     'Ski',
     'Fly',
     'Paraglider',
+    'Snowmobile',
     'View & sound',
   ]);
   await expect(modal.locator('dt', { hasText: /^G$/ })).toBeVisible();

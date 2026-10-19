@@ -480,7 +480,9 @@ export class SkierModel {
         0.08 + 0.18 * c + 0.22 * Math.max(r, 0),
         -0.3 - 0.12 * c - 0.3 * r,
       ).lerp(new Vector3(side * 0.17, 0.06, -0.3), sit); // seated: hands on the thighs
-      const hand = handLocal.applyMatrix4(this.chest.matrix);
+      const hand = stance.grip
+        ? new Vector3(side * stance.grip.x, stance.grip.y, stance.grip.z)
+        : handLocal.applyMatrix4(this.chest.matrix);
       const elbow = solveJoint(shoulder, hand, UPPER_ARM, FOREARM, new Vector3(side, -0.3, 0.6));
       stretch(limb.upperArm, shoulder, elbow);
       const wrist = elbow.clone().lerp(hand, 0.85);
