@@ -1,0 +1,11 @@
+{
+  "id": "arlberg",
+  "name": "Ski Arlberg",
+  "country": "AT",
+  "bounds": {
+    "south": 47.0815,
+    "west": 10.0202,
+    "north": 47.2825,
+    "east": 10.3058
+  }
+}
