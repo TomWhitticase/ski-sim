@@ -432,9 +432,8 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     else:
         validation = validate_peaks(feature_data["peaks"], near_grid.extent)
 
-    log.info("Building pistes (OpenStreetMap)")
-    pistes_meta = build_pistes(frame, raw_root, near, near_grid, out_dir, ours, feature_data)
-    piste_records = json.loads((out_dir / "pistes.json").read_text())["pistes"]
+    # Restaurants level their sites into the terrain, so they go before anything that's
+    # placed at a stored height on it (piste markers, floodlights, snow park features).
     feature_data["restaurants"] = restaurants.extract(
         osm.fetch_restaurants(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root),
         frame,
@@ -443,9 +442,12 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         near_grid,
         feature_data["buildings"],
         feature_data["lifts"],
-        piste_records,
+        pistes.summarise(piste_runs, lambda e, n: sample_bilinear(near, near_grid, e, n)),
         start_bases,
     )
+    log.info("Building pistes (OpenStreetMap)")
+    pistes_meta = build_pistes(frame, raw_root, near, near_grid, out_dir, ours, feature_data)
+    piste_records = json.loads((out_dir / "pistes.json").read_text())["pistes"]
 
     log.info("Building land cover (ESA WorldCover)")
     land_cover, land_stats, tree_cover = landcover.build(
