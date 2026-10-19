@@ -230,6 +230,7 @@ P deploys a paraglider from fly or ski mode, keeping your velocity; P again drop
 - **Seat:** a 0.5 s blend into the seat.
 - **Top:** released at the unload point, moving: onto the ramp for chairs and drags, out of the side door for halls.
 - **Skip:** S skips to the top from any phase; W fast-forwards (×8).
+- **Cabins** (gondolas, cable cars): you step in through the door and sit on the back bench facing uphill (gondola) or stand at the front window (cable car), with skis and poles stowed. The instanced cabins are the outside only (`carriers.ts`, `cabinParts`), with opaque tinted windows. The one you ride in is left out of the instances (`LiftSystem.hidden`) and drawn by `lifts/cabin-view.ts` with its interior (benches, linings, ceiling, rails) and see-through glass. The camera near plane drops to 5 cm inside, so close walls don't clip.
 
 **Collisions** (`features/obstacles.ts`): the skier is pushed out of buildings and terminal walls, with the into-wall velocity removed.
 

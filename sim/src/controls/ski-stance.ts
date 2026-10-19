@@ -35,6 +35,11 @@ export interface Stance {
   polePhase: number;
   /** Hands forward (+1, reaching to plant) to back (-0.3, end of the push). */
   armReach: number;
+  /**
+   * Sitting on a bench (riding a gondola): `amount` blends from standing (0) to seated (1),
+   * with the hips `height` above the feet and `back` behind them. Boots rest on the floor.
+   */
+  sit?: { amount: number; height: number; back: number };
 }
 
 /** Moments in the animation that make a sound. */
