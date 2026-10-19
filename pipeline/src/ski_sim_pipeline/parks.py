@@ -7,7 +7,7 @@ deterministically from the park's geometry, name and difficulty and the terrain:
   the lip (take-off ANGLE above horizontal), a level table, a rounded knuckle and a
   landing steeper than the hill that runs back into it (`kicker_profile`). Sizes
   (small, medium, large) come from the difficulty; family/kids parks are small.
-- Boxes (a snow ramp onto a flat box) in a second, jib line where the park is wide
+- Rails (a snow ramp onto a long rail) in a second, jib line where the park is wide
   enough, or between kickers in a narrow one.
 - A boardercross ("cross" in the name), or a snake/bumpy run: the course weaves down
   the park round banked turns (berms) with rollers on the straights.
@@ -48,7 +48,9 @@ GAP = 25.0  # run-out between features: room to land, spot and set up (m)
 EDGE = 2.0  # features keep this far inside the park's outline (m)
 TWO_LINES = 34.0  # a park at least this wide gets a jib line beside the jumps (m)
 
-BOX = {"length": 6.0, "height": 0.5, "width": 0.6, "ramp": 2.5, "rampWidth": 1.6}
+#: Rails (the sim draws a steel rail on legs; physics rides its top): long, and well
+#: off the snow, with a snow ramp up to them.
+BOX = {"length": 12.0, "height": 1.3, "width": 0.6, "ramp": 5.0, "rampWidth": 2.0}
 ROLLER = {"height": 0.9, "length": 7.0}
 BERM = {"height": 2.2, "width": 5.0, "radius": 9.0}
 COURSE_WIDTH = 7.0

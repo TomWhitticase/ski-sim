@@ -17,8 +17,13 @@ import {
 const SNOW: [number, number, number] = [1, 1, 1];
 /** Dyed lines on the lip, so riders can read the take-off (blue, like most parks). */
 const DYE: [number, number, number] = [0.18, 0.4, 0.85];
-const BOX_TOP: [number, number, number] = [0.82, 0.83, 0.85];
-const BOX_SIDE: [number, number, number] = [0.85, 0.27, 0.17];
+const RAIL_TOP: [number, number, number] = [0.82, 0.83, 0.85];
+const RAIL_SIDE: [number, number, number] = [0.85, 0.27, 0.17];
+const LEG: [number, number, number] = [0.2, 0.21, 0.23];
+/** Rail slab thickness, leg size and spacing (m). */
+const RAIL_DEPTH = 0.14;
+const LEG_SIZE = 0.12;
+const LEG_SPACING = 3;
 /** Drawn this far below the physics surface, so where a feature meets the snow the
  * terrain wins instead of z-fighting (the step is never visible). */
 const SINK = 0.05;
@@ -70,7 +75,10 @@ function lineSurface(b: Builder, f: LineFeature): void {
   b.grid(first, f.profile.length, vs.length);
 }
 
-/** A box: a top following the profile, vertical sides and end down into the snow. */
+/**
+ * A rail (a `box` feature): a steel slab whose top follows the profile, standing on legs
+ * down into the snow, so it reads as off the ground. Physics rides the top (park-shapes).
+ */
 function box(b: Builder, f: LineFeature, ground: (east: number, north: number) => number): void {
   const s = Math.sin((f.heading * Math.PI) / 180);
   const c = Math.cos((f.heading * Math.PI) / 180);
@@ -78,34 +86,61 @@ function box(b: Builder, f: LineFeature, ground: (east: number, north: number) =
     f.east + u * s - v * c,
     f.north + u * c + v * s,
   ];
-  const half = f.width / 2;
-  const [u0, u1] = [f.profile[0]![0], f.profile[f.profile.length - 1]![0]];
-  const corners = [
-    [u0, -half],
-    [u1, -half],
-    [u1, half],
-    [u0, half],
-  ] as const;
-  const topY = (u: number) => lineHeight(f, u, 0);
   const quad = (pts: [number, number, number][], colour: [number, number, number]) => {
     const i = pts.map(([e, y, n]) => b.vertex(e, y, n, colour));
     b.indices.push(i[0]!, i[1]!, i[2]!, i[0]!, i[2]!, i[3]!);
   };
-  const top = corners.map(([u, v]) => {
-    const [e, n] = at(u, v);
-    return [e, topY(u), n] as [number, number, number];
-  });
-  quad([top[0]!, top[1]!, top[2]!, top[3]!], BOX_TOP);
-  // Sides: each edge from the top down to under the snow.
-  for (let k = 0; k < 4; k++) {
-    const p = top[k]!;
-    const q = top[(k + 1) % 4]!;
-    const below = (t: [number, number, number]): [number, number, number] => [
-      t[0],
-      ground(t[0], t[2]) - 0.3,
-      t[2],
-    ];
-    quad([p, below(p), below(q), q], BOX_SIDE);
+  /** A box between u0..u1 and v0..v1, from `bottom(u, v)` up to `top(u)`. */
+  const block = (
+    u0: number,
+    u1: number,
+    v0: number,
+    v1: number,
+    top: (u: number) => number,
+    bottom: (u: number, e: number, n: number) => number,
+    topColour: [number, number, number],
+    sideColour: [number, number, number],
+  ) => {
+    const corners = [
+      [u0, v0],
+      [u1, v0],
+      [u1, v1],
+      [u0, v1],
+    ] as const;
+    const up = corners.map(([u, v]) => {
+      const [e, n] = at(u, v);
+      return [e, top(u), n] as [number, number, number];
+    });
+    const down = corners.map(([u], k) => {
+      const [e, , n] = up[k]!;
+      return [e, bottom(u, e, n), n] as [number, number, number];
+    });
+    quad([up[0]!, up[1]!, up[2]!, up[3]!], topColour);
+    quad([down[3]!, down[2]!, down[1]!, down[0]!], sideColour);
+    for (let k = 0; k < 4; k++) {
+      const q = (k + 1) % 4;
+      quad([up[k]!, down[k]!, down[q]!, up[q]!], sideColour);
+    }
+  };
+  const half = f.width / 2;
+  const [u0, u1] = [f.profile[0]![0], f.profile[f.profile.length - 1]![0]];
+  const topY = (u: number) => lineHeight(f, u, 0);
+  block(u0, u1, -half, half, topY, (u) => topY(u) - RAIL_DEPTH, RAIL_TOP, RAIL_SIDE);
+  // Legs: at each end and every LEG_SPACING between, down to under the snow.
+  const legs = Math.max(1, Math.round((u1 - u0) / LEG_SPACING));
+  const l = LEG_SIZE / 2;
+  for (let k = 0; k <= legs; k++) {
+    const u = Math.min(Math.max(u0 + ((u1 - u0) * k) / legs, u0 + l), u1 - l);
+    block(
+      u - l,
+      u + l,
+      -l,
+      l,
+      (uu) => topY(uu) - RAIL_DEPTH,
+      (_u, e, n) => ground(e, n) - 0.3,
+      LEG,
+      LEG,
+    );
   }
 }
 
