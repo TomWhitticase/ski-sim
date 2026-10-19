@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatAltitude, formatLatitude, formatLongitude, formatSpeed, landingToast } from './hud';
+import { formatAltitude, formatLatitude, formatLongitude, formatSpeed } from './hud';
 
 describe('HUD formatting', () => {
   it('formats altitude in whole metres with separators', () => {
@@ -16,22 +16,5 @@ describe('HUD formatting', () => {
 
   it('converts m/s to km/h', () => {
     expect(formatSpeed(25)).toBe('90 km/h');
-  });
-});
-
-describe('landing toast', () => {
-  it('names flips by direction and count', () => {
-    expect(landingToast(1, 'clean')).toBe('Backflip!');
-    expect(landingToast(-1, 'clean')).toBe('Front flip!');
-    expect(landingToast(-2, 'clean')).toBe('Double front flip!');
-    expect(landingToast(3, 'sketchy')).toBe('Triple backflip! (sketchy landing)');
-    expect(landingToast(6, 'clean')).toBe('6× backflip!');
-  });
-
-  it('says nothing for an ordinary landing, and calls out crashes', () => {
-    expect(landingToast(0, 'clean')).toBeNull();
-    expect(landingToast(0, 'sketchy')).toBeNull();
-    expect(landingToast(0, 'crash')).toBe('Crashed!');
-    expect(landingToast(-1, 'crash')).toBe('Front flip… crashed!');
   });
 });

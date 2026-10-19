@@ -104,7 +104,7 @@ const landed = (page: Page) =>
       page.evaluate(() => (window.__sim as unknown as { ski: SkiHandle }).ski.lastLanding!),
     );
 
-test('holding ] off a big jump lands a backflip and shows it on the HUD', async ({ page }) => {
+test('holding ] off a big jump lands a backflip', async ({ page }) => {
   await start(page);
   await page.keyboard.press('KeyV'); // chase camera
   await launch(page, 10); // ~2 s of air
@@ -116,8 +116,7 @@ test('holding ] off a big jump lands a backflip and shows it on the HUD', async 
   await page.keyboard.up('BracketRight');
   expect(landing.flips).toBe(1);
   expect(landing.outcome).not.toBe('crash');
-  await expect(page.locator('#toast')).toHaveText(/^Backflip!/);
-  await page.screenshot({ path: 'test-results/views/flip-landed-toast.png' });
+  await page.screenshot({ path: 'test-results/views/flip-landed.png' });
   expect(
     await page.evaluate(() => (window.__sim as unknown as { ski: SkiHandle }).ski.crashed),
   ).toBe(false);
@@ -135,7 +134,6 @@ test('holding [ does a front flip', async ({ page }) => {
   await page.keyboard.up('BracketLeft');
   expect(landing.flips).toBe(-1);
   expect(landing.outcome).not.toBe('crash');
-  await expect(page.locator('#toast')).toHaveText(/^Front flip!/);
 });
 
 test('first person turns the view with the flip, and recovers on landing', async ({ page }) => {
@@ -181,7 +179,6 @@ test('over-rotating into the snow crashes, then you get back up', async ({ page 
   const landing = await landed(page);
   await page.keyboard.up('BracketRight');
   expect(landing.outcome).toBe('crash');
-  await expect(page.locator('#toast')).toHaveText(/crashed!$/);
   await page.waitForTimeout(400);
   await page.screenshot({ path: 'test-results/views/flip-crash.png' });
   // Up again within ~2 s.

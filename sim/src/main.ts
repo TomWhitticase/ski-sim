@@ -46,7 +46,7 @@ import {
   pisteTitle,
 } from './pistes/pistes';
 import { loadPose, type Pose, savePose } from './nav/pose';
-import { Hud, landingToast, Toast } from './ui/hud';
+import { Hud } from './ui/hud';
 import { type LabelKind, type LabelSpec, Labels, liftLabel, peakLabel } from './ui/labels';
 import { LAST_RESORT_KEY, MainMenu, type ResortEntry, type StartChoice } from './ui/main-menu';
 import { SkiSetupMenu } from './ui/ski-setup-menu';
@@ -300,7 +300,6 @@ async function main(): Promise<void> {
   farTerrain.update(camera.position, Infinity);
 
   const hud = new Hud($('#hud'), $('#run'), $('#toggles'));
-  const toast = new Toast($('#toast'));
   const minimap = await Minimap.load(
     $<HTMLCanvasElement>('#minimap canvas'),
     resortUrl(resortId, manifest.minimap.file),
@@ -646,9 +645,6 @@ async function main(): Promise<void> {
     trails.flush();
     sound.update(soundLevels(airSpeed, contact));
     if (mode === 'ski' && ski.landingImpact > 0) sound.thump(ski.landingImpact);
-    const trick = mode === 'ski' && ski.landing;
-    const named = trick && landingToast(trick.flips, trick.outcome);
-    if (named) toast.show(named);
     if (mode === 'ski' && ski.footstep) sound.step();
     if (mode === 'ski' && ski.polePlant) sound.polePlant();
   };
