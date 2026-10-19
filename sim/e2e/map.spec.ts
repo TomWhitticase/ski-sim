@@ -224,3 +224,22 @@ test('- and = zoom the minimap, but not while typing in the map search box', asy
   await page.keyboard.press('Minus');
   await expect(scale).not.toHaveText(before!);
 });
+
+test('teleporting from the map before pressing Start still starts the sound', async ({ page }) => {
+  await page.addInitScript(() => {
+    const Real = window.AudioContext;
+    (window as unknown as { audioStarted: number }).audioStarted = 0;
+    window.AudioContext = class extends Real {
+      constructor(options?: AudioContextOptions) {
+        super(options);
+        (window as unknown as { audioStarted: number }).audioStarted++;
+      }
+    };
+  });
+  await load(page);
+  await page.keyboard.press('KeyM'); // straight from the main menu
+  await page.locator('.map-place-peak').first().click();
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { audioStarted: number }).audioStarted))
+    .toBe(1);
+});

@@ -711,8 +711,12 @@ async function main(): Promise<void> {
   const closeMap = (resumeFlying: boolean) => {
     worldMap.close();
     document.body.classList.remove('map-open');
-    // Closing from a click or key press counts as a user gesture, so pointer lock is allowed.
-    if (resumeFlying) void input.lock();
+    // Closing from a click or key press counts as a user gesture, so pointer lock (and
+    // audio, if the map was opened from the main menu before pressing Start) is allowed.
+    if (resumeFlying) {
+      sound.start();
+      void input.lock();
+    }
   };
 
   window.addEventListener('resize', () => {
