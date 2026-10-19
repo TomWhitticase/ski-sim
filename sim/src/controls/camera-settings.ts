@@ -1,7 +1,9 @@
 /** Player camera preferences, adjusted in the settings menu (O) and kept in localStorage. */
 export interface CameraSettings {
-  /** Vertical field of view (degrees). */
-  fov: number;
+  /** Vertical field of view in first person (degrees): wider, as you're the camera. */
+  fovFirst: number;
+  /** Vertical field of view in third person (degrees). */
+  fovThird: number;
   /** Extra field of view at full speed when skiing or sledding (degrees; 0 = off). */
   speedFov: number;
   /** Mouse look sensitivity (× the default). */
@@ -12,7 +14,8 @@ export interface CameraSettings {
 }
 
 export const DEFAULT_CAMERA: Readonly<CameraSettings> = {
-  fov: 70,
+  fovFirst: 85,
+  fovThird: 70,
   speedFov: 10,
   sensitivity: 1,
   invertY: false,
@@ -22,7 +25,8 @@ export const DEFAULT_CAMERA: Readonly<CameraSettings> = {
 type NumericKey = Exclude<keyof CameraSettings, 'invertY'>;
 
 export const CAMERA_RANGES: Record<NumericKey, { min: number; max: number; step: number }> = {
-  fov: { min: 50, max: 110, step: 1 },
+  fovFirst: { min: 50, max: 120, step: 1 },
+  fovThird: { min: 50, max: 110, step: 1 },
   speedFov: { min: 0, max: 20, step: 1 },
   sensitivity: { min: 0.2, max: 3, step: 0.05 },
   chaseDistance: { min: 0.6, max: 2.5, step: 0.05 },

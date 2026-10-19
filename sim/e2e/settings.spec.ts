@@ -11,14 +11,14 @@ test('O opens settings: field of view and camera options apply live and persist'
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   await page.goto('/?resort=les-3-vallees&at=45.2975,6.5800,2500&heading=150&pitch=-18');
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 30, null, { timeout: 90_000 });
-  expect(await fov(page)).toBeCloseTo(70, 0); // sensible default
+  expect(await fov(page)).toBeCloseTo(85, 0); // first person by default
 
   const modal = page.locator('#settings-modal');
   await page.keyboard.press('KeyO');
   await expect(modal).toBeVisible();
-  await modal.locator('input[name="fov"]').fill('95');
+  await modal.locator('input[name="fovFirst"]').fill('95');
   await expect(
-    modal.locator('.setup-field').filter({ has: page.locator('input[name="fov"]') }),
+    modal.locator('.setup-field').filter({ has: page.locator('input[name="fovFirst"]') }),
   ).toContainText('95°');
   await expect.poll(() => fov(page)).toBeCloseTo(95, 0);
   await modal.locator('input[name="speedFov"]').fill('0');
@@ -30,6 +30,11 @@ test('O opens settings: field of view and camera options apply live and persist'
   await page.keyboard.press('Escape');
   await expect(modal).toBeHidden();
   await page.screenshot({ path: 'test-results/views/settings-wide-fov.png' });
+  // Third person has its own (narrower) field of view.
+  await page.keyboard.press('KeyV');
+  await expect.poll(() => fov(page)).toBeCloseTo(70, 0);
+  await page.keyboard.press('KeyV');
+  await expect.poll(() => fov(page)).toBeCloseTo(95, 0);
 
   await page.reload();
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 30, null, { timeout: 90_000 });
@@ -37,7 +42,7 @@ test('O opens settings: field of view and camera options apply live and persist'
   await page.locator('#open-settings').click();
   await expect(modal.locator('[data-invert="true"]')).toHaveAttribute('aria-checked', 'true');
   await modal.locator('.setup-reset').click();
-  await expect.poll(() => fov(page)).toBeCloseTo(70, 0);
+  await expect.poll(() => fov(page)).toBeCloseTo(85, 0);
   await expect(modal.locator('[data-invert="false"]')).toHaveAttribute('aria-checked', 'true');
   expect(errors).toEqual([]);
 });

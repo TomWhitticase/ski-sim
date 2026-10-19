@@ -10,9 +10,15 @@ type NumericKey = keyof typeof CAMERA_RANGES;
 
 const SLIDERS: { key: NumericKey; label: string; hint: string; format: (v: number) => string }[] = [
   {
-    key: 'fov',
-    label: 'Field of view',
+    key: 'fovFirst',
+    label: 'Field of view: first person',
     hint: 'Vertical; wider shows more but distorts the edges',
+    format: (v) => `${v}°`,
+  },
+  {
+    key: 'fovThird',
+    label: 'Field of view: third person',
+    hint: 'Vertical, behind the skier (V swaps view)',
     format: (v) => `${v}°`,
   },
   {

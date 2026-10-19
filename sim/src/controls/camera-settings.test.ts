@@ -25,9 +25,13 @@ describe('camera settings', () => {
     expect(loadCamera(s)).toEqual(DEFAULT_CAMERA);
   });
 
+  it('defaults first person wider than third person', () => {
+    expect(DEFAULT_CAMERA.fovFirst).toBeGreaterThan(DEFAULT_CAMERA.fovThird);
+  });
+
   it('clamps out-of-range values and ignores wrong types', () => {
-    const c = sanitizeCamera({ fov: 500, speedFov: -3, sensitivity: 'fast', invertY: 1 });
-    expect(c.fov).toBe(110);
+    const c = sanitizeCamera({ fovThird: 500, speedFov: -3, sensitivity: 'fast', invertY: 1 });
+    expect(c.fovThird).toBe(110);
     expect(c.speedFov).toBe(0);
     expect(c.sensitivity).toBe(DEFAULT_CAMERA.sensitivity);
     expect(c.invertY).toBe(false);
@@ -35,10 +39,10 @@ describe('camera settings', () => {
 
   it('round-trips through storage into the live settings', () => {
     const s = memory();
-    Object.assign(cameraSettings, { fov: 90, invertY: true, chaseDistance: 1.5 });
+    Object.assign(cameraSettings, { fovFirst: 90, invertY: true, chaseDistance: 1.5 });
     saveCamera(s);
     Object.assign(cameraSettings, DEFAULT_CAMERA);
     loadCamera(s);
-    expect(cameraSettings).toMatchObject({ fov: 90, invertY: true, chaseDistance: 1.5 });
+    expect(cameraSettings).toMatchObject({ fovFirst: 90, invertY: true, chaseDistance: 1.5 });
   });
 });

@@ -195,7 +195,7 @@ G (or the main/pause menu's "Ski setup" button) opens a modal (`ui/ski-setup-men
 
 ### Settings
 
-O (or the menu's "Settings" button) opens `ui/settings-menu.ts`: field of view (default 70° vertical), speed widening (+10° at full speed skiing/sledding; 0 turns it off), mouse sensitivity, invert Y and third-person distance. `controls/camera-settings.ts` (unit-tested) holds the live `cameraSettings` every controller reads (`Look.apply`, each chase camera), clamps stored values and persists them as `ski-sim.camera`. Add new camera/view preferences there.
+O (or the menu's "Settings" button) opens `ui/settings-menu.ts`: field of view, separately for first person (default 85° vertical) and third person (70°), speed widening (+10° at full speed skiing/sledding; 0 turns it off), mouse sensitivity, invert Y and third-person distance. `controls/camera-settings.ts` (unit-tested) holds the live `cameraSettings` every controller reads (`Look.apply`, each chase camera), clamps stored values and persists them as `ski-sim.camera`. Add new camera/view preferences there.
 
 ### Time of day
 

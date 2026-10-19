@@ -177,7 +177,7 @@ async function main(): Promise<void> {
   const scene = new Scene();
   loadCamera(localStorage);
   const camera = new PerspectiveCamera(
-    cameraSettings.fov,
+    cameraSettings.fovFirst,
     window.innerWidth / window.innerHeight,
     CAMERA.near,
     CAMERA.far,
@@ -907,7 +907,7 @@ async function main(): Promise<void> {
     sled.setDarkness(daylight(environment.sun.elevation).dark); // headlights at dusk
     // A touch wider field of view at speed when skiing or sledding (settings: O).
     const fov =
-      cameraSettings.fov +
+      (view === 'first-person' ? cameraSettings.fovFirst : cameraSettings.fovThird) +
       cameraSettings.speedFov *
         (mode === 'ski'
           ? Math.min(ski.speed / 30, 1)
