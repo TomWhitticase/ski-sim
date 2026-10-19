@@ -32,6 +32,30 @@ for (const view of VIEWS) {
   });
 }
 
+test('snowmobile', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  // On the sled in the chase view, parked on a gentle piste below the village (the low altitude drops it onto the snow).
+  await page.addInitScript(() => {
+    localStorage.setItem('ski-sim.mode', 'sled');
+    localStorage.setItem('ski-sim.view', 'chase');
+    Object.defineProperty(Document.prototype, 'pointerLockElement', {
+      get: () => document.querySelector('#scene'),
+    });
+  });
+  await page.goto('/?resort=les-3-vallees&at=45.29515,6.58412,2000&heading=300&pitch=-12');
+  await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 30, null, { timeout: 90_000 });
+  await page.evaluate(() => document.body.classList.add('flying'));
+  // Swing the chase camera round to a three-quarter view from the front.
+  await page.evaluate(() =>
+    document.dispatchEvent(new MouseEvent('mousemove', { movementX: -1300 } as MouseEventInit)),
+  );
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: 'test-results/views/snowmobile.png' });
+  expect(errors).toEqual([]);
+});
+
 test('labels for places behind the camera stay hidden', async ({ page }) => {
   // Facing NNE from Cime de Caron: the Orelle sector (Rocher Blanc, Télécabine d'Orelle)
   // is directly behind.

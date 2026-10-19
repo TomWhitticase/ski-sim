@@ -141,7 +141,8 @@ sim/src/
   lifts/              Lift operation model, carriers, lift system (statics + moving carriers), riding
   env/                Sky, sun position, time-of-day clock, lights, cascaded shadows, fog
   render/             Adaptive resolution (render scale follows frame time)
-  controls/           Shared input + mouse look; fly mode; ski mode (ski-physics.ts and ski-setup.ts are pure and unit-tested)
+  controls/           Shared input + mouse look; fly mode; ski mode (ski-physics.ts and ski-setup.ts are pure and unit-tested);
+                      paraglider and snowmobile (glider-physics.ts, snowmobile-physics.ts likewise)
   nav/                Saved pose (localStorage, per resort) and teleport destinations
   ui/                 HUD, minimap, fullscreen world map (M), world-anchored name labels
                       (HUD: mode/position/speed top left; the time of day above the minimap; the run
@@ -215,6 +216,21 @@ Difficulty codes are 1 green (novice), 2 blue (easy), 3 red (intermediate), 4/5 
 P deploys a paraglider from fly or ski mode, keeping your velocity; P again drops the wing (ski mode, falling), and touching down switches to ski mode automatically.
 - `controls/glider-physics.ts` (pure, unit-tested) uses real intermediate-wing numbers: trim ~38 km/h at 1.1 m/s sink, speed bar (W), brakes (S), bank to turn (A/D) at g·tan(bank)/v with extra sink. Speed changes trade height by energy balance, so a fast launch zooms up and a slow one dives.
 - `controls/glider-controls.ts` builds the canopy (vertex-coloured cells), the lines and a seated pilot (a second `SkierModel`).
+
+### Snowmobile
+
+B gets on a snowmobile from fly or ski mode, keeping your momentum (mid-air, it falls and lands). B again steps you off to its left onto your skis, keeping up to 90 km/h of its speed. The sled stays parked there: B within 15 m climbs back on, anywhere else brings one to you. Mode `sled` (HUD: SNOWMOBILE) is remembered across reloads.
+- **Keys:** W throttle, S brake (held at a standstill it reverses, ~10 km/h), A/D steer, Shift + A/D hang off (tighter turns at speed, holds a side-hill traverse). Mouse looks; the view turns with the sled. V works.
+- **Physics:** `controls/snowmobile-physics.ts` (pure, unit-tested) models a ~150 hp mountain sled, 305 kg with rider. Drive is power / speed through the CVT, limited by track grip (0.55 g groomed, 0.6 in powder). Top speed is ~123 km/h on a groomed flat (gearing) and ~91 km/h in powder, with 0–100 km/h in ~6 s.
+  - Climbing: ~25° from a standstill on a piste. A spinning track slides back off anything much steeper, and momentum carries you higher.
+  - Powder (off-piste, from the piste lookup): the sled sinks in and bogs when slow, planes when fast, and throws extra drag.
+  - Steering: v·tan(steer)/wheelbase, capped by front-ski grip, so turns widen with speed: ~4 m at walking pace, ~0.45 g at speed.
+  - Lateral grip (0.5 g groomed): steep traverses slip down the fall line.
+  - Contact: the sled rests on a plane fitted under its skis and track, so it bridges dips. Contact only pushes, so it launches off crests. In the air, throttle lifts the nose and the brake drops it, and it always lands (no crashes). A sprung-mass suspension soaks up landings.
+- **Model:** `controls/snowmobile-model.ts` is a lofted hood, tunnel, running boards, seat, tall riser and bars, A-arms and spindles, steering skis, a track with scrolling paddles, a windshield and head/tail lights. The body is one vertex-coloured draw call; the rider is a seated `SkierModel` with skis stowed and `Stance.grip` holding the bars.
+- **Collisions** (`controls/snowmobile-controls.ts`): three circles along the sled, checked every 1/120 s, against buildings and terminals (`ObstacleIndex`) plus lift towers (`LiftSystem.towerObstacles()`). The skier doesn't hit towers.
+- **Sound** (`audio/levels.ts` `engineSound`): a twin two-stroke firing twice per rev (~53 Hz at idle, ~270 Hz near the 8,300 rpm limiter), with an idle warble and exhaust rasp. The track leaves one wide trail and throws roost when it spins.
+- `e2e/snowmobile.spec.ts` drives on the frozen lake (off-piste, so powder physics). The `snowmobile` view in `views.spec.ts` parks it on a green piste below the village.
 
 ### Lift terminals, operation and riding
 

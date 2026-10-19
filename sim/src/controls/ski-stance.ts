@@ -42,6 +42,11 @@ export interface Stance {
    * with the hips `height` above the feet and `back` behind them. Boots rest on the floor.
    */
   sit?: { amount: number; height: number; back: number };
+  /**
+   * Hands holding something fixed (a snowmobile's handlebars): the right hand's grip,
+   * relative to the feet (the left hand mirrors it across x). Replaces the arm swing.
+   */
+  grip?: { x: number; y: number; z: number };
 }
 
 /** Moments in the animation that make a sound. */
