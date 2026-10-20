@@ -93,6 +93,14 @@ def test_clearings_cut_groomed_pistes_lifts_and_buildings_not_itineraries():
     assert at(60, 210) and not at(100, 210)  # building
 
 
+def test_clearings_cut_restaurant_terraces():
+    grid = Grid(Extent(0, 400, 0, 400), 8)
+    deck = [[100, 100], [120, 100], [120, 107], [100, 107]]
+    cleared = clearings(grid, [], set(), [], [], [deck])
+    assert cleared[round((400 - 104) / 8), round(110 / 8)]
+    assert not cleared[round((400 - 104) / 8), round(200 / 8)]
+
+
 def test_tree_line_ignores_a_few_stray_high_cells():
     heights = np.linspace(1000, 3000, 10_000).reshape(100, 100)
     tree = (heights < 2100).astype(np.float32)
