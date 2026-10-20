@@ -1,0 +1,17 @@
+{
+  "id": "everest",
+  "name": "Mount Everest",
+  "country": "NP",
+  "bounds": {
+    "south": 27.9165,
+    "west": 86.8,
+    "north": 28.0535,
+    "east": 86.9953
+  },
+  "spawn": {
+    "lat": 27.9957,
+    "lon": 86.8286,
+    "altitude": 6800,
+    "heading": 100
+  }
+}
