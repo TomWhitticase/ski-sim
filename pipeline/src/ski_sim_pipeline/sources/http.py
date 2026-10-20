@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import logging
 import time
 import urllib.error
@@ -14,6 +15,10 @@ USER_AGENT = "ski-sim-pipeline/0.1"
 
 
 class NotFound(Exception):
+    pass
+
+
+class TruncatedDownload(Exception):
     pass
 
 
@@ -41,9 +46,16 @@ def download(
                 if expect_content_type and not content_type.startswith(expect_content_type):
                     body = response.read(500).decode(errors="replace")
                     raise RuntimeError(f"Unexpected {content_type!r} from {url}: {body}")
+                expected = response.headers.get("Content-Length")
+                size = 0
                 with tmp.open("wb") as f:
                     while chunk := response.read(1 << 20):
                         f.write(chunk)
+                        size += len(chunk)
+                # A server that drops the connection mid-body ends the stream early
+                # without an error: never cache a truncated file.
+                if expected is not None and size != int(expected):
+                    raise TruncatedDownload(f"{size} of {expected} bytes from {url}")
             tmp.replace(dest)
             return dest
         except urllib.error.HTTPError as e:
@@ -52,7 +64,7 @@ def download(
             if attempt == retries - 1:
                 raise
             log.warning("HTTP %s for %s, retrying", e.code, url)
-        except (urllib.error.URLError, TimeoutError):
+        except (urllib.error.URLError, http.client.HTTPException, OSError, TruncatedDownload):
             if attempt == retries - 1:
                 raise
             log.warning("Network error for %s, retrying", url)
