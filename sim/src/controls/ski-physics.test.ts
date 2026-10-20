@@ -423,3 +423,65 @@ describe('leaning on the snow', () => {
     expect(speed(-1)).toBeLessThan(speed(0) * 1.3);
   });
 });
+
+describe('rails', () => {
+  // A 0.6 m rail 1.3 m above a 15° slope, running down it (south, +z) from z = 0 to 12.
+  const grade = Math.tan(15 * RAD);
+  const hill = (z: number) => 2000 - z * grade;
+  const onRail = (x: number, z: number) => Math.abs(x) <= 0.35 && z >= 0 && z <= 12;
+  const terrain: SkiTerrain = {
+    height: (x, z) => hill(z) + (onRail(x, z) ? 1.3 : 0),
+    // The slope's own normal (the default 2 m sampling would straddle the rail's edge).
+    normal: (_x, _z, out) => out.set(0, 1, grade).normalize(),
+    groomed: () => true,
+    rail: (x, z) => (onRail(x, z) ? { dirX: 0, dirZ: 1, offset: x } : null),
+  };
+  const onIt = (x: number, yaw: number, speed: number): SkiState => ({
+    position: new Vector3(x, terrain.height(x, 0.5), 0.5),
+    velocity: new Vector3(0, -speed * Math.sin(15 * RAD), speed * Math.cos(15 * RAD)),
+    yaw,
+    airborne: false,
+  });
+  const slide = (state: SkiState, intent: SkiIntent) => {
+    const speeds: number[] = [];
+    let railed = 0;
+    while (!state.airborne && state.position.z < 12) {
+      stepSki(state, intent, 1 / 60, terrain);
+      speeds.push(state.velocity.length());
+      if (state.rail) railed++;
+    }
+    return { speeds, railed };
+  };
+
+  it('boardslides the whole rail with the skis across it (a hockey stop on snow)', () => {
+    const state = onIt(0, ACROSS, 6);
+    const { speeds, railed } = slide(state, idle);
+    expect(state.position.z).toBeGreaterThan(11.5);
+    // Barely slowed: it's steel, and sideways skis don't scrub on it.
+    expect(Math.min(...speeds)).toBeGreaterThan(5.5);
+    expect(railed).toBeGreaterThanOrEqual(speeds.length - 1);
+  });
+
+  it('slows a hockey stop on snow, but not on the rail', () => {
+    const snow = run(skier(slope(15), ACROSS), slope(15), 0.5);
+    const state = onIt(0, ACROSS, 6);
+    snow.velocity.set(0, -6 * Math.sin(15 * RAD), 6 * Math.cos(15 * RAD));
+    run(snow, slope(15), 0.5);
+    run(state, terrain, 0.5);
+    expect(state.velocity.length()).toBeGreaterThan(snow.velocity.length() + 2);
+  });
+
+  it('pulls you onto the centreline', () => {
+    const state = onIt(0.25, ACROSS, 6);
+    run(state, terrain, 1);
+    expect(state.airborne).toBe(false);
+    expect(Math.abs(state.position.x)).toBeLessThan(0.05);
+  });
+
+  it('flies off the end', () => {
+    const state = onIt(0, DOWNHILL, 6);
+    run(state, terrain, 2.5);
+    expect(state.rail).toBe(false);
+    expect(state.position.z).toBeGreaterThan(12);
+  });
+});

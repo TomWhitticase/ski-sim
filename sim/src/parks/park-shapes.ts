@@ -4,7 +4,8 @@ import type { Vector3 } from 'three/webgpu';
  * Snow park features laid out by the pipeline (pipeline/parks.py) as analytic surfaces in
  * the local ENU frame. The snow you ski on is max(terrain, features); a feature dipping
  * below the snow just vanishes. Line profiles start and end on the hill, tangent to it,
- * and their last `END_DIVE` metres sink under the snow so nothing steps up at the join.
+ * and their last `END_DIVE` metres sink under the snow so nothing steps up at the join
+ * (except where they're meant to stand clear of it: rails, and the top of a rail's ramp).
  *
  * - Line features (kicker, ramp, box, roller): a profile along `heading` of heights
  *   above `y` at the origin, level across `width`, with sides falling at `side` (tan).
@@ -43,6 +44,14 @@ export interface BermFeature {
 
 export type ParkFeature = LineFeature | BermFeature;
 
+/** Standing on a rail: its direction (world x, z; unit) and your offset across it (m). */
+export interface RailContact {
+  dirX: number;
+  dirZ: number;
+  /** + to the left of `dir`. */
+  offset: number;
+}
+
 export interface ParkLayout {
   /** The piste record this park belongs to. */
   index: number;
@@ -58,6 +67,8 @@ const DIVE = 0.5;
 /** Berms start this far under the plane so their ends and inner edge tuck under the snow. */
 export const BERM_SINK = 0.25;
 const BUCKET = 32;
+/** Slack when deciding you're on a rail (its edge, a little below its top) (m). */
+const RAIL_MARGIN = 0.05;
 /** Normal sampling step: fine on features, the terrain's usual 2 m elsewhere. */
 const FINE_STEP = 0.05;
 const COARSE_STEP = 2;
@@ -97,7 +108,9 @@ export function lineHeight(f: LineFeature, u: number, v: number): number {
   const end = Math.min(u - p[0]![0], p[p.length - 1]![0] - u);
   if (end < 0) return -Infinity;
   const over = Math.abs(v) - f.width / 2;
-  const dive = DIVE * (1 - smoothstep(0, END_DIVE, end));
+  // Rails stand in the air, and their ramp runs straight onto one: neither sinks there.
+  const sinks = f.kind === 'ramp' ? u - p[0]![0] : end;
+  const dive = f.kind === 'box' ? 0 : DIVE * (1 - smoothstep(0, END_DIVE, sinks));
   return f.y + profileAt(p, u) - (over > 0 ? over * f.side : 0) - dive;
 }
 
@@ -179,6 +192,30 @@ export class SnowParks {
     let best = -Infinity;
     for (const f of list) best = Math.max(best, featureHeight(f, east, north));
     return best;
+  }
+
+  /**
+   * The rail you're standing on at world (x, z), if a rail is the top surface there:
+   * its horizontal direction in world axes and your offset from its centreline (m, + to
+   * the left of the direction of travel). Reuses `out`.
+   */
+  rail(x: number, z: number, ground: number, out: RailContact): RailContact | null {
+    const list = this.near(x, -z);
+    if (!list) return null;
+    const top = this.height(x, z, ground);
+    for (const f of list) {
+      if (f.kind !== 'box') continue;
+      const [u, v] = lineCoords(f, x, -z);
+      if (Math.abs(v) > f.width / 2 + RAIL_MARGIN) continue;
+      if (lineHeight(f, u, v) < top - RAIL_MARGIN) continue;
+      const s = Math.sin(f.heading * RAD);
+      const c = Math.cos(f.heading * RAD);
+      out.dirX = s;
+      out.dirZ = -c;
+      out.offset = v;
+      return out;
+    }
+    return null;
   }
 
   /** Snow height at world (x, z) given the terrain height there. */

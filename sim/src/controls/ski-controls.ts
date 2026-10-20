@@ -151,6 +151,11 @@ export class SkiControls {
     return this.state.airborne;
   }
 
+  /** Sliding a snow park rail. */
+  get onRail(): boolean {
+    return this.state.rail ?? false;
+  }
+
   /** Down in the snow after a botched landing. */
   get crashed(): boolean {
     return (this.state.crash ?? 0) > 0;
@@ -351,7 +356,8 @@ export class SkiControls {
       speed,
       sideslip,
       edge: balanceEdge,
-      onSnow: !this.state.airborne,
+      // A rail is steel: no spray, trail or snow scrape.
+      onSnow: !this.state.airborne && !this.state.rail,
       groomed: this.terrain.groomed?.(p.x, p.z) ?? true,
     });
     const events = updateStance(

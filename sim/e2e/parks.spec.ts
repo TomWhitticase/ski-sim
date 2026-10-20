@@ -15,6 +15,7 @@ interface SkiHandle {
   airborne: boolean;
   lastLanding: { outcome: string } | null;
   feet: { x: number; y: number; z: number };
+  onRail: boolean;
 }
 
 async function start(page: Page, query: string) {
@@ -80,6 +81,71 @@ test('skiing into a kicker launches you off the lip and you land on the snow', a
   );
   expect(landing.outcome).not.toBe('crash');
   await expect(page.locator('#run [data-piste] span')).toHaveText('VT Park');
+});
+
+test('a rail boardslides: skis across it, it barely slows you and keeps you on it', async ({
+  page,
+}) => {
+  await start(page, 'at=45.27692,6.57690,2600&heading=315&pitch=-10');
+  const rail = await page.evaluate(async () => {
+    const data = await (await fetch('/les-3-vallees/pistes.json')).json();
+    const rails = data.parks.flatMap((p: { features: Feature[] }) =>
+      p.features.filter((f) => f.kind === 'box'),
+    );
+    return rails[0] as Feature & { profile: [number, number][] };
+  });
+  await page.keyboard.press('KeyF'); // ski mode
+  await page.keyboard.press('KeyV'); // chase camera
+  const rad = (rail.heading * Math.PI) / 180;
+  // Dropped onto the start of the rail at 7 m/s along it, skis across it, a little off centre.
+  await page.evaluate(
+    ([r, rad]) => {
+      const ski = (window.__sim as unknown as { ski: SkiHandle }).ski;
+      const [s, c] = [Math.sin(rad), Math.cos(rad)];
+      const pose = {
+        east: r.east + 1 * s - 0.15 * c,
+        north: r.north + 1 * c + 0.15 * s,
+        altitude: 0,
+        heading: r.heading + 90,
+        pitch: -10,
+      };
+      ski.place(pose, ski.velocity.clone().set(7 * s, 0, -7 * c));
+    },
+    [rail, rad] as const,
+  );
+  const samples: { onRail: boolean; along: number; across: number; speed: number }[] = [];
+  for (let i = 0; i < 12; i++) {
+    samples.push(
+      await page.evaluate(
+        ([r, rad]) => {
+          const sim = window.__sim as unknown as {
+            ski: SkiHandle & { velocity: { length(): number } };
+          };
+          const f = sim.ski.feet;
+          const [de, dn] = [f.x - r.east, -f.z - r.north];
+          const [s, c] = [Math.sin(rad), Math.cos(rad)];
+          return {
+            onRail: sim.ski.onRail,
+            along: de * s + dn * c,
+            across: -de * c + dn * s,
+            speed: sim.ski.velocity.length(),
+          };
+        },
+        [rail, rad] as const,
+      ),
+    );
+    if (i === 3) await page.screenshot({ path: 'test-results/views/park-rail-slide.png' });
+    if (!samples.at(-1)!.onRail && i > 0) break;
+    await page.waitForTimeout(100);
+  }
+  const sliding = samples.filter((s) => s.onRail);
+  expect(sliding.length).toBeGreaterThan(3);
+  // Centred, and still quick (a hockey stop on snow would have stopped you by now).
+  expect(Math.abs(sliding.at(-1)!.across)).toBeLessThan(0.1);
+  expect(Math.min(...sliding.map((s) => s.speed))).toBeGreaterThan(6);
+  // Off the far end, not the side.
+  const end = rail.profile.at(-1)![0];
+  expect(samples.at(-1)!.along).toBeGreaterThan(end - 1.5);
 });
 
 test('park features render from the side', async ({ page }) => {

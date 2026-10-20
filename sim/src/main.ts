@@ -47,7 +47,7 @@ import { LiftSystem } from './lifts/lift-system';
 import { RideControls } from './lifts/ride';
 import { createLiftSigns } from './lifts/signs';
 import { createParkMeshes } from './parks/park-meshes';
-import { SnowParks } from './parks/park-shapes';
+import { type RailContact, SnowParks } from './parks/park-shapes';
 import { createFloodlights, FLOODLIGHT_COLOUR } from './pistes/floodlights';
 import { createPisteMarkers } from './pistes/markers';
 import {
@@ -191,6 +191,7 @@ async function main(): Promise<void> {
   // The snow you ski, fly and land on: the ground plus snow park features.
   const parks = new SnowParks(pisteData.parks ?? []);
   const snowHeight = (x: number, z: number) => parks.height(x, z, groundHeight(x, z));
+  const railContact: RailContact = { dirX: 0, dirZ: 0, offset: 0 };
 
   const canvas = $<HTMLCanvasElement>('#scene');
   const renderer = new WebGPURenderer({ canvas, antialias: true, reversedDepthBuffer: true });
@@ -321,6 +322,7 @@ async function main(): Promise<void> {
     {
       height: snowHeight,
       normal: (x, z, out) => parks.normal(x, z, groundHeight, out),
+      rail: (x, z) => parks.rail(x, z, groundHeight(x, z), railContact),
       // World z is -north.
       groomed: (x, z) => pisteLookup.at(x, -z)?.groomed ?? false,
       collide: (p, v) => {
@@ -871,6 +873,8 @@ async function main(): Promise<void> {
       clock,
       multiplayer,
       forest,
+      parks,
+      groundHeight,
     });
   let last = performance.now();
   let lastX = fly.position.x;

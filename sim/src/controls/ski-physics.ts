@@ -11,6 +11,8 @@ import { DEFAULT_HANDLING, type SkiHandling } from './ski-setup';
  * - skidding: when velocity and skis disagree, velocity swings toward the skis
  *   (carving) and the sideways component scrubs speed; a 90° turn is a hockey stop
  * - chatter: past the skis' stable speed they wash out and scrub speed
+ * - rails: almost frictionless whichever way the skis point (a boardslide runs as well as
+ *   riding it straight), with a spring pulling you onto the centreline
  * Leaving a lip or a convex roll faster than the slope falls away makes you airborne:
  * checked by looking `liftLook` ahead along your ballistic path. In the air
  * leaning ([ / ]) pitches you into a front flip or backflip; land with the skis within
@@ -70,6 +72,10 @@ export const SKI = {
   liftLook: 0.06,
   liftGap: 0.15,
   maxStep: 1 / 120,
+  /** Sliding a rail: friction (μ), and the pull onto its centreline (1/s², damping 1/s). */
+  railFriction: 0.008,
+  railCentre: 60,
+  railDamping: 12,
 };
 
 export interface SkiTerrain {
@@ -81,6 +87,8 @@ export interface SkiTerrain {
   normal?(x: number, z: number, out: Vector3): Vector3;
   /** Whether the snow at (x, z) is a groomed piste. Treated as groomed if omitted. */
   groomed?(x: number, z: number): boolean;
+  /** The rail underfoot at (x, z), if any (`RailContact` in parks/park-shapes). */
+  rail?(x: number, z: number): { dirX: number; dirZ: number; offset: number } | null;
   /** Push a body out of solid things (buildings, station walls); adjusts velocity. */
   collide?(position: Vector3, velocity: Vector3): void;
 }
@@ -94,6 +102,8 @@ export interface SkiState {
   airborne: boolean;
   /** Stepping uphill (herringbone / side-step) this step. */
   climbing?: boolean;
+  /** Sliding on a rail this step. */
+  rail?: boolean;
   /**
    * Pitch of the skis above the horizontal (rad, > 0 = tips up). On the snow it follows
    * the slope; in the air leaning rotates it. Unwrapped, so it counts whole flips.
@@ -185,6 +195,7 @@ function substep(
   const v = state.velocity;
 
   if (state.airborne) {
+    state.rail = false;
     rotate(state, intent.lean ?? 0, h, terrain);
     v.y -= SKI.gravity * h;
     p.addScaledVector(v, h);
@@ -202,6 +213,12 @@ function substep(
   }
 
   surfaceNormal(terrain, p.x, p.z, n);
+  const rail = state.crash ? null : (terrain.rail?.(p.x, p.z) ?? null);
+  state.rail = rail !== null;
+  if (rail) {
+    slideRail(state, rail, intent, h, terrain, ski);
+    return;
+  }
   if (state.crash) {
     // Tumbling: slide to a stop whatever the slope, swinging round to face downhill.
     v.multiplyScalar(Math.exp(-SKI.crashDrag * h));
@@ -322,6 +339,55 @@ function substep(
     p.y = ground;
     surfaceNormal(terrain, p.x, p.z, n);
     v.addScaledVector(n, -v.dot(n)); // stay in the new surface plane
+  }
+}
+
+/**
+ * On a rail: the path follows the rail, not the skis, so the skis can point any way
+ * (sideways is a boardslide) and it barely slows you. A damped spring pulls you onto the
+ * centreline; slide off its end (or its side, if you land far off) and you fly.
+ */
+function slideRail(
+  state: SkiState,
+  rail: { dirX: number; dirZ: number; offset: number },
+  intent: SkiIntent,
+  h: number,
+  terrain: SkiTerrain,
+  ski: SkiHandling,
+): void {
+  const p = state.position;
+  const v = state.velocity;
+  state.pitch = slopePitch(state.yaw, n);
+  state.climbing = false;
+  gravityAlong.set(0, -SKI.gravity, 0).addScaledVector(n, SKI.gravity * n.y);
+  v.addScaledVector(gravityAlong, h);
+  // Along the rail (in its surface plane) and across it, to the left.
+  dir.set(rail.dirX, 0, rail.dirZ);
+  dir.addScaledVector(n, -dir.dot(n)).normalize();
+  target.set(rail.dirZ, 0, -rail.dirX);
+  let along = v.dot(dir);
+  let across = v.dot(target);
+  across += (-SKI.railCentre * rail.offset - SKI.railDamping * across) * h;
+  const drag = intent.tuck ? SKI.dragTuck : SKI.dragUpright;
+  const decel = SKI.railFriction * SKI.gravity * n.y + drag * along * along;
+  along = Math.sign(along) * Math.max(0, Math.abs(along) - decel * h);
+  v.copy(dir).multiplyScalar(along).addScaledVector(target, across);
+  if (v.length() > ski.maxSpeed) v.setLength(ski.maxSpeed);
+
+  if (intent.jump) {
+    v.addScaledVector(n, SKI.jumpSpeed);
+    takeOff(state);
+    p.addScaledVector(v, h);
+    return;
+  }
+  p.addScaledVector(v, h);
+  const ground = terrain.height(p.x, p.z);
+  if (p.y > ground + SKI.airThreshold) {
+    takeOff(state); // off the end or the side
+  } else {
+    p.y = ground;
+    surfaceNormal(terrain, p.x, p.z, n);
+    v.addScaledVector(n, -v.dot(n));
   }
 }
 
