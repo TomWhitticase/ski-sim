@@ -35,6 +35,8 @@ const VIEWS = [
     name: 'arlberg-sonnenkopf',
     query: 'resort=arlberg&at=47.0960,10.0560,2200&heading=0&pitch=-12',
   },
+  // A rail in the Tétras snow park above Val Thorens: on legs, off the snow.
+  { name: 'park-rail', query: 'at=45.289038,6.573435,2422.7&heading=90&pitch=-18' },
   {
     name: 'paradiski-arc-1950',
     query: 'resort=paradiski&at=45.5700,6.8250,2150&heading=60&pitch=-8',
