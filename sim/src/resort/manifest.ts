@@ -57,6 +57,9 @@ export interface ResortManifest {
   pistes: {
     file: string;
     overlay: { file: string; cellSize: number };
+    /** Unprepared share of the overlay's coverage (greyscale, same grid). Older builds
+     * have none: their overlay only covered groomed runs. */
+    ungroomed?: { file: string };
     lookup: { file: string; cellSize: number };
     /** Night glow mask for floodlit runs, on its own grid (absent if none are lit). */
     lit?: { file: string; cellSize: number; extent: Extent } | null;

@@ -7,9 +7,11 @@ from ski_sim_pipeline.grid import Grid
 from ski_sim_pipeline.pistes import (
     DIFFICULTY_COLOURS,
     _start_heading,
+    dash_gaps,
     lookup_image,
     overlay_image,
     rasterise,
+    ungroomed_image,
 )
 
 
@@ -46,7 +48,12 @@ def test_rasterise_overlay_and_lookup():
     assert overlay[3, 5, 3] == 255  # fully inside the red run
     assert tuple(overlay[3, 5, :3]) == DIFFICULTY_COLOURS[3]
     assert overlay[5, 5, 3] == 0  # between runs
-    assert overlay[7, 5, 3] == 0  # freeride: not groomed, so no overlay
+    # Freeride is coloured too (orange), and the mask marks it as unprepared snow.
+    assert overlay[7, 5, 3] == 255
+    assert tuple(overlay[7, 5, :3]) == DIFFICULTY_COLOURS[6]
+    ungroomed = np.asarray(ungroomed_image(fine, pistes, 2))
+    assert ungroomed.shape == (11, 11)
+    assert ungroomed[7, 5] == 255 and ungroomed[3, 5] == 0
 
     lookup = np.asarray(lookup_image(fine, pistes, 2))
     assert lookup[3, 5, 0] == 1 and lookup[3, 5, 2] == 3
@@ -108,8 +115,18 @@ def test_other_run_types_are_kept_with_their_own_colour_and_lookup_code():
     row = round(320 / 8)  # north = 0
     assert lookup[row, 10, 2] == RUN_TYPES["nordic"] << 4
     overlay = np.asarray(overlay_image(fine, pistes, 1))
-    assert overlay[round((320 - 200) / 2), 50, 3] == 0  # touring route: no overlay
-    assert overlay[round((320 - 100) / 2), 50, 3] == 255  # sledging run: drawn
+    # Touring route: dashed (drawn, then a gap), and unprepared; the sledging run is solid.
+    gaps = dash_gaps(shapes, pistes, grid)
+    overlay = np.asarray(overlay_image(fine, pistes, 1, gaps))
+    ungroomed = np.asarray(ungroomed_image(fine, pistes, 1, gaps))
+    tour = round((320 - 200) / 2)
+    dash = round((10 + 20) / 2)  # 10 m along the line (it starts at east 0, col 10)
+    gap = round((20 + 25) / 2)  # 25 m along: in the first gap
+    assert overlay[tour, dash, 3] == 255 and ungroomed[tour, dash] == 255
+    assert overlay[tour, gap, 3] == 0 and ungroomed[tour, gap] == 0
+    assert tuple(overlay[tour, dash, :3]) == TYPE_COLOURS["skitour"]
+    sled = round((320 - 100) / 2)
+    assert overlay[sled, gap, 3] == 255 and ungroomed[sled, gap] == 0
 
 
 def test_bridges_tunnels_and_floodlights():

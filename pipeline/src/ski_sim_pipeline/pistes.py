@@ -10,6 +10,10 @@ Besides downhill runs, the other `piste:type`s in RUN_TYPES are kept (snow parks
 sledging, cross-country, kids' areas, touring and walking routes, connections). Segments
 on a bridge or in a tunnel are kept apart from the ground lines: they're never graded,
 and tunnels are left out of the overlay and lookup (the snow above isn't the run).
+
+Every kept run is coloured on the snow. Routes over unprepared snow (freeride
+itineraries, touring and walking routes) are dashed like on the map, and marked in a
+separate mask so the terrain shader still treats them as powder, not groomed.
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ import numpy as np
 from PIL import Image
 from rasterio import features as rio_features
 from shapely.geometry import LineString, Point, Polygon
-from shapely.ops import unary_union
+from shapely.ops import substring, unary_union
 
 from .config import Area, Extent
 from .frame import LocalFrame
@@ -81,13 +85,17 @@ TYPE_WIDTH = {
     "hike": 4.0,
     "connection": 10.0,
 }
-#: Routes over unprepared snow: no overlay, markers or grading, and powder physics.
+#: Routes over unprepared snow: dashed overlay, no markers or grading, powder physics.
 UNGROOMED_TYPES = {"skitour", "hike"}
 #: Floodlit runs get masts and a glow; a lit street or footpath (connection, winter
 #: walk) is lit by ordinary street lamps, so isn't.
 FLOODLIT_TYPES = {"downhill", "snow_park", "sled", "nordic", "playground"}
-#: Parks are big areas: a light wash of their colour, not a solid fill.
+#: Parks are big areas: a light wash of their colour, not a solid fill. Unprepared
+#: areas (a mapped freeride slope) get the same wash.
 PARK_TINT = 0.35
+#: Unprepared routes drawn as lines are dashed on the snow: DASH m drawn, DASH_GAP m not.
+DASH = 20.0
+DASH_GAP = 14.0
 MARKER_SPACING = 40.0
 RASTER_CELL = 2.0  # rasterise finer than the terrain, then downsample for soft edges
 LOOKUP_CELL = 8.0
@@ -268,21 +276,72 @@ def _box_average(values: np.ndarray, factor: int) -> np.ndarray:
     return window[::factor, ::factor]
 
 
-def overlay_image(fine: np.ndarray, pistes: list[dict], factor: int) -> Image.Image:
-    """RGBA texture on the terrain grid: A = groomed-piste coverage, RGB = piste colour
-    premultiplied by coverage (so soft edges fade out instead of toward another hue).
-    Freeride itineraries and touring/walking routes are left out: they're not groomed."""
+def dash_gaps(shapes: list[tuple], pistes: list[dict], grid: Grid) -> np.ndarray:
+    """Fine-grid mask of the gaps between dashes on unprepared routes mapped as lines."""
+    ungroomed = {p["index"]: p for p in pistes if not p["groomed"]}
+    gaps = []
+    for idx, _, is_area, line in shapes:
+        p = ungroomed.get(idx)
+        if p is None or is_area or line is None:
+            continue
+        half = width_of(p) / 2 + RASTER_CELL
+        start = DASH
+        while start < line.length:
+            piece = substring(line, start, min(start + DASH_GAP, line.length))
+            if piece.length > 0:
+                gaps.append(piece.buffer(half, cap_style="flat"))
+            start += DASH + DASH_GAP
+    if not gaps:
+        return np.zeros((grid.height, grid.width), dtype=bool)
+    return rio_features.rasterize(
+        [(g, 1) for g in gaps],
+        out_shape=(grid.height, grid.width),
+        transform=grid.transform,
+        fill=0,
+        dtype="uint8",
+    ).astype(bool)
+
+
+def _shown(fine: np.ndarray, pistes: list[dict], gaps: np.ndarray | None) -> np.ndarray:
+    """Piste index per fine cell, with unprepared routes' dash gaps cleared."""
+    if gaps is None:
+        return fine
+    ungroomed = np.zeros(len(pistes) + 1, dtype=bool)
+    for p in pistes:
+        ungroomed[p["index"]] = not p["groomed"]
+    return np.where(gaps & ungroomed[fine], 0, fine)
+
+
+def overlay_image(
+    fine: np.ndarray, pistes: list[dict], factor: int, gaps: np.ndarray | None = None
+) -> Image.Image:
+    """RGBA texture on the terrain grid: A = coverage of every coloured run, RGB = its
+    colour premultiplied by coverage (so soft edges fade out instead of toward another
+    hue). Unprepared routes are dashed (`gaps`); `ungroomed_image` tells them apart."""
     colours = np.zeros((len(pistes) + 1, 4), dtype=np.float32)
     for p in pistes:
-        if p["groomed"]:
-            k = PARK_TINT if p.get("type") == "snow_park" else 1.0
-            colours[p["index"]] = (*(np.array(colour_of(p)) * k), 255 * k)
-    per_cell = colours[fine]  # fine-grid RGBA, A = 255 inside groomed pistes
+        wash = p.get("type") == "snow_park" or (not p["groomed"] and bool(p.get("areas")))
+        k = PARK_TINT if wash else 1.0
+        colours[p["index"]] = (*(np.array(colour_of(p)) * k), 255 * k)
+    per_cell = colours[_shown(fine, pistes, gaps)]  # fine-grid RGBA
     channels = [_box_average(per_cell[..., c], factor) for c in range(4)]
     coverage = channels[3] / 255
     rgba = np.dstack([channels[0], channels[1], channels[2], coverage * 255])
     # RGB averaged with zeros outside pistes is already premultiplied by coverage.
     return Image.fromarray(np.clip(np.round(rgba), 0, 255).astype(np.uint8), mode="RGBA")
+
+
+def ungroomed_image(
+    fine: np.ndarray, pistes: list[dict], factor: int, gaps: np.ndarray | None = None
+) -> Image.Image:
+    """Greyscale mask on the overlay's grid: how much of each cell's overlay coverage
+    (A) is unprepared snow, so the shader takes groomed = A - this."""
+    weight = np.zeros(len(pistes) + 1, dtype=np.float32)
+    for p in pistes:
+        if not p["groomed"]:
+            weight[p["index"]] = 255 * (PARK_TINT if p.get("areas") else 1.0)
+    level = _box_average(weight[_shown(fine, pistes, gaps)], factor)
+    return Image.fromarray(np.clip(np.round(level), 0, 255).astype(np.uint8), mode="L")
 
 
 def lookup_image(fine: np.ndarray, pistes: list[dict], factor: int) -> Image.Image:

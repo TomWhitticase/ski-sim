@@ -53,6 +53,8 @@ let snowDetailTexture: Texture | null = null;
 export interface PisteShading {
   /** Same grid as the heightmap: RGB = premultiplied piste colour, A = coverage. */
   overlay: Texture;
+  /** Same grid: how much of that coverage is unprepared snow (R); groomed is the rest. */
+  ungroomed?: Texture;
   /** 0..1: how strongly to tint pistes in their difficulty colour. */
   tint: UniformNode<'float', number>;
   /** Floodlit runs: glow mask (R, grid-registered on `extent`) and how lit it is (0..1). */
@@ -99,8 +101,11 @@ export function createTerrainMaterial(
   );
   const normal = texture(normalTexture, uv).xyz.mul(2).sub(1).normalize();
   const piste = pistes ? texture(pistes.overlay, uv) : null;
-  /** Groomed-piste coverage, 0 off-piste. */
-  const groomed = piste ? piste.a : float(0);
+  /** Coloured-run coverage, and the groomed part of it (0 off-piste and on itineraries). */
+  const coverage = piste ? piste.a : float(0);
+  const groomed = pistes?.ungroomed
+    ? coverage.sub(texture(pistes.ungroomed, uv).r).max(0)
+    : coverage;
   let shadingNormal = normal;
   if (withSnowDetail) {
     // Below-lidar-resolution snow texture near the camera, faded out with distance.
@@ -179,7 +184,7 @@ export function createTerrainMaterial(
     // Freshly groomed snow reads a touch brighter; optional difficulty-colour tint.
     const brightened = base.mul(groomed.mul(rock.oneMinus()).mul(0.05).add(1));
     const k = pistes.tint.mul(0.55);
-    return brightened.mul(groomed.mul(k).oneMinus()).add(piste.rgb.mul(k));
+    return brightened.mul(coverage.mul(k).oneMinus()).add(piste.rgb.mul(k));
   })();
   if (hole) {
     const world = modelWorldMatrix.mul(vec4(positionGeometry, 1)).xyz;

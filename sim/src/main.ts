@@ -227,6 +227,7 @@ async function main(): Promise<void> {
     pisteData,
     pisteOverlay,
     pisteLookupPixels,
+    ungroomedPixels,
     litPixels,
     nearCoverPixels,
     farCoverPixels,
@@ -237,6 +238,9 @@ async function main(): Promise<void> {
     fetchJson<PisteData>(resortUrl(resortId, manifest.pistes.file), get),
     loadPixels(resortUrl(resortId, manifest.pistes.overlay.file), get),
     loadPixels(resortUrl(resortId, manifest.pistes.lookup.file), get),
+    manifest.pistes.ungroomed
+      ? loadPixels(resortUrl(resortId, manifest.pistes.ungroomed.file), get)
+      : null,
     litMeta ? loadPixels(resortUrl(resortId, litMeta.file), get) : null,
     loadPixels(resortUrl(resortId, manifest.landCover.near.file), get),
     loadPixels(resortUrl(resortId, manifest.landCover.far.file), get),
@@ -317,6 +321,7 @@ async function main(): Promise<void> {
       snowDetail: true,
       pistes: {
         overlay: overlayTexture(pisteOverlay),
+        ungroomed: ungroomedPixels ? overlayTexture(ungroomedPixels) : undefined,
         tint: pisteTint,
         floodlit:
           litMeta && litPixels

@@ -254,8 +254,12 @@ def build_pistes(
     fine = pistes.rasterise(shapes, fine_grid, runs)
     overlay_factor = round(near_grid.cell_size / pistes.RASTER_CELL)
     lookup_factor = round(pistes.LOOKUP_CELL / pistes.RASTER_CELL)
-    pistes.overlay_image(fine, runs, overlay_factor).save(
+    gaps = pistes.dash_gaps(shapes, runs, fine_grid)
+    pistes.overlay_image(fine, runs, overlay_factor, gaps).save(
         out_dir / "pistes-overlay.png", optimize=True
+    )
+    pistes.ungroomed_image(fine, runs, overlay_factor, gaps).save(
+        out_dir / "pistes-ungroomed.png", optimize=True
     )
     pistes.lookup_image(fine, runs, lookup_factor).save(
         out_dir / "pistes-lookup.png", optimize=True
@@ -298,6 +302,8 @@ def build_pistes(
     return {
         "file": "pistes.json",
         "overlay": {"file": "pistes-overlay.png", "cellSize": near_grid.cell_size},
+        # How much of the overlay's coverage is unprepared snow (same grid).
+        "ungroomed": {"file": "pistes-ungroomed.png"},
         "lookup": {"file": "pistes-lookup.png", "cellSize": pistes.LOOKUP_CELL},
         "lit": {"file": "pistes-lit.png", "cellSize": pistes.LIT_CELL, "extent": lit[1].to_json()}
         if lit

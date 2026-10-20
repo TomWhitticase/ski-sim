@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 from PIL import Image, ImageDraw
 
@@ -90,6 +92,40 @@ def draw_features(
             draw.ellipse((x - 3, y - 3, x + 3, y + 3), fill=LIFT)
 
 
+#: Dashed routes on the map: pixels drawn, then pixels skipped, measured along the line.
+DASH_ON = 7.0
+DASH_OFF = 5.0
+
+
+def dashes(points: list[tuple[float, float]], on: float, off: float) -> list[list]:
+    """Even dashes along a polyline: `on` px drawn then `off` px skipped, measured along
+    its length and carried round its bends, whatever the spacing of its vertices."""
+    out: list[list] = []
+    current: list = []
+    drawing, left = True, on
+    for (x0, y0), (x1, y1) in zip(points, points[1:], strict=False):
+        seg = math.hypot(x1 - x0, y1 - y0)
+        at = 0.0
+        while seg - at > 1e-9:
+            step = min(left, seg - at)
+            t0, t1 = at / seg, (at + step) / seg
+            if drawing:
+                if not current:
+                    current.append((x0 + (x1 - x0) * t0, y0 + (y1 - y0) * t0))
+                current.append((x0 + (x1 - x0) * t1, y0 + (y1 - y0) * t1))
+            at += step
+            left -= step
+            if left <= 1e-9:
+                if drawing and current:
+                    out.append(current)
+                current = []
+                drawing = not drawing
+                left = on if drawing else off
+    if drawing and len(current) > 1:
+        out.append(current)
+    return out
+
+
 def draw_pistes(
     image: Image.Image, records: list[dict], west: float, north: float, cell_size: float
 ) -> None:
@@ -105,8 +141,8 @@ def draw_pistes(
         return [((e - west) / cell_size, (north - n) / cell_size) for e, n in points]
 
     def dashed(points, colour, width):
-        for a, b in zip(points[::2], points[1::2], strict=False):
-            draw.line([a, b], fill=colour, width=width)
+        for dash in dashes(points, DASH_ON, DASH_OFF):
+            draw.line(dash, fill=colour, width=width)
 
     for r in records:
         colour = colour_of(r)

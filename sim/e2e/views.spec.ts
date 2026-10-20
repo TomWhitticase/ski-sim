@@ -86,6 +86,11 @@ const VIEWS = [
     name: 'chamonix-italian-edge',
     query: 'resort=chamonix&at=45.8600,6.9100,3700&heading=150&pitch=-12',
   },
+  // Off-piste on the snow: the Pylônes freeride itineraries at Grands Montets, dashed.
+  {
+    name: 'chamonix-freeride-dashes',
+    query: 'resort=chamonix&at=45.94036,6.94993,3500&heading=40&pitch=-25',
+  },
   // Land cover: Méribel's forests (pistes and lift lines cut through them), a skier's-eye
   // view under the trees, and the Vanoise glaciers.
   { name: 'meribel-forest', query: 'at=45.3890,6.5700,1700&heading=120&pitch=-5' },
