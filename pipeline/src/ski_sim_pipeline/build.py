@@ -27,7 +27,15 @@ from . import bases as base_finder
 from .config import Area, ResortConfig, load_resort
 from .export import write_heightmap
 from .frame import LocalFrame
-from .grid import Grid, despike, fill_holes, reproject_into, sample_bilinear, stitch_far_to_near
+from .grid import (
+    Grid,
+    despike,
+    fill_holes,
+    reproject_array,
+    reproject_into,
+    sample_bilinear,
+    stitch_far_to_near,
+)
 from .sources import copernicus, ign, osm, worldcover
 
 log = logging.getLogger(__name__)
@@ -79,6 +87,17 @@ def build_near(
                     Resampling.average,
                     src_crs=ign.CRS,
                 )
+            foreign = grid.empty()
+            for path in ign.fetch_source_mask(layer, bounds, raw_dir):
+                values, transform = ign.foreign_mask(path)
+                reproject_array(foreign, grid, frame, values, transform, ign.CRS, Resampling.max)
+            if (foreign > 0).any():
+                log.info(
+                    "Near terrain: %s is foreign fill over %.2f%% of cells, not used",
+                    source,
+                    100 * float((foreign > 0).mean()),
+                )
+                layer_heights[foreign > 0] = np.nan
         else:
             raise ValueError(f"Unsupported near terrain source {source!r}")
         fill = fill_holes(heights, layer_heights)

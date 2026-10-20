@@ -92,18 +92,39 @@ def reproject_into(
     """Resample a source raster into `dst`, only overwriting cells the source covers."""
     with rasterio.open(src_path) as src:
         heights = src.read(1, masked=True).filled(np.nan)
-        reproject(
-            source=mask_nodata(heights),
-            destination=dst,
-            src_transform=src.transform,
-            src_crs=CRS.from_string(src_crs) if src_crs else src.crs,
-            src_nodata=np.nan,
-            dst_transform=grid.transform,
-            dst_crs=CRS.from_wkt(frame.crs.to_wkt()),
-            dst_nodata=np.nan,
-            init_dest_nodata=False,
-            resampling=resampling,
+        reproject_array(
+            dst,
+            grid,
+            frame,
+            mask_nodata(heights),
+            src.transform,
+            src_crs or src.crs.to_string(),
+            resampling,
         )
+
+
+def reproject_array(
+    dst: np.ndarray,
+    grid: Grid,
+    frame: LocalFrame,
+    values: np.ndarray,
+    transform: Affine,
+    src_crs: str,
+    resampling: Resampling,
+) -> None:
+    """Resample an array (NaN = no data) into `dst`, only overwriting cells it covers."""
+    reproject(
+        source=values,
+        destination=dst,
+        src_transform=transform,
+        src_crs=CRS.from_string(src_crs),
+        src_nodata=np.nan,
+        dst_transform=grid.transform,
+        dst_crs=CRS.from_wkt(frame.crs.to_wkt()),
+        dst_nodata=np.nan,
+        init_dest_nodata=False,
+        resampling=resampling,
+    )
 
 
 def sample_bilinear(
