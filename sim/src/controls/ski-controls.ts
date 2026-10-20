@@ -207,6 +207,15 @@ export class SkiControls {
     this.applyView();
   }
 
+  /**
+   * Out of body (fly mode): the skier stays where you left it, frozen in its last pose and
+   * drawn whole whatever the view, while you fly about without one.
+   */
+  showFrozen(): void {
+    this.skier.visible = true;
+    this.model.setFirstPerson(false);
+  }
+
   setView(view: SkiCamera): void {
     this.view = view;
     this.applyView();

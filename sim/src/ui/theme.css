@@ -62,6 +62,8 @@
   --key-bg: rgba(255, 255, 255, 0.92);
   --key-fg: #0d1726;
   --danger: #ff8a7a;
+  --scrollbar: rgba(255, 255, 255, 0.28);
+  --scrollbar-hover: rgba(255, 255, 255, 0.5);
   color: var(--fg);
 }
 
@@ -86,6 +88,8 @@
   --key-bg: #0d1726;
   --key-fg: #ffffff;
   --danger: #c4321f;
+  --scrollbar: rgba(13, 23, 38, 0.22);
+  --scrollbar-hover: rgba(13, 23, 38, 0.42);
   color: var(--fg);
 }
 

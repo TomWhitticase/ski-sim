@@ -72,6 +72,7 @@ export class Hud {
   private readonly run: HTMLElement;
   private readonly toggles: HTMLElement;
   private readonly flySpeed: HTMLElement;
+  private readonly flyKeys: HTMLElement;
   private readonly compass: HTMLElement;
   private readonly tape: HTMLElement;
   private readonly heading: HTMLElement;
@@ -87,6 +88,7 @@ export class Hud {
     this.run = root.querySelector('#run')!;
     this.toggles = root.querySelector('#toggles')!;
     this.flySpeed = root.querySelector('#fly-speed')!;
+    this.flyKeys = root.querySelector('#fly-keys')!;
     this.compass = root.querySelector('#compass')!;
 
     this.run.innerHTML = '<span data-piste><i></i><span></span></span>';
@@ -134,7 +136,8 @@ export class Hud {
     const row = this.toggles.querySelector<HTMLElement>(`[data-toggle="${name}"]`);
     if (!row) return;
     row.classList.toggle('on', on);
-    if (name === 'hud') this.root.classList.toggle('hud-off', !on);
+    // H: nothing but the world (labels, markers and piste colours go too; see main.ts).
+    if (name === 'hud') document.body.classList.toggle('hud-off', !on);
     if (!announce) return;
     row.classList.add('flash');
     clearTimeout(this.flashTimers.get(name));
@@ -158,29 +161,41 @@ export class Hud {
   }
 
   /**
-   * Fly mode's set speed (m/s, including any sprint) and how far along its range it is
-   * (0-1); null hides it. Changes give the readout a little bump so the wheel feels
-   * responsive.
+   * Fly mode's set speed (m/s) and how far along its range it is (0-1); null hides it.
+   * Changes give the readout a little bump so the wheel feels responsive.
    */
-  setFlySpeed(speed: number | null, fill = 0, sprinting = false): void {
+  setFlySpeed(speed: number | null, fill = 0): void {
     const el = this.flySpeed;
-    const key = speed === null ? '' : `${Math.round(speed * 3.6)}|${sprinting}`;
+    const key = speed === null ? '' : String(Math.round(speed * 3.6));
     if (key === this.flyKey) return;
     const changed = this.flyKey !== '' && key !== '';
     this.flyKey = key;
     el.hidden = speed === null;
     if (speed === null) return;
-    el.classList.toggle('sprint', sprinting);
     const width = (Math.min(1, Math.max(0, fill)) * 100).toFixed(1);
     el.innerHTML =
       `<span class="lab">Fly speed</span><b>${Math.round(speed * 3.6)}<span class="unit"> km/h</span></b>` +
       `<span class="bar"><i style="width:${width}%"></i></span>` +
-      `<span class="lab">${sprinting ? 'Sprinting' : 'Scroll to change'}</span>`;
+      '<span class="lab">Scroll to change</span>';
     if (changed) {
       el.classList.add('bump');
       clearTimeout(this.bumpTimer);
       this.bumpTimer = window.setTimeout(() => el.classList.remove('bump'), 150);
     }
+  }
+
+  /**
+   * Fly mode's ways out, always on screen so there's no guessing: back into the skier
+   * you left (`body`), or down to the snow where you are. Null hides them.
+   */
+  setFlyKeys(state: 'body' | 'free' | null): void {
+    this.flyKeys.hidden = state === null;
+    if (state === null) return;
+    const key = (k: string, text: string) => `<span><kbd>${k}</kbd>${text}</span>`;
+    this.flyKeys.innerHTML =
+      state === 'body'
+        ? key('F', 'Back to your skier') + key('R', 'Ski from here')
+        : key('F', 'Ski from here');
   }
 
   setMode(mode: 'fly' | 'ski' | 'glide' | 'ride' | 'sled'): void {

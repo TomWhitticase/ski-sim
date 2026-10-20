@@ -200,6 +200,12 @@ export class GliderControls {
     this.root.visible = active;
   }
 
+  /** Out of body (fly mode): the wing and pilot hang where you left them, drawn whole. */
+  showFrozen(): void {
+    this.root.visible = true;
+    this.pilot.setFirstPerson(false);
+  }
+
   setView(view: 'first-person' | 'chase'): void {
     this.view = view;
     this.pilot.setFirstPerson(view === 'first-person');

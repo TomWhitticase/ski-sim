@@ -18,6 +18,18 @@ export interface LabelSpec {
   tier: number;
   /** Tier to use beyond NEAR_DISTANCE, if different (distant lifts yield to big peaks). */
   farTier?: number;
+  /** Icon at the tag's left (theme in style.css): what kind of place this is. */
+  icon?: LabelIcon;
+}
+
+export type LabelIcon = 'peak' | 'restaurant' | 'chair' | 'gondola' | 'cable-car' | 'drag';
+
+/** The icon for a lift type: chairs, gondolas (and mixed), cable cars, and the drags. */
+export function liftIcon(type: string): LabelIcon {
+  if (type === 'chair_lift') return 'chair';
+  if (type === 'gondola' || type === 'mixed_lift') return 'gondola';
+  if (type === 'cable_car') return 'cable-car';
+  return 'drag';
 }
 
 /** Lift label sits just above the bottom station, where you'd board. */
@@ -42,6 +54,7 @@ export function liftLabel(lift: Lift): LabelSpec | null {
     kind: 'lift',
     name: lift.name,
     detail: liftTypeName(lift.type),
+    icon: liftIcon(lift.type),
     position: new Vector3(east, top + 6, -north),
     maxDistance: 7000,
     tier: 0,
@@ -130,6 +143,7 @@ export class Labels {
     this.labels = specs.map((spec) => {
       const el = document.createElement('div');
       el.className = `label label-${spec.kind}`;
+      el.dataset.icon = spec.icon ?? spec.kind;
       el.innerHTML = '<span class="label-name"></span><span class="label-detail"></span>';
       el.querySelector('.label-name')!.textContent = spec.name;
       el.querySelector('.label-detail')!.textContent = spec.detail;

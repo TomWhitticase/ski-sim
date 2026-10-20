@@ -73,9 +73,9 @@ test('main menu: nothing loads until you pick a ski area and load it, then ski f
   // The quick toggles stay on screen, small; the one just pressed is lit.
   await expect(page.locator('#toggles [data-toggle="view"]')).toHaveClass(/on/);
   await expect(page.locator('#toggles [data-toggle="lift"]')).not.toHaveClass(/on/);
-  // H hides the whole HUD, and shows it again.
+  // H hides the whole HUD (full immersion), and shows it again.
   await page.keyboard.press('KeyH');
-  await expect(page.locator('#hud')).toHaveClass(/hud-off/);
+  await expect(page.locator('body')).toHaveClass(/hud-off/);
   await expect(page.locator('#minimap')).not.toBeVisible();
   await page.keyboard.press('KeyH');
   await expect(page.locator('#minimap')).toBeVisible();

@@ -22,7 +22,7 @@
         <div class="glass hud-where">
           <span id="clock"><span data-time></span><span data-rate></span></span>
           <span class="hud-coords"
-            ><span data-field="lat"></span> <span data-field="lon"></span
+            ><span data-field="lat"></span><span data-field="lon"></span
           ></span>
         </div>
         <div id="marker-hint" class="glass" hidden>
@@ -36,7 +36,10 @@
         <div id="run" class="glass" hidden></div>
         <div class="glass hud-stats tiles"></div>
       </div>
-      <div id="fly-speed" class="glass" hidden></div>
+      <div class="fly-bottom">
+        <div id="fly-keys" class="glass" hidden></div>
+        <div id="fly-speed" class="glass" hidden></div>
+      </div>
       <div id="prompt" class="glass" hidden></div>
       <div id="debug" class="glass" hidden></div>
     </div>
@@ -200,7 +203,9 @@
               <h3>Getting around</h3>
               <dl class="controls">
                 <dt>F</dt>
-                <dd>Switch fly / ski mode</dd>
+                <dd>Fly out of your body (your skier waits); F again to go back to it</dd>
+                <dt>R</dt>
+                <dd>While flying: ski from where you are</dd>
                 <dt>M</dt>
                 <dd>Map: right click to teleport, left click for a guide marker</dd>
                 <dt>Shift + M</dt>
@@ -245,8 +250,6 @@
               <dl class="controls">
                 <dt>WASD</dt>
                 <dd>Fly</dd>
-                <dt>Ctrl</dt>
-                <dd>Sprint</dd>
                 <dt>Space / Shift</dt>
                 <dd>Up / down</dd>
                 <dt>Scroll</dt>

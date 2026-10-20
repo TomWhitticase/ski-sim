@@ -13,7 +13,7 @@ import type { Transport } from './transport';
 export type Role = 'host' | 'guest';
 
 /** Bump when the wire format changes, so mismatched builds refuse rather than garble. */
-export const NET_VERSION = 1;
+export const NET_VERSION = 2;
 /** States sent per second. */
 export const SEND_HZ = 12;
 /** A peer silent for this long has gone (ms). */

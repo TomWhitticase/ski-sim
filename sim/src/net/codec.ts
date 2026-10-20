@@ -19,9 +19,10 @@ export const SLOT = {
   up: 10, // body balance line in the model's frame
   stance: 13, // STANCE_SLOTS values (see stanceToSlots)
   extra: 37, // glider bank / sled steer, sled suspension travel
+  spirit: 39, // out of body (Flag.Spirit): where you're flying, x, y, z from the body (m), and yaw
 } as const;
 const STANCE_SLOTS = 24;
-export const POSE_LENGTH = SLOT.extra + 2;
+export const POSE_LENGTH = SLOT.spirit + 4;
 
 type Kind = 'linear' | 'angle' | 'unit';
 interface SlotFormat {
@@ -32,18 +33,22 @@ interface SlotFormat {
 const linear = (scale: number): SlotFormat => ({ kind: 'linear', scale });
 const FORMATS: SlotFormat[] = [];
 for (let i = 0; i < 3; i++) FORMATS.push(linear(1)); // float32, scale unused
-for (let i = 0; i < 3; i++) FORMATS.push(linear(20)); // ±1638 m/s (fly sprint)
+for (let i = 0; i < 3; i++) FORMATS.push(linear(20)); // ±1638 m/s (top fly speed is 1500)
 for (let i = 0; i < 7; i++) FORMATS.push({ kind: 'unit', scale: 32767 });
 for (let i = 0; i < STANCE_SLOTS; i++) FORMATS.push(linear(2000)); // ±16 m or rad
 FORMATS[SLOT.stance + 14] = { kind: 'angle', scale: 10_000 }; // skatePhase
 FORMATS[SLOT.stance + 16] = { kind: 'angle', scale: 10_000 }; // polePhase
 FORMATS.push(linear(2000), linear(2000));
+// Flying out of body: 1 m steps reach ±32 km from the body, enough for any resort.
+FORMATS.push(linear(1), linear(1), linear(1), { kind: 'angle', scale: 10_000 });
 
 export const Flag = {
   /** Skis and poles stowed (in a cabin, on a sled). */
   Stowed: 1,
   HasSit: 2,
   HasGrip: 4,
+  /** Out of body: the state is your frozen skier, and `SLOT.spirit` is where you fly. */
+  Spirit: 8,
 } as const;
 
 export interface PlayerState {

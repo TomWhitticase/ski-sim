@@ -19,6 +19,20 @@ export interface AvatarSources {
 const UP = new Vector3(0, 1, 0);
 const q = new Quaternion();
 
+/**
+ * Flying out of body: the frozen skier is the avatar (standing still, so it isn't
+ * extrapolated away), and `SLOT.spirit` says where you are, for a see-through flyer.
+ */
+export function addSpirit(out: PlayerState, fly: FlyControls): void {
+  out.flags |= Flag.Spirit;
+  const pose = out.pose;
+  for (let k = 0; k < 3; k++) pose[SLOT.velocity + k] = 0;
+  pose[SLOT.spirit] = fly.position.x - pose[SLOT.position]!;
+  pose[SLOT.spirit + 1] = fly.position.y - pose[SLOT.position + 1]!;
+  pose[SLOT.spirit + 2] = fly.position.z - pose[SLOT.position + 2]!;
+  pose[SLOT.spirit + 3] = fly.look.yaw;
+}
+
 /** Your own avatar as remote players should see it: what each mode's model is showing. */
 export function sampleAvatar(mode: AvatarMode, src: AvatarSources, out: PlayerState): void {
   const pose = out.pose;

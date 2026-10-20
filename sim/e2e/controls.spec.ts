@@ -44,24 +44,17 @@ test('W flies forward (north when facing north) and the HUD reports speed', asyn
   expect(moving.altitude).toBeCloseTo(before.altitude, -1);
 });
 
-test('Ctrl sprints while flying forward and stops when forward is released', async ({ page }) => {
+test('Ctrl does nothing in fly mode (no sprint): the wheel sets the speed', async ({ page }) => {
   await startFlying(page, 'at=45.2981,6.5803,2800&heading=0&pitch=0');
   await page.keyboard.down('KeyW');
   await page.waitForTimeout(1200);
   const cruising = (await hud(page)).speed;
   await page.keyboard.down('Control');
-  await page.keyboard.up('Control'); // a tap is enough; sprint sticks while W is held
+  await page.keyboard.up('Control');
   await page.waitForTimeout(1200);
-  const sprinting = (await hud(page)).speed;
   expect(cruising).toBeGreaterThan(195);
   expect(cruising).toBeLessThan(225); // 60 m/s = 216 km/h
-  expect(sprinting).toBeGreaterThan(cruising * 2.5); // x3
-
-  await page.keyboard.up('KeyW');
-  await page.waitForTimeout(300);
-  await page.keyboard.down('KeyW');
-  await page.waitForTimeout(1500);
-  expect((await hud(page)).speed).toBeLessThan(230); // sprint ended with the stop
+  expect((await hud(page)).speed).toBeLessThan(230);
   await page.keyboard.up('KeyW');
 });
 
@@ -167,40 +160,52 @@ test('the fly speed is shown, and the mouse wheel changes it', async ({ page }) 
   await expect(shown).toBeHidden();
 });
 
-test('V switches fly mode to third person and back', async ({ page }) => {
+test('flying leaves your skier behind: F goes back to it, R skis from where you are', async ({
+  page,
+}) => {
   await startFlying(page, 'at=45.2981,6.5803,2800&heading=0&pitch=0');
-  const state = () =>
+  const mode = () => page.locator('#hud [data-mode]').textContent();
+  const keys = page.locator('#fly-keys');
+  const skierShown = () =>
     page.evaluate(() => {
-      const sim = window.__sim as unknown as {
-        scene: import('three').Scene;
-        camera: import('three').Camera;
-      };
-      return {
-        skier: sim.scene.getObjectByName('body')!.parent!.visible,
-        pegman: sim.scene.getObjectByName('pegman')!.visible,
-        cameraZ: sim.camera.position.z,
-      };
+      const scene = (window.__sim as unknown as { scene: import('three').Scene }).scene;
+      return scene.getObjectByName('ski-left')!.parent!.visible;
     });
-  const firstPerson = await state();
-  expect(firstPerson.skier).toBe(false);
-  expect(firstPerson.pegman).toBe(false);
+  // Flying with no body to go back to: F lands you, and that's all it offers.
+  await expect(keys).toHaveText(/F\s*Ski from here/);
+  await page.keyboard.press('KeyF');
+  await expect.poll(mode).toBe('SKI');
+  const left = await hud(page);
 
-  await page.keyboard.press('KeyV');
-  await page.waitForTimeout(200);
-  const chase = await state();
-  // Flying in third person you're the yellow Street View man, not the skier.
-  expect(chase.pegman).toBe(true);
-  expect(chase.skier).toBe(false);
-  // Facing north (-z), the camera sits a few metres behind (south, +z).
-  expect(chase.cameraZ - firstPerson.cameraZ).toBeGreaterThan(2);
-  await page.screenshot({ path: 'test-results/views/fly-third-person.png' });
+  // Out of body: the skier stays put (shown, with a tag), and you fly off without one.
+  await page.keyboard.press('KeyF');
+  await expect.poll(mode).toBe('FLY');
+  await expect(keys).toContainText('Back to your skier');
+  await expect(keys).toContainText('Ski from here');
+  expect(await skierShown()).toBe(true);
+  await page.keyboard.press('KeyV'); // no first or third person while flying
+  await expect(page.locator('#toggles [data-toggle="view"]')).toBeHidden();
+  await hold(page, 'KeyW', 1200);
+  expect((await hud(page)).lat).toBeGreaterThan(left.lat + 0.0003);
+  await expect(page.locator('#labels .label-body')).toContainText('Your skier');
+  await page.screenshot({ path: 'test-results/views/fly-out-of-body.png' });
 
-  // Flying still moves you, with the camera following.
-  const before = await hud(page);
-  await hold(page, 'KeyW', 800);
-  expect((await hud(page)).lat).toBeGreaterThan(before.lat);
+  // F: back in the skier, right where it was.
+  await page.keyboard.press('KeyF');
+  await expect.poll(mode).toBe('SKI');
+  const back = await hud(page);
+  expect(Math.abs(back.lat - left.lat)).toBeLessThan(0.00005);
+  expect(Math.abs(back.lon - left.lon)).toBeLessThan(0.00005);
+  await expect(keys).toBeHidden();
 
-  await page.keyboard.press('KeyV');
-  await page.waitForTimeout(200);
-  expect((await state()).skier).toBe(false);
+  // R: the skier comes to you instead.
+  await page.keyboard.press('KeyF');
+  await hold(page, 'KeyW', 1200);
+  const away = await hud(page);
+  await page.keyboard.press('KeyR');
+  await expect.poll(mode).toBe('SKI');
+  const here = await hud(page);
+  expect(Math.abs(here.lat - away.lat)).toBeLessThan(0.0002);
+  expect(here.lat).toBeGreaterThan(left.lat + 0.0003);
+  await expect(page.locator('#labels .label-body')).toBeHidden();
 });

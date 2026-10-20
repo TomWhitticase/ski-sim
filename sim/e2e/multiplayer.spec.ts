@@ -108,18 +108,30 @@ test('host and guest see each other skiing, on the host clock', async ({ context
   await host.waitForTimeout(800);
   await host.screenshot({ path: 'test-results/views/multiplayer-host-view.png' });
 
-  // Other modes: the guest sees the host's snowmobile, paraglider and fly-mode figure.
+  // Other modes: the guest sees the host's snowmobile and paraglider; flying out of body
+  // from the wing, the paraglider waits where it was (with a see-through flyer).
   await host.keyboard.press('KeyV');
-  for (const [key, mode] of [
-    ['KeyB', 'sled'],
-    ['KeyP', 'glide'],
-    ['KeyF', 'fly'],
+  for (const [key, mode, shot] of [
+    ['KeyB', 'sled', 'sled'],
+    ['KeyP', 'glide', 'glide'],
+    ['KeyF', 'glide', 'fly'],
   ] as const) {
     await host.keyboard.press(key);
     await expect.poll(() => sim(guest, (s) => s.multiplayer.debug.modes[0])).toBe(mode);
     await guest.waitForTimeout(300);
-    await guest.screenshot({ path: `test-results/views/multiplayer-guest-${mode}.png` });
+    await guest.screenshot({ path: `test-results/views/multiplayer-guest-${shot}.png` });
   }
+
+  await expect
+    .poll(() =>
+      guest.evaluate(
+        () =>
+          (window.__sim as unknown as { scene: import('three').Scene }).scene.getObjectByName(
+            'pegman',
+          )?.visible ?? false,
+      ),
+    )
+    .toBe(true);
 
   // The guest studies the map (the frame loop skips the 3D work) for longer than the
   // peer timeout: they stay in the game, and the host keeps seeing them.
