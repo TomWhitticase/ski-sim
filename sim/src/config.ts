@@ -4,8 +4,9 @@ export const DEFAULT_RESORT = 'les-3-vallees';
 
 /**
  * Bluebird mid-February day; the sun is placed for the resort's location. Clock times are
- * Central European Time (UTC+1), the zone of the current resorts. The time of day itself
- * comes from the time-of-day menu (T); `startTime` is its default.
+ * local times in the resort's zone: `utcOffsetHours` is set from the manifest's `timezone`
+ * when a resort loads (UTC+1 for builds without one). The time of day itself comes from
+ * the time-of-day menu (T); `startTime` is its default.
  */
 export const SIM_DAY = {
   date: '2026-02-15',

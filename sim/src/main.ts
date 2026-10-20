@@ -279,6 +279,7 @@ async function main(): Promise<void> {
     CAMERA.far,
   );
   // The clock runs at its chosen rate; the time menu (T) sets it and the sun follows.
+  if (manifest.timezone) SIM_DAY.utcOffsetHours = manifest.timezone.utcOffsetHours;
   const clock = loadTime(localStorage, SIM_DAY.startTime);
   const { lat: originLat, lon: originLon } = manifest.origin;
   const environment = new Environment(scene, simDate(clock.seconds), originLat, originLon);

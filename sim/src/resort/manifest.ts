@@ -49,6 +49,8 @@ export interface ResortManifest {
   resort: { id: string; name: string; country: string };
   origin: { lat: number; lon: number };
   projection: string;
+  /** The resort's time zone; its offset on the sim's day sets the clock (absent: UTC+1). */
+  timezone?: { name: string; utcOffsetHours: number };
   spawn: { east: number; north: number; altitude: number; heading: number };
   bases?: StartBase[];
   terrain: { near: HeightmapMeta; far: HeightmapMeta };
@@ -86,7 +88,7 @@ export interface LandCoverMeta {
   extent: Extent;
 }
 
-const SUPPORTED_VERSION = 9;
+const SUPPORTED_VERSION = 9; // bump with the pipeline's MANIFEST_VERSION
 
 /**
  * Where pipeline output is served from: the site's base path (dev, GitHub Pages), or

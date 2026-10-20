@@ -7,6 +7,7 @@ import logging
 import math
 from datetime import UTC, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 from rasterio.warp import Resampling
@@ -28,14 +29,16 @@ from . import bases as base_finder
 from .config import Area, ResortConfig, load_resort
 from .export import write_heightmap
 from .frame import LocalFrame
-from .grid import Grid, despike, reproject_into, sample_bilinear, stitch_far_to_near
+from .grid import Grid, despike, grow, reproject_into, sample_bilinear, stitch_far_to_near
 from .sources import copernicus, ign, osm, worldcover
 
 log = logging.getLogger(__name__)
 
-MANIFEST_VERSION = 9  # 8 was used by both snow parks and land cover
+MANIFEST_VERSION = 9  # with the sim's SUPPORTED_VERSION; see CLAUDE.md "Changing the pipeline"
 LANDMARK_SEARCH_RADIUS = 30.0  # OSM summit nodes are often a few metres off the true top
 LANDMARK_TOLERANCE = 15.0
+IGN_EDGE_CELLS = 3  # near cells dropped along the edge of IGN coverage (France's border)
+SIM_DAY = datetime(2026, 2, 15, 12, tzinfo=UTC)  # the sim's day (SIM_DAY in sim/src/config.ts)
 
 
 def build_far(cfg: ResortConfig, frame: LocalFrame, raw_dir: Path) -> tuple[np.ndarray, Grid]:
@@ -81,6 +84,9 @@ def build_near(
                     src_crs=ign.CRS,
                     src_nodata=ign.NODATA,
                 )
+            # Drop the edge of IGN's coverage too: blended with -9999, it's too low.
+            missing = ~(layer_heights >= ign.MIN_VALID)
+            layer_heights[grow(missing, IGN_EDGE_CELLS)] = np.nan
         else:
             raise ValueError(f"Unsupported near terrain source {source!r}")
         fill = np.isnan(heights) & ~np.isnan(layer_heights)
@@ -367,6 +373,13 @@ def validate_landmarks(
     return results
 
 
+def utc_offset_hours(timezone: str) -> float:
+    """The zone's offset from UTC on the sim's day (winter time in the north)."""
+    offset = SIM_DAY.astimezone(ZoneInfo(timezone)).utcoffset()
+    assert offset is not None
+    return offset.total_seconds() / 3600
+
+
 def write_resort_index(out_root: Path) -> Path:
     """`resorts.json`: every built resort, for the sim's ski-area menu."""
     resorts = []
@@ -502,6 +515,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         "resort": {"id": cfg.id, "name": cfg.name, "country": cfg.country},
         "origin": {"lat": cfg.origin.lat, "lon": cfg.origin.lon},
         "projection": frame.proj4,
+        "timezone": {"name": cfg.timezone, "utcOffsetHours": utc_offset_hours(cfg.timezone)},
         "spawn": {
             "east": round(spawn_east, 2),
             "north": round(spawn_north, 2),

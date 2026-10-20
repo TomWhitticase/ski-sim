@@ -51,3 +51,12 @@ def test_despike_fills_a_ring_of_pits_but_keeps_a_cliff():
     heights[ring] -= 150
     assert despike(heights) >= ring.sum()
     assert np.abs(heights - clean).max() < 1.0
+
+
+def test_grow_widens_a_mask_by_whole_cells():
+    from ski_sim_pipeline.grid import grow
+
+    mask = np.zeros((7, 7), dtype=bool)
+    mask[3, 3] = True
+    grown = grow(mask, 2)
+    assert grown[1:6, 1:6].all() and grown.sum() == 25

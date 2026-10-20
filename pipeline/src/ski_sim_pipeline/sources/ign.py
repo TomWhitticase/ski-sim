@@ -20,6 +20,9 @@ log = logging.getLogger(__name__)
 
 CRS = "EPSG:2154"
 NODATA = -99999.0
+# Outside France tiles hold -9999 (not NODATA), and the service blends it into the valid
+# heights next to it, so anything this low is missing data.
+MIN_VALID = -1000.0
 WMS_URL = "https://data.geopf.fr/wms-r"
 MAX_TILE_PX = 4000  # service limit is 5010
 

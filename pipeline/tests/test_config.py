@@ -53,3 +53,19 @@ def test_huge_areas_get_a_coarser_grid(tmp_path):
     cfg = load_resort(path)  # ~56 km tall: 4 m would be 14k samples
     assert cfg.near.extent.height / cfg.near.cell_size <= 8000
     assert cfg.near.cell_size > 4
+
+
+def test_time_zone_comes_from_the_country_or_the_config(tmp_path):
+    from ski_sim_pipeline.build import utc_offset_hours
+
+    path = tmp_path / "resort.json"
+    base = {"id": "x", "name": "X", "bounds": {"south": 45, "west": 6, "north": 45.1, "east": 6.1}}
+    path.write_text(json.dumps({**base, "country": "JP"}))
+    assert load_resort(path).timezone == "Asia/Tokyo"
+    path.write_text(json.dumps({**base, "country": "US", "timezone": "America/Denver"}))
+    assert utc_offset_hours(load_resort(path).timezone) == -7  # February: standard time
+    assert utc_offset_hours("Asia/Kathmandu") == 5.75
+    # Several zones and none given: estimated from the longitude (-111.5° -> UTC-7).
+    utah = {"south": 40.6, "west": -111.6, "north": 40.7, "east": -111.4}
+    path.write_text(json.dumps({**base, "country": "US", "bounds": utah}))
+    assert utc_offset_hours(load_resort(path).timezone) == -7

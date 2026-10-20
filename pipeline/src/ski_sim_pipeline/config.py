@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+
+log = logging.getLogger(__name__)
 
 
 class Area(Protocol):
@@ -90,6 +93,8 @@ class ResortConfig:
     far: TerrainLayerConfig
     minimap: MinimapConfig
     landmarks: tuple[Landmark, ...]
+    # IANA zone for the sim's clock: `timezone` in the config, else the country's.
+    timezone: str = "Europe/Paris"
     # The resort's own `bounds` in local metres (None without bounds). The near terrain
     # is snapped outward from it, so it can reach into a neighbouring resort.
     area: Extent | None = None
@@ -102,6 +107,22 @@ MAX_GRID_SIZE = 8000
 FAR_MARGIN = 55_000.0  # horizon terrain this far beyond the resort area (m)
 NEAR_SOURCES_BY_COUNTRY = {"FR": ("ign-lidar-hd", "ign-rge-alti")}
 FALLBACK_NEAR_SOURCES = ("copernicus-glo30",)
+# Countries with one time zone. Others (US, CA, ...) should set `timezone` in the resort
+# config; without it the zone is estimated from the longitude.
+TIMEZONE_BY_COUNTRY = {
+    "AD": "Europe/Andorra",
+    "AT": "Europe/Vienna",
+    "CH": "Europe/Zurich",
+    "DE": "Europe/Berlin",
+    "ES": "Europe/Madrid",
+    "FR": "Europe/Paris",
+    "IT": "Europe/Rome",
+    "JP": "Asia/Tokyo",
+    "NO": "Europe/Oslo",
+    "NP": "Asia/Kathmandu",
+    "NZ": "Pacific/Auckland",
+    "SE": "Europe/Stockholm",
+}
 
 
 def _snap(value: float, step: float, up: bool) -> float:
@@ -201,6 +222,11 @@ def load_resort(path: Path) -> ResortConfig:
         heading=spawn_raw.get("heading", 0.0),
     )
     minimap = raw.get("minimap", {})
+    timezone = raw.get("timezone") or TIMEZONE_BY_COUNTRY.get(raw["country"])
+    if timezone is None:
+        hours = round(origin.lon / 15)
+        timezone = f"Etc/GMT{-hours:+d}" if hours else "Etc/GMT"  # Etc signs are inverted
+        log.warning("%s: no `timezone` for %s, using %s", path, raw["country"], timezone)
     return ResortConfig(
         id=raw["id"],
         name=raw["name"],
@@ -213,6 +239,7 @@ def load_resort(path: Path) -> ResortConfig:
             cell_size=float(minimap.get("cellSize", 8)),
             contour_interval=float(minimap.get("contourInterval", 100)),
         ),
+        timezone=timezone,
         landmarks=tuple(
             Landmark(
                 name=lm["name"],

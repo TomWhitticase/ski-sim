@@ -130,3 +130,16 @@ def despike(heights: np.ndarray, threshold: float = 25.0, window: int = 3) -> in
         h[rows, cols] = values
         fixed += len(rows)
     return fixed
+
+
+def grow(mask: np.ndarray, cells: int) -> np.ndarray:
+    """`mask` widened by `cells` in every direction (a square dilation)."""
+    out = mask.copy()
+    for _ in range(cells):
+        step = out.copy()
+        step[1:] |= out[:-1]
+        step[:-1] |= out[1:]
+        step[:, 1:] |= step[:, :-1].copy()
+        step[:, :-1] |= step[:, 1:].copy()
+        out = step
+    return out
