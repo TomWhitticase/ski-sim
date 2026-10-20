@@ -77,17 +77,20 @@
             <div id="menu-starts" class="menu-list"></div>
           </section>
         </div>
-        <p id="status">Loading…</p>
-        <button id="start" disabled>Loading…</button>
+        <p id="status">Finding ski areas…</p>
+        <div id="load-progress" hidden><i></i></div>
+        <button id="start" disabled>Choose a ski area</button>
         <div class="menu-actions">
           <button id="open-ski-setup" class="menu-action" type="button">
             Ski setup <kbd>G</kbd>
           </button>
-          <button id="open-time" class="menu-action" type="button">Time of day <kbd>T</kbd></button>
+          <button id="open-time" class="menu-action" type="button" data-needs-map disabled>
+            Time of day <kbd>T</kbd>
+          </button>
           <button id="open-settings" class="menu-action" type="button">
             Settings <kbd>O</kbd>
           </button>
-          <button id="open-multiplayer" class="menu-action" type="button">
+          <button id="open-multiplayer" class="menu-action" type="button" data-needs-map disabled>
             Multiplayer <kbd>N</kbd>
           </button>
           <button id="open-controls" class="menu-action" type="button">Controls</button>

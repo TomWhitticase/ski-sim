@@ -35,7 +35,14 @@ import { createRestaurants, terraceSolids } from './features/restaurants';
 import type { ResortFeatures } from './features/types';
 import { Heightmap } from './geo/heightmap';
 import { LocalFrame, worldToEnu } from './geo/local-frame';
-import { DATA_URL, type HeightmapMeta, loadManifest, resortUrl } from './resort/manifest';
+import { Downloads, formatBytes } from './resort/downloads';
+import {
+  DATA_URL,
+  type HeightmapMeta,
+  loadManifest,
+  type ResortManifest,
+  resortUrl,
+} from './resort/manifest';
 import { createNormalTexture } from './terrain/normals';
 import { AdaptiveResolution } from './render/adaptive-resolution';
 import { Terrain } from './terrain/terrain';
@@ -87,16 +94,31 @@ declare global {
 }
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
-const status = $('#status');
+/** Shows a failed load in the menu (set once the menu exists). */
+let failLoad = (message: string) => {
+  const status = $('#status');
+  status.classList.add('error');
+  status.textContent = message;
+};
 
-async function loadHeightmap(resortId: string, meta: HeightmapMeta): Promise<Heightmap> {
-  const res = await fetch(resortUrl(resortId, meta.file));
+type Fetch = (url: string) => Promise<Response>;
+
+async function loadHeightmap(
+  resortId: string,
+  meta: HeightmapMeta,
+  get: Fetch = fetch,
+): Promise<Heightmap> {
+  const res = await get(resortUrl(resortId, meta.file));
   if (!res.ok) throw new Error(`Failed to load ${meta.file} (HTTP ${res.status})`);
   return Heightmap.decode(await res.arrayBuffer(), meta);
 }
 
-async function loadFeatures(resortId: string, file: string): Promise<ResortFeatures> {
-  const res = await fetch(resortUrl(resortId, file));
+async function loadFeatures(
+  resortId: string,
+  file: string,
+  get: Fetch = fetch,
+): Promise<ResortFeatures> {
+  const res = await get(resortUrl(resortId, file));
   if (!res.ok) throw new Error(`Failed to load ${file} (HTTP ${res.status})`);
   return (await res.json()) as ResortFeatures;
 }
@@ -116,40 +138,86 @@ function migrateStorage(): void {
 async function main(): Promise<void> {
   migrateStorage();
   const params = new URLSearchParams(location.search);
-  // Ski areas come from the pipeline's index; pick the URL's, else the last one played,
-  // else the default (if it's been built).
+  // Ski areas come from the pipeline's index.
   const resorts = await fetchJson<{ resorts: ResortEntry[] }>(`${DATA_URL}resorts.json`)
     .then((r) => r.resorts)
     .catch((): ResortEntry[] => []);
   const known = (id: string | null) => !!id && resorts.some((r) => r.id === id);
-  const lastResort = localStorage.getItem(LAST_RESORT_KEY);
-  // Last played, else the configured default, else whatever has been built.
-  const resortId =
+  // Nothing heavy loads until you pick a ski area and press Load, unless the link names
+  // one (switching areas, an invite, a pose, the tests).
+  const auto = params.has('resort') || params.has('join') || params.has('at') || !resorts.length;
+  // Highlighted to begin with: the URL's, else the last one played, else the default
+  // (if it's been built), else whatever has been built.
+  const suggested =
     params.get('resort') ??
-    [lastResort, DEFAULT_RESORT].find(known) ??
+    [localStorage.getItem(LAST_RESORT_KEY), DEFAULT_RESORT].find(known) ??
     resorts[0]?.id ??
     DEFAULT_RESORT;
-  localStorage.setItem(LAST_RESORT_KEY, resortId);
 
+  // Start points come from each area's (small) manifest, fetched when it's highlighted.
+  const manifests = new Map<string, Promise<ResortManifest>>();
+  const manifestOf = (id: string) => {
+    let m = manifests.get(id);
+    if (!m) {
+      m = loadManifest(id);
+      m.catch(() => manifests.delete(id)); // try again next time it's picked
+      manifests.set(id, m);
+    }
+    return m;
+  };
   let play: (choice: StartChoice) => void = () => {};
-  const menu = new MainMenu($('#overlay'), (choice) => play(choice));
-  menu.setResorts(resorts, resortId);
+  let load: (id: string) => void = () => {};
+  const chosen = new Promise<string>((resolve) => (load = resolve));
+  let loaded = false;
+  const menu: MainMenu = new MainMenu($('#overlay'), {
+    onSelect: (id) => {
+      manifestOf(id).then(
+        (m) =>
+          menu.setStarts(
+            id,
+            m.bases ?? [],
+            (id === suggested && params.has('at')) || loadPose(localStorage, id) !== null,
+            id === suggested ? params.get('start') : null,
+          ),
+        (e: unknown) => menu.setStartsMessage(id, e instanceof Error ? e.message : String(e)),
+      );
+    },
+    onLoad: (id, choice) => {
+      if (!loaded) return load(id);
+      // Another area: a fresh page that loads it straight away, at the chosen start.
+      const url = new URL(location.href);
+      url.search = `?resort=${encodeURIComponent(id)}`;
+      if (choice) url.searchParams.set('start', choice.name);
+      location.href = url.toString();
+    },
+    onPlay: (choice) => play(choice),
+  });
+  failLoad = (message) => menu.failed(message);
+  menu.setResorts(resorts, suggested);
   let changeSkis: (setup: SkiSetup) => void = () => {};
   const skiSetup = new SkiSetupMenu($('#ski-setup-modal'), loadSetup(localStorage), (setup) => {
     saveSetup(localStorage, setup);
     changeSkis(setup);
   });
   $('#open-ski-setup').addEventListener('click', () => skiSetup.open());
+  loadCamera(localStorage);
+  const settingsMenu = new SettingsMenu($('#settings-modal'), () => saveCamera(localStorage));
+  $('#open-settings').addEventListener('click', () => settingsMenu.open());
 
-  const manifest = await loadManifest(resortId);
-  menu.setStarts(
-    manifest.bases ?? [],
-    params.has('at') || loadPose(localStorage, resortId) !== null,
-  );
+  if (auto) load(suggested);
+  const resortId = await chosen;
+  loaded = true;
+  localStorage.setItem(LAST_RESORT_KEY, resortId);
+  menu.loading(resortId);
+  const manifest = await manifestOf(resortId);
   document.title = `${manifest.resort.name} · ski-sim`;
   $('#attribution').textContent =
     'Terrain: ' + manifest.provenance.map((p) => p.attribution).join(' · ');
-  status.textContent = 'Loading terrain…';
+  // Downloads are the first 80% of the bar; building the world is the rest.
+  const downloads = new Downloads((fraction, bytes) =>
+    menu.progress(`Downloading map data · ${formatBytes(bytes)}`, fraction * 0.8),
+  );
+  const get = downloads.fetch;
   const litMeta = manifest.pistes.lit;
   const [
     near,
@@ -162,15 +230,15 @@ async function main(): Promise<void> {
     nearCoverPixels,
     farCoverPixels,
   ] = await Promise.all([
-    loadHeightmap(resortId, manifest.terrain.near),
-    loadHeightmap(resortId, manifest.terrain.far),
-    loadFeatures(resortId, manifest.features.file),
-    fetchJson<PisteData>(resortUrl(resortId, manifest.pistes.file)),
-    loadPixels(resortUrl(resortId, manifest.pistes.overlay.file)),
-    loadPixels(resortUrl(resortId, manifest.pistes.lookup.file)),
-    litMeta ? loadPixels(resortUrl(resortId, litMeta.file)) : null,
-    loadPixels(resortUrl(resortId, manifest.landCover.near.file)),
-    loadPixels(resortUrl(resortId, manifest.landCover.far.file)),
+    loadHeightmap(resortId, manifest.terrain.near, get),
+    loadHeightmap(resortId, manifest.terrain.far, get),
+    loadFeatures(resortId, manifest.features.file, get),
+    fetchJson<PisteData>(resortUrl(resortId, manifest.pistes.file), get),
+    loadPixels(resortUrl(resortId, manifest.pistes.overlay.file), get),
+    loadPixels(resortUrl(resortId, manifest.pistes.lookup.file), get),
+    litMeta ? loadPixels(resortUrl(resortId, litMeta.file), get) : null,
+    loadPixels(resortUrl(resortId, manifest.landCover.near.file), get),
+    loadPixels(resortUrl(resortId, manifest.landCover.far.file), get),
   ]);
   const { near: nearCoverMeta, far: farCoverMeta, trees: treeMeta } = manifest.landCover;
   const nearCover = new LandCover(nearCoverPixels, nearCoverMeta.cellSize, nearCoverMeta.extent);
@@ -204,7 +272,6 @@ async function main(): Promise<void> {
   await renderer.init();
 
   const scene = new Scene();
-  loadCamera(localStorage);
   const camera = new PerspectiveCamera(
     cameraSettings.fovFirst,
     window.innerWidth / window.innerHeight,
@@ -228,8 +295,6 @@ async function main(): Promise<void> {
     },
   );
   $('#open-time').addEventListener('click', () => timeMenu.open());
-  const settingsMenu = new SettingsMenu($('#settings-modal'), () => saveCamera(localStorage));
-  $('#open-settings').addEventListener('click', () => settingsMenu.open());
   // The time above the minimap (with the clock speed unless it's real time).
   const clockTime = $('#clock [data-time]');
   const clockRate = $('#clock [data-rate]');
@@ -243,7 +308,7 @@ async function main(): Promise<void> {
   // A guest's clock is the host's; keep their own for when they play alone again.
   window.addEventListener('pagehide', () => !multiplayer.isGuest && saveTime(localStorage, clock));
 
-  status.textContent = 'Building terrain…';
+  menu.progress('Building terrain…', 0.82);
   await nextFrame();
   const nearTerrain = new Terrain(
     near,
@@ -297,6 +362,8 @@ async function main(): Promise<void> {
     createParkMeshes(parks.features, (east, north) => groundHeight(east, -north)),
     createFloodlights(pisteData.lights ?? [], environment.floodlights),
   );
+  menu.progress('Growing forests…', 0.88);
+  await nextFrame();
   // Trees from the land cover's tree cover (none without a tree line: no forest mapped).
   const forest =
     treeMeta.treeLine === null
@@ -359,6 +426,8 @@ async function main(): Promise<void> {
   const fxMid = new Vector3();
   const fxNormal = new Vector3();
   const fxSlide = new Vector3();
+  menu.progress('Building lifts…', 0.92);
+  await nextFrame();
   const lifts = new LiftSystem(features.lifts, groundHeight);
   // Solid things you can't ski through: buildings and the lift terminals' walls and huts.
   const obstacles = new ObstacleIndex([
@@ -607,8 +676,9 @@ async function main(): Promise<void> {
     saveWaypoint(localStorage, resortId, w);
   };
   setWaypoint(loadWaypoint(localStorage, resortId));
+  // Third person unless you've chosen first (V).
   let view: 'first-person' | 'chase' =
-    localStorage.getItem(VIEW_KEY) === 'chase' ? 'chase' : 'first-person';
+    localStorage.getItem(VIEW_KEY) === 'first-person' ? 'first-person' : 'chase';
   const setView = (next: typeof view) => {
     view = next;
     fly.view = view;
@@ -616,6 +686,7 @@ async function main(): Promise<void> {
     glider.setView(view);
     sled.setView(view);
     document.body.classList.toggle('chase', view === 'chase');
+    hud.setToggle('view', view === 'first-person');
     localStorage.setItem(VIEW_KEY, view);
   };
   setView(view);
@@ -852,8 +923,8 @@ async function main(): Promise<void> {
     if (choice) startAt(choice);
     void input.lock();
   };
-  menu.setStatus(manifest.resort.name);
-  menu.ready();
+  // Ready once the first frames are on screen: the first ones compile the shaders.
+  menu.progress('Preparing graphics…', 0.97);
 
   const sim = { ready: false, frames: 0 };
   window.__sim = sim;
@@ -1127,6 +1198,7 @@ async function main(): Promise<void> {
     }
 
     sim.frames++;
+    if (!sim.ready) menu.ready();
     sim.ready = true;
   });
 }
@@ -1169,7 +1241,8 @@ interface Prefs {
 }
 
 function loadPrefs(): Prefs {
-  const defaults = { lift: true, peak: true, restaurant: true, pistes: true, sound: true };
+  // Markers start off: a clean view until you turn them on (1-4).
+  const defaults = { lift: false, peak: false, restaurant: false, pistes: false, sound: true };
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') };
   } catch {
@@ -1182,8 +1255,8 @@ function formatWait(seconds: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+async function fetchJson<T>(url: string, get: Fetch = fetch): Promise<T> {
+  const res = await get(url);
   if (!res.ok) throw new Error(`Failed to load ${url} (HTTP ${res.status})`);
   return (await res.json()) as T;
 }
@@ -1194,6 +1267,5 @@ function nextFrame(): Promise<void> {
 
 main().catch((error: unknown) => {
   console.error(error);
-  status.classList.add('error');
-  status.textContent = error instanceof Error ? error.message : String(error);
+  failLoad(error instanceof Error ? error.message : String(error));
 });

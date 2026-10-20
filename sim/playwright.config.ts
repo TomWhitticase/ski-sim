@@ -12,6 +12,23 @@ export default defineConfig({
   outputDir: 'test-results',
   use: {
     baseURL: `http://localhost:${port}`,
+    // The tests were written for first person with every label and piste colour on;
+    // the player's defaults (third person, all off) are checked in menu.spec.ts.
+    storageState: {
+      cookies: [],
+      origins: [
+        {
+          origin: `http://localhost:${port}`,
+          localStorage: [
+            { name: 'ski-sim.view', value: 'first-person' },
+            {
+              name: 'ski-sim.labels',
+              value: JSON.stringify({ lift: true, peak: true, restaurant: true, pistes: true }),
+            },
+          ],
+        },
+      ],
+    },
     viewport: { width: 1600, height: 900 },
     launchOptions: {
       // Use the real GPU in headless Chromium so WebGPU is available.

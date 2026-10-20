@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 
-async function load(page: Page, query = '') {
+// Naming the resort loads it straight away (a bare URL waits at the menu).
+async function load(page: Page, query = '?resort=les-3-vallees') {
   await page.goto(`/${query}`);
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10, null, { timeout: 90_000 });
 }

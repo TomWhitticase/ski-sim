@@ -633,6 +633,41 @@ body.map-open #overlay {
   background: #2f78e6;
 }
 
+#start:disabled {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--muted);
+  cursor: default;
+}
+
+/* Loading: a bar under the status line; the button says what's loading. */
+#load-progress {
+  width: 280px;
+  max-width: 100%;
+  height: 6px;
+  margin: -6px auto 16px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+
+#load-progress[hidden] {
+  display: none;
+}
+
+#load-progress i {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: #3d8bfd;
+  transition: width 0.2s;
+}
+
+.menu-note {
+  margin: 8px 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .controls {
   display: grid;
   grid-template-columns: auto auto;
@@ -876,6 +911,12 @@ body.sky-transition #crosshair {
 
 .menu-action:hover {
   background: rgba(61, 139, 253, 0.18);
+}
+
+.menu-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 kbd {

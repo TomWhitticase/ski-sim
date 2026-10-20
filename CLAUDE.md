@@ -94,7 +94,8 @@ Current resorts:
 ### Main menu
 
 The overlay (`ui/main-menu.ts`) is the main menu and also the pause menu (it shows whenever the mouse is released).
-- **Ski area:** listed from `data/processed/resorts.json`, which the pipeline rewrites after every build. Choosing another area reloads with `?resort=`. The last area played is remembered.
+- **Nothing heavy loads until you ask.** The menu highlights the last area played and lists its start points (from its small manifest), and the big button says what it will do: "Load <area>", then "Loading <area>…" with a progress bar and stage (bytes downloaded via `resort/downloads.ts`, then building terrain, forests, lifts, and graphics until the first frame), then "Start skiing". A failed load shows the error and "Try again". Time of day and Multiplayer (`data-needs-map`) are disabled until the map is ready. A link naming a resort (`?resort=`, `?join=`, `?at=`) loads at once, which the tests rely on.
+- **Ski area:** listed from `data/processed/resorts.json`, which the pipeline rewrites after every build. Picking another area once one is loaded says "Switch to <area>"; that reloads with `?resort=<id>&start=<base name>`, so the chosen start carries over. The last area loaded is remembered.
 - **Start at:** the resort's `bases`, which the pipeline finds automatically (`bases.py`). A base is an OSM town or village with lift bottom stations within 700 m, ranked villages first. Each start point is placed 9–32 m from its main lift's bottom station, clear of buildings, facing up the lift, so the E prompt is live on arrival.
 - **"Where you left off" / "Continue where you are":** resumes the saved pose.
 
@@ -184,7 +185,7 @@ There are two layers. **Near** is lidar at 4 m covering the ski area. **Far** is
 - `controls/ski-stance.ts` (pure, unit-tested) turns what the skier is doing into a pose: carve edge angle from speed × path turn rate (atan(a/g), capped at 60°), plough wedge, alternating V-skate strides, tuck crouch. `controls/ski-model.ts` builds the skier (sidecut/rocker ski geometry, bindings, boots, poles; shell jacket, helmet, mirrored goggles) and applies the pose. Legs and arms use two-bone IK (`solveJoint`): ankles are pinned inside the boots so legs follow the skis in every stance, and hands follow the torso and carry the poles.
 - First person hides the body (`body`) but keeps skis, boots and poles visible below the camera.
 - Balance: the body aligns with gravity plus the skier's smoothed acceleration (the force the snow pushes back with), not the slope normal. That gives upright shoulders on a traverse, leaning into carves, and leaning uphill in a hockey stop. The ski edge angle is that balance line's tilt across the skis relative to the slope (`balanceEdge`).
-- V (first/third person) works in both modes and is remembered. Fly mode tracks `FlyControls.position` (the eye); in third person the camera orbits behind it and you're the yellow Street View figure (`controls/pegman.ts`), leaning and dangling as you fly. Fly mode is silent (no wind). The set fly speed (default 60 m/s, mouse wheel to change, Ctrl sprints ×3) is shown at the bottom of the screen.
+- V (first/third person) works in both modes and is remembered. Third person is the default; the toggles panel shows a "V First person" row. Fly mode tracks `FlyControls.position` (the eye); in third person the camera orbits behind it and you're the yellow Street View figure (`controls/pegman.ts`), leaning and dangling as you fly. Fly mode is silent (no wind). The set fly speed (default 60 m/s, mouse wheel to change, Ctrl sprints ×3) is shown at the bottom of the screen.
 - e2e tests use a frozen lake at 45.28856, 6.5752 (under 15 cm of relief over 100 m) as flat ground.
 - Off-piste (per the piste lookup grid) uses higher friction and drag than groomed runs.
 - Take-off: you leave the snow when your ballistic path `SKI.liftLook` (0.06 s) ahead is more than `liftGap` (15 cm) above the snow there (a kicker's lip), or a step drops more than `airThreshold`. Snapping to the snow each step alone only ever lets go at cliffs. `SkiTerrain.normal` (optional) supplies a finer normal than the default 2 m finite difference; snow parks use it.
@@ -336,8 +337,8 @@ Both come from OSM through Overpass (`sources/osm.py`). The response is cached u
 - **Lifts:** stations sit at the way's ends and intermediate nodes become towers. `features.place_supports` adds `synthetic-tower`s wherever the straight cable would drop below the type's minimum clearance or a span is too long. Per-type dimensions live in `LIFT_PROFILES`.
 - **Buildings:** gable roofs are computed in the pipeline (`gable_roof`): the ridge runs along the long axis of the footprint's oriented bounding box, and the footprint is split along the ridge into planar faces. Large industrial buildings keep flat roofs. Facades (windows, floors, balconies, stone plinth; timber, render, stone or metal) are procedural in `createBuildingMaterial` from a per-vertex `facade` attribute, so it stays one mesh and one draw call, fading to an average colour beyond ~150 m to avoid aliasing. Near-duplicate OSM footprints are merged (`dedupe_buildings`) because coincident walls z-fight. OSM height tags are used when present; otherwise height is estimated from footprint area (`heightSource: "estimate"`, about 98% of Val Thorens). Ruins and roofs are skipped. Lift-station footprints replace the sim's placeholder station boxes.
 - Lifts that leave the near terrain extent are skipped (logged), e.g. links into neighbouring valleys, and so are ways under 40 m (a station's turn mapped as its own lift).
-- **Peaks:** named `natural=peak` nodes, snapped to the highest DEM sample within 30 m. Every peak in the near extent is kept. Beyond it, only peaks of at least 3500 m (`FAR_PEAK_MIN_ELE`), so the horizon shows the big names.
 - **Names** (`features.display_name`): OSM `name`, or `name:en` when `name` isn't in Latin script (Himalayan peaks carry Chinese, Tibetan and Nepali in one `name`).
+- **Peaks:** named `natural=peak` nodes, snapped to the highest DEM sample within 30 m. Every peak in the near extent is kept. Beyond it, only peaks of at least 3500 m (`FAR_PEAK_MIN_ELE`), so the horizon shows the big names.
 
 ### Mountain restaurants
 
@@ -360,7 +361,7 @@ Both come from OSM through Overpass (`sources/osm.py`). The response is cached u
 
 ### Labels
 
-`sim/src/ui/labels.ts` draws HTML tags projected from world anchors (1 toggles lift names, 2 peak names, 4 restaurant names; the choice persists in localStorage).
+`sim/src/ui/labels.ts` draws HTML tags projected from world anchors (1 toggles lift names, 2 peak names, 4 restaurant names; 3 is piste colours). All start off for a new player; the choice persists in localStorage. Playwright's config seeds first person with everything on, which is what the tests and screenshot views were written for; `menu.spec.ts` checks the real defaults with clean storage.
 - Labels are hidden when terrain occludes them. A ray-march against the heightmap runs on a rolling budget, so not every label is checked every frame.
 - Labels are also hidden beyond a per-kind distance, or when they'd overlap a higher-priority tag. Lifts and local peaks win; distant peaks are ranked by elevation.
 

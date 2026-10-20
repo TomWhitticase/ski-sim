@@ -113,8 +113,11 @@ export function decodeRunCode(b: number): { difficulty: number; type: RunType } 
 }
 
 /** Decode a PNG without colour management or premultiplication (the bytes are data). */
-export async function loadPixels(url: string): Promise<ImageData> {
-  const res = await fetch(url);
+export async function loadPixels(
+  url: string,
+  get: (url: string) => Promise<Response> = fetch,
+): Promise<ImageData> {
+  const res = await get(url);
   if (!res.ok) throw new Error(`Failed to load ${url} (HTTP ${res.status})`);
   const bitmap = await createImageBitmap(await res.blob(), {
     colorSpaceConversion: 'none',
