@@ -53,6 +53,39 @@ const VIEWS = [
     name: 'paradiski-plagne-centre',
     query: 'resort=paradiski&at=45.5030,6.6700,2150&heading=40&pitch=-12',
   },
+  // Chamonix, sector by sector, then the high-mountain lifts and the lidar's edges (where
+  // RGE ALTI takes over in Switzerland and Italy).
+  { name: 'chamonix-spawn', query: 'resort=chamonix' },
+  {
+    name: 'chamonix-grands-montets',
+    query: 'resort=chamonix&at=45.9840,6.9150,2250&heading=125&pitch=-8',
+  },
+  {
+    name: 'chamonix-brevent',
+    query: 'resort=chamonix&at=45.9200,6.8800,2100&heading=310&pitch=-8',
+  },
+  { name: 'chamonix-flegere', query: 'resort=chamonix&at=45.9330,6.8700,2200&heading=20&pitch=-8' },
+  {
+    name: 'chamonix-aiguille-du-midi',
+    query: 'resort=chamonix&at=45.8812,6.8925,3830&heading=232&pitch=-6',
+  },
+  {
+    name: 'chamonix-panoramic',
+    query: 'resort=chamonix&at=45.8560,6.9200,3650&heading=322&pitch=-4',
+  },
+  { name: 'chamonix-le-tour', query: 'resort=chamonix&at=45.9950,6.9300,2300&heading=55&pitch=-8' },
+  {
+    name: 'chamonix-les-houches',
+    query: 'resort=chamonix&at=45.9000,6.8150,1800&heading=235&pitch=-8',
+  },
+  {
+    name: 'chamonix-swiss-edge',
+    query: 'resort=chamonix&at=46.0250,6.9400,2700&heading=60&pitch=-12',
+  },
+  {
+    name: 'chamonix-italian-edge',
+    query: 'resort=chamonix&at=45.8600,6.9100,3700&heading=150&pitch=-12',
+  },
   // Land cover: Méribel's forests (pistes and lift lines cut through them), a skier's-eye
   // view under the trees, and the Vanoise glaciers.
   { name: 'meribel-forest', query: 'at=45.3890,6.5700,1700&heading=120&pitch=-5' },

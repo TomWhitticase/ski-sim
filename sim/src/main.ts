@@ -212,7 +212,8 @@ async function main(): Promise<void> {
   const manifest = await manifestOf(resortId);
   document.title = `${manifest.resort.name} · ski-sim`;
   $('#attribution').textContent =
-    'Terrain: ' + manifest.provenance.map((p) => p.attribution).join(' · ');
+    // A dataset used for several layers (Copernicus near and far) is credited once.
+    'Terrain: ' + [...new Set(manifest.provenance.map((p) => p.attribution))].join(' · ');
   // Downloads are the first 80% of the bar; building the world is the rest.
   const downloads = new Downloads((fraction, bytes) =>
     menu.progress(`Downloading map data · ${formatBytes(bytes)}`, fraction * 0.8),

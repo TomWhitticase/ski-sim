@@ -140,7 +140,8 @@ def extract_lifts(
     area: Area | None = None,
 ) -> list[dict]:
     """Lifts inside the terrain `extent`; with an `area` (the resort's own bounds), only
-    those with a station in it, so a neighbouring resort's lifts at the edge are left out."""
+    those with a station in it, so a neighbouring resort's lifts at the edge are left out.
+    A `Territory` area also drops lifts with a station on a neighbour's ground."""
     lifts = []
     for el in elements:
         tags = el.get("tags", {})
@@ -158,6 +159,10 @@ def extract_lifts(
             continue
         if area is not None and not any(area.contains(e, n) for e, n in points[[0, -1]]):
             log.info("Skipping lift %s (%s): outside the resort", tags.get("name"), el["id"])
+            continue
+        neighbours = getattr(area, "neighbours", None)
+        if neighbours is not None and any(neighbours(e, n) for e, n in points[[0, -1]]):
+            log.info("Skipping lift %s (%s): a neighbour's station", tags.get("name"), el["id"])
             continue
         length = float(np.sum(np.hypot(*np.diff(points, axis=0).T)))
         if length < MIN_LIFT_LENGTH:

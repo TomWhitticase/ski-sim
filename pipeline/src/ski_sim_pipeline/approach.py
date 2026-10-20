@@ -8,7 +8,9 @@ stations and gentle rope angles. For each end:
 1. Drop towers inside the terminal or closer than MIN_GAP beyond its exit.
 2. Walk outward from the station exit, keeping each span within MAX_EXIT_ANGLE of the
    level station rope (first span) or within MAX_DEFLECTION of the previous span, by
-   lowering or raising towers within what a tower can physically be.
+   lowering or raising towers within what a tower can physically be. Only the approach
+   (APPROACH metres out) is walked: out on the line a tower on a ridge can bend the rope
+   far more, and pinning it to the station's gentle angles leaves it buried.
 3. Re-run the ground-clearance tower insertion, then smooth again (twice).
 
 Changed towers are flagged `adjusted: true`; problems that can't be fixed are returned
@@ -35,6 +37,8 @@ MAX_DEFLECTION = 14.0
 MIN_TOWER = {"chair": 4.0, "gondola": 5.0, "cabin": 8.0, "drag": 3.0}
 MAX_TOWER_FACTOR = 2.6
 MAX_WALK = 6
+#: How far beyond the exit (m) the walk reaches; the first tower is always included.
+APPROACH = {"chair": 500.0, "gondola": 800.0, "cabin": 800.0, "drag": 250.0}
 
 
 def _along(t: dict, s: dict) -> float:
@@ -58,6 +62,8 @@ def _smooth_end(supports: list[dict], t: dict, kind: str, profile, ground, stats
     prev_slope = 0.0  # the rope is level inside the station
     tan_exit = math.tan(math.radians(MAX_EXIT_ANGLE[kind]))
     for i, s in enumerate(supports[1:-1][:MAX_WALK]):
+        if i > 0 and _along(t, s) - t["length"] > APPROACH[kind]:
+            break
         h = math.hypot(s["east"] - prev["east"], s["north"] - prev["north"])
         if h < 1e-3:
             continue
