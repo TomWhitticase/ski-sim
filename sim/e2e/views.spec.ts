@@ -86,6 +86,21 @@ const VIEWS = [
     name: 'chamonix-italian-edge',
     query: 'resort=chamonix&at=45.8600,6.9100,3700&heading=150&pitch=-12',
   },
+  // Tignes – Val d'Isère: the spawn, Tignes le Lac and its lake, the Grande Motte glacier,
+  // and Val d'Isère village under Bellevarde.
+  { name: 'tignes-spawn', query: 'resort=tignes-val-disere' },
+  {
+    name: 'tignes-le-lac',
+    query: 'resort=tignes-val-disere&at=45.4610,6.8980,2350&heading=60&pitch=-14',
+  },
+  {
+    name: 'tignes-grande-motte',
+    query: 'resort=tignes-val-disere&at=45.4420,6.8950,3100&heading=190&pitch=-12',
+  },
+  {
+    name: 'val-disere-village',
+    query: 'resort=tignes-val-disere&at=45.4560,6.9900,2150&heading=240&pitch=-14',
+  },
   // Off-piste on the snow: the Pylônes freeride itineraries at Grands Montets, dashed.
   {
     name: 'chamonix-freeride-dashes',
