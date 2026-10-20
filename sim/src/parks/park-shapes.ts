@@ -50,6 +50,8 @@ export interface RailContact {
   dirZ: number;
   /** + to the left of `dir`. */
   offset: number;
+  /** Rise (m) per horizontal metre along `dir` here: the rail's own slope, level across. */
+  grade: number;
 }
 
 export interface ParkLayout {
@@ -86,6 +88,15 @@ export function profileAt(profile: [number, number][], u: number): number {
   const [u0, h0] = profile[lo]!;
   const [u1, h1] = profile[hi]!;
   return h0 + ((h1 - h0) * (u - u0)) / (u1 - u0);
+}
+
+/** Slope (dh/du) of a profile at `u`: its segment's, the end segment's beyond the ends. */
+export function profileGrade(profile: [number, number][], u: number): number {
+  let i = 1;
+  while (i < profile.length - 1 && profile[i]![0] < u) i++;
+  const [u0, h0] = profile[i - 1]!;
+  const [u1, h1] = profile[i]!;
+  return u1 > u0 ? (h1 - h0) / (u1 - u0) : 0;
 }
 
 const smoothstep = (a: number, b: number, x: number) => {
@@ -213,6 +224,7 @@ export class SnowParks {
       out.dirX = s;
       out.dirZ = -c;
       out.offset = v;
+      out.grade = profileGrade(f.profile, u);
       return out;
     }
     return null;

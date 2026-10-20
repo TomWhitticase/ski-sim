@@ -10,7 +10,7 @@ import {
 
 import { CAMERA, DEFAULT_RESORT, FLY, SIM_DAY, simDate, TERRAIN } from './config';
 import { Sound } from './audio/sound';
-import { engineSound, liftHumLevel, soundLevels } from './audio/levels';
+import { engineSound, liftHumLevel, railSound, soundLevels } from './audio/levels';
 import { FlyControls } from './controls/fly-controls';
 import { surfaceNormal } from './controls/ski-physics';
 import { skidAmount, sprayRate, trailWidth } from './fx/intensity';
@@ -259,7 +259,7 @@ async function main(): Promise<void> {
   // The snow you ski, fly and land on: the ground plus snow park features.
   const parks = new SnowParks(pisteData.parks ?? []);
   const snowHeight = (x: number, z: number) => parks.height(x, z, groundHeight(x, z));
-  const railContact: RailContact = { dirX: 0, dirZ: 0, offset: 0 };
+  const railContact: RailContact = { dirX: 0, dirZ: 0, offset: 0, grade: 0 };
 
   const canvas = $<HTMLCanvasElement>('#scene');
   const renderer = new WebGPURenderer({ canvas, antialias: true, reversedDepthBuffer: true });
@@ -955,6 +955,7 @@ async function main(): Promise<void> {
   let fps = 60;
 
   let lastPersist = 0;
+  let wasGrinding = false;
   /** Motor hum near stations; sheave clacks as your carrier rolls over each tower. */
   const updateLiftSound = () => {
     const p = whereAmI();
@@ -1046,7 +1047,13 @@ async function main(): Promise<void> {
     sound.update(levels);
     sound.setEngine(engineSound(sled.rpm, sled.throttle, mode === 'sled'));
     if (mode === 'sled' && sled.impact > 0) sound.thump(sled.impact);
-    if (mode === 'ski' && ski.landingImpact > 0) sound.thump(ski.landingImpact);
+    if (mode === 'ski' && ski.landingImpact > 0 && !ski.onRail) sound.thump(ski.landingImpact);
+    // Rails: a clank as you get on (harder dropping onto it), then the grind.
+    const grinding = mode === 'ski' && ski.onRail;
+    if (grinding && !wasGrinding) sound.railHit(ski.landingImpact / 5 + ski.contact.speed / 20);
+    if (!grinding && wasGrinding && ski.airborne) sound.railHit(0); // a tick off the end
+    wasGrinding = grinding;
+    sound.setRail(railSound(ski.contact.speed, ski.contact.sideslip, grinding));
     if (mode === 'ski' && ski.footstep) sound.step();
     if (mode === 'ski' && ski.polePlant) sound.polePlant();
   };

@@ -55,3 +55,25 @@ export function engineSound(rpm: number, throttle: number, running: boolean): En
     warble: 0.45 * (1 - revs) ** 2,
   };
 }
+
+export interface RailSound {
+  /** Grind loudness, 0 off the rail. */
+  level: number;
+  /** Centre of the scrape's ring (Hz): rises with speed. */
+  pitch: number;
+  /** 0 (skis along it, a 50-50: a smooth hiss) to 1 (across it, a boardslide: gritty). */
+  grit: number;
+}
+
+const RAIL_OFF: RailSound = { level: 0, pitch: 2400, grit: 0 };
+
+/** Sliding a steel rail at `speed` m/s with `sideslip` m/s of it across the skis. */
+export function railSound(speed: number, sideslip: number, onRail: boolean): RailSound {
+  if (!onRail || speed < 0.3) return RAIL_OFF;
+  const across = clamp01(Math.abs(sideslip) / Math.max(speed, 0.1));
+  return {
+    level: (0.12 + 0.22 * clamp01(speed / 10)) * (0.75 + 0.25 * across),
+    pitch: 1900 + 90 * Math.min(speed, 15),
+    grit: across,
+  };
+}

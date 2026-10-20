@@ -9,6 +9,7 @@ import {
   type SkiTerrain,
   stepSki,
 } from './ski-physics';
+import { type LineFeature, type RailContact, SnowParks } from '../parks/park-shapes';
 import { DEFAULT_HANDLING, SKI_PRESETS, type SkiHandling, skiHandling } from './ski-setup';
 
 const RAD = Math.PI / 180;
@@ -434,7 +435,7 @@ describe('rails', () => {
     // The slope's own normal (the default 2 m sampling would straddle the rail's edge).
     normal: (_x, _z, out) => out.set(0, 1, grade).normalize(),
     groomed: () => true,
-    rail: (x, z) => (onRail(x, z) ? { dirX: 0, dirZ: 1, offset: x } : null),
+    rail: (x, z) => (onRail(x, z) ? { dirX: 0, dirZ: 1, offset: x, grade: -grade } : null),
   };
   const onIt = (x: number, yaw: number, speed: number): SkiState => ({
     position: new Vector3(x, terrain.height(x, 0.5), 0.5),
@@ -483,5 +484,61 @@ describe('rails', () => {
     run(state, terrain, 2.5);
     expect(state.rail).toBe(false);
     expect(state.position.z).toBeGreaterThan(12);
+  });
+  // The sim's own surface: the snow park's height and its finely sampled normal, which
+  // near the rail's end and edges straddles the 1.3 m drop to the snow.
+  const parks = new SnowParks([
+    {
+      features: [
+        {
+          kind: 'box',
+          east: 0,
+          north: 0,
+          y: 2000,
+          heading: 180, // down the hill: south, +z
+          width: 0.6,
+          side: 20,
+          profile: [
+            [0, 1.3],
+            [12, 1.3 - 12 * grade],
+          ],
+        } as LineFeature,
+      ],
+    } as never,
+  ]);
+  const contact: RailContact = { dirX: 0, dirZ: 0, offset: 0, grade: 0 };
+  const park: SkiTerrain = {
+    height: (x, z) => parks.height(x, z, hill(z)),
+    normal: (x, z, out) => parks.normal(x, z, (_x, z2) => hill(z2), out),
+    groomed: () => true,
+    rail: (x, z) => parks.rail(x, z, hill(z), contact),
+  };
+
+  it('keeps its speed off the end and its corners of a real park rail (no wall, no sideways kick)', () => {
+    for (const [x, across, yaw] of [
+      [0, 0, DOWNHILL],
+      [0.28, 0.4, ACROSS], // riding the edge into the corner
+      [-0.28, -0.4, ACROSS],
+    ] as const) {
+      const state: SkiState = {
+        position: new Vector3(x, park.height(x, 11.4), 11.4),
+        velocity: new Vector3(across, -8 * Math.sin(15 * RAD), 8 * Math.cos(15 * RAD)),
+        yaw,
+        airborne: false,
+      };
+      const before = new Vector3();
+      let worst = 0;
+      for (let i = 0; i < 30; i++) {
+        before.copy(state.velocity);
+        stepSki(state, idle, 1 / 60, park);
+        worst = Math.max(
+          worst,
+          Math.hypot(state.velocity.x - before.x, state.velocity.z - before.z),
+        );
+      }
+      expect(state.position.z).toBeGreaterThan(13); // flew on, didn't stop at the end
+      expect(worst).toBeLessThan(1); // m/s in one frame
+      expect(Math.abs(state.velocity.x)).toBeLessThan(1);
+    }
   });
 });

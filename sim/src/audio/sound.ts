@@ -1,4 +1,4 @@
-import type { EngineSound, SoundLevels } from './levels';
+import type { EngineSound, RailSound, SoundLevels } from './levels';
 
 const SMOOTHING = 0.08; // s: time constant for level changes (avoids zipper noise)
 
@@ -8,6 +8,8 @@ const SMOOTHING = 0.08; // s: time constant for level changes (avoids zipper noi
  * - glide: band-passed hiss of skis running on snow
  * - skid: brighter, gritty scrape, gated by a fast random flutter
  * - thump: a short low burst on landing
+ * - rail: steel grind, noise through a pair of narrow inharmonic resonances (a ringing
+ *   tube), with a gritty flutter in a boardslide; a clank on landing on it
  * - engine: a snowmobile's twin two-stroke, sawtooth harmonics at the firing frequency
  *   through a low-pass, with a warble at idle and exhaust rasp from band-passed noise
  * Browsers only allow audio after a user gesture, so start() is called from a click.
@@ -20,6 +22,11 @@ export class Sound {
   private skid!: { gain: GainNode; filter: BiquadFilterNode };
   private noise!: AudioBuffer;
   private hum!: GainNode;
+  private rail!: {
+    gain: GainNode;
+    rings: { filter: BiquadFilterNode; ratio: number }[];
+    grit: GainNode;
+  };
   private engine!: {
     gain: GainNode;
     filter: BiquadFilterNode;
@@ -85,6 +92,43 @@ export class Sound {
     depth.gain.value = 0.25;
     flutter.connect(depth).connect(grit.gain);
     flutter.start();
+
+    // Rail grind: two narrow resonances a non-integer ratio apart ring like steel; a
+    // high-passed scrape under them; a fast flutter whose depth is the boardslide's grit.
+    const railGain = ctx.createGain();
+    railGain.gain.value = 0;
+    const railGrit = ctx.createGain(); // the flutter swings this around 1
+    railGrit.connect(railGain).connect(this.master);
+    const rings = (
+      [
+        [1, 14, 0.9],
+        [1.47, 18, 0.6],
+        [2.76, 10, 0.25],
+      ] as const
+    ).map(([ratio, q, level]) => {
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 2400 * ratio;
+      filter.Q.value = q;
+      const g = ctx.createGain();
+      g.gain.value = level * 3; // narrow bands pass little energy
+      source.connect(filter).connect(g).connect(railGrit);
+      return { filter, ratio };
+    });
+    const scrape = ctx.createBiquadFilter();
+    scrape.type = 'highpass';
+    scrape.frequency.value = 4000;
+    const scrapeGain = ctx.createGain();
+    scrapeGain.gain.value = 0.25;
+    source.connect(scrape).connect(scrapeGain).connect(railGrit);
+    const chatter = ctx.createOscillator();
+    chatter.type = 'square';
+    chatter.frequency.value = 37;
+    const gritDepth = ctx.createGain();
+    gritDepth.gain.value = 0;
+    chatter.connect(gritDepth).connect(railGrit.gain);
+    chatter.start();
+    this.rail = { gain: railGain, rings, grit: gritDepth };
     source.start();
 
     // Lift drive: low motor harmonics, a little noisy, through a low-pass.
@@ -173,6 +217,45 @@ export class Sound {
     e.warble.frequency.setTargetAtTime(engine.frequency / 4, t, 0.04);
     e.warbleDepth.gain.setTargetAtTime(engine.warble, t, SMOOTHING);
     e.rasp.frequency.setTargetAtTime(engine.frequency * 3, t, 0.04);
+  }
+
+  /** Grinding a rail (level 0 when you're not on one). */
+  setRail(rail: RailSound): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    // Fast attack and release: the grind starts and stops with the steel.
+    this.rail.gain.gain.setTargetAtTime(rail.level, t, 0.025);
+    for (const { filter, ratio } of this.rail.rings) {
+      filter.frequency.setTargetAtTime(rail.pitch * ratio, t, SMOOTHING);
+    }
+    this.rail.grit.gain.setTargetAtTime(0.6 * rail.grit, t, SMOOTHING);
+  }
+
+  /** Skis hitting a steel rail: a bright clank that rings out. `impact` 0..1. */
+  railHit(impact: number): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const peak = 0.12 + 0.3 * Math.min(1, Math.max(0, impact));
+    // Inharmonic partials, like a struck tube; the higher ones die first.
+    for (const [freq, level, decay] of [
+      [620, 1, 0.45],
+      [1710, 0.6, 0.3],
+      [3150, 0.35, 0.18],
+    ] as const) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq * (0.97 + Math.random() * 0.06);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(peak * level, t);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+      osc.connect(gain).connect(this.master);
+      osc.start(t);
+      osc.stop(t + decay + 0.02);
+    }
+    this.burst('highpass', 2500, 0.7, peak * 0.8, 0.05); // the click of the edges
+    this.burst('lowpass', 300, 0.7, peak * 0.6, 0.12); // and the weight going on
   }
 
   setLiftHum(level: number): void {

@@ -88,7 +88,7 @@ export interface SkiTerrain {
   /** Whether the snow at (x, z) is a groomed piste. Treated as groomed if omitted. */
   groomed?(x: number, z: number): boolean;
   /** The rail underfoot at (x, z), if any (`RailContact` in parks/park-shapes). */
-  rail?(x: number, z: number): { dirX: number; dirZ: number; offset: number } | null;
+  rail?(x: number, z: number): RailUnderfoot | null;
   /** Push a body out of solid things (buildings, station walls); adjusts velocity. */
   collide?(position: Vector3, velocity: Vector3): void;
 }
@@ -125,6 +125,17 @@ export interface Landing {
   /** Skis' pitch relative to the slope at touchdown (rad, > 0 = tips high). */
   error: number;
   outcome: 'clean' | 'sketchy' | 'crash';
+}
+
+/** A rail underfoot (`RailContact` in parks/park-shapes). */
+export interface RailUnderfoot {
+  /** Horizontal direction along it (world x, z; unit). */
+  dirX: number;
+  dirZ: number;
+  /** Offset across it (m), + to the left of `dir`. */
+  offset: number;
+  /** Rise per horizontal metre along `dir`. */
+  grade: number;
 }
 
 export interface SkiIntent {
@@ -349,7 +360,7 @@ function substep(
  */
 function slideRail(
   state: SkiState,
-  rail: { dirX: number; dirZ: number; offset: number },
+  rail: RailUnderfoot,
   intent: SkiIntent,
   h: number,
   terrain: SkiTerrain,
@@ -357,6 +368,10 @@ function slideRail(
 ): void {
   const p = state.position;
   const v = state.velocity;
+  // The rail's own surface, not a sampled one: samples near its end or edge straddle the
+  // drop to the snow and read as a wall, which stopped you dead at the end and threw
+  // you sideways off a corner.
+  railNormal(rail, n);
   state.pitch = slopePitch(state.yaw, n);
   state.climbing = false;
   gravityAlong.set(0, -SKI.gravity, 0).addScaledVector(n, SKI.gravity * n.y);
@@ -386,9 +401,16 @@ function slideRail(
     takeOff(state); // off the end or the side
   } else {
     p.y = ground;
-    surfaceNormal(terrain, p.x, p.z, n);
+    const next = terrain.rail?.(p.x, p.z);
+    if (next) railNormal(next, n);
+    else surfaceNormal(terrain, p.x, p.z, n);
     v.addScaledVector(n, -v.dot(n));
   }
+}
+
+/** Upward unit normal of a rail's top: tilted along it by its grade, level across. */
+function railNormal(rail: RailUnderfoot, out: Vector3): Vector3 {
+  return out.set(-rail.grade * rail.dirX, 1, -rail.grade * rail.dirZ).normalize();
 }
 
 /** Leave the snow with the skis at the slope's pitch (already in `state.pitch`). */
