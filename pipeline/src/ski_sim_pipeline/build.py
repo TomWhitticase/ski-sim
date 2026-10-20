@@ -27,7 +27,7 @@ from . import bases as base_finder
 from .config import Area, ResortConfig, load_resort
 from .export import write_heightmap
 from .frame import LocalFrame
-from .grid import Grid, despike, reproject_into, sample_bilinear, stitch_far_to_near
+from .grid import Grid, despike, fill_holes, reproject_into, sample_bilinear, stitch_far_to_near
 from .sources import copernicus, ign, osm, worldcover
 
 log = logging.getLogger(__name__)
@@ -78,23 +78,20 @@ def build_near(
                     path,
                     Resampling.average,
                     src_crs=ign.CRS,
-                    src_nodata=ign.NODATA,
                 )
         else:
             raise ValueError(f"Unsupported near terrain source {source!r}")
-        fill = np.isnan(heights) & ~np.isnan(layer_heights)
-        heights[fill] = layer_heights[fill]
+        fill = fill_holes(heights, layer_heights)
         coverage[source] = round(float(fill.mean()), 6)
         log.info("Near terrain: %.2f%% of cells from %s", 100 * fill.mean(), source)
         if not np.isnan(heights).any():
             break
 
-    holes = np.isnan(heights)
-    if holes.any():
-        log.warning("Near terrain: %d cells filled from far terrain", holes.sum())
+    if np.isnan(heights).any():
         east, north = np.broadcast_arrays(*grid.coords())
-        heights[holes] = sample_bilinear(far, far_grid, east[holes], north[holes])
-        coverage["far"] = round(float(holes.mean()), 6)
+        fill = fill_holes(heights, sample_bilinear(far, far_grid, east, north).astype(np.float32))
+        log.warning("Near terrain: %d cells filled from far terrain", fill.sum())
+        coverage["far"] = round(float(fill.mean()), 6)
     spikes = despike(heights)
     if spikes:
         log.info("Near terrain: %d pit/spike cells (lidar artefacts) smoothed", spikes)
@@ -488,6 +485,8 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
 
     spawn_east, spawn_north = frame.to_local(cfg.spawn.lon, cfg.spawn.lat)
     now = datetime.now(UTC).replace(microsecond=0).isoformat()
+    # Copernicus fills the near grid outside other sources, directly or via the far grid.
+    copernicus_near = round(coverage.get("copernicus-glo30", 0) + coverage.get("far", 0), 6)
     manifest = {
         "version": MANIFEST_VERSION,
         "generatedAt": now,
@@ -531,6 +530,18 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
                 }
                 for source, fraction in coverage.items()
                 if source in ign.LAYERS and fraction > 0
+            ),
+            *(
+                [
+                    {
+                        "layer": "terrain.near",
+                        **copernicus.PROVENANCE,
+                        "processedResolution": near_grid.cell_size,
+                        "coverage": copernicus_near,
+                    }
+                ]
+                if copernicus_near > 0
+                else []
             ),
             {
                 "layer": "terrain.far",

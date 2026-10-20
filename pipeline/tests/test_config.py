@@ -28,7 +28,7 @@ def test_minimal_config_derives_everything(tmp_path):
     a = cfg.area
     assert a.west > e.west and a.east < e.east and a.north < e.north
     assert a.width == pytest.approx(7860, abs=50)
-    assert cfg.near.sources == ("ign-lidar-hd", "ign-rge-alti")
+    assert cfg.near.sources == ("ign-lidar-hd", "ign-rge-alti", "copernicus-glo30")
     assert cfg.far.extent.west == pytest.approx(e.west - 55_000)
     assert cfg.spawn.altitude is None
     assert cfg.landmarks == ()

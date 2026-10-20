@@ -100,7 +100,7 @@ DEFAULT_NEAR_CELL = 4.0
 DEFAULT_FAR_CELL = 50.0
 MAX_GRID_SIZE = 8000
 FAR_MARGIN = 55_000.0  # horizon terrain this far beyond the resort area (m)
-NEAR_SOURCES_BY_COUNTRY = {"FR": ("ign-lidar-hd", "ign-rge-alti")}
+NEAR_SOURCES_BY_COUNTRY = {"FR": ("ign-lidar-hd", "ign-rge-alti", "copernicus-glo30")}
 FALLBACK_NEAR_SOURCES = ("copernicus-glo30",)
 
 

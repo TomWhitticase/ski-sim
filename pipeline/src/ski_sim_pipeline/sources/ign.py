@@ -19,7 +19,6 @@ from .http import download
 log = logging.getLogger(__name__)
 
 CRS = "EPSG:2154"
-NODATA = -99999.0
 WMS_URL = "https://data.geopf.fr/wms-r"
 MAX_TILE_PX = 4000  # service limit is 5010
 
