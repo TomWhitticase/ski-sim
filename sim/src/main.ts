@@ -148,7 +148,8 @@ async function main(): Promise<void> {
   );
   document.title = `${manifest.resort.name} · ski-sim`;
   $('#attribution').textContent =
-    'Terrain: ' + manifest.provenance.map((p) => p.attribution).join(' · ');
+    // A dataset used for several layers (Copernicus near and far) is credited once.
+    'Terrain: ' + [...new Set(manifest.provenance.map((p) => p.attribution))].join(' · ');
   status.textContent = 'Loading terrain…';
   const litMeta = manifest.pistes.lit;
   const [
