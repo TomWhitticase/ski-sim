@@ -1,3 +1,5 @@
+import type { Border } from '../features/types';
+
 /** Restaurant colour, shared with the in-world labels (style.css .label-restaurant). */
 export const RESTAURANT_COLOUR = '#963e1a';
 
@@ -55,5 +57,39 @@ export function drawRestaurantIcon(
   ctx.moveTo(kx, top + r * 0.55);
   ctx.lineTo(kx, bottom);
   ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * National borders for the 2D maps: a purple dash-dot line over a soft white halo, the
+ * usual atlas style. `toScreen` maps local (east, north) to canvas pixels; `scale` is
+ * the device pixel ratio the canvas is drawn at.
+ */
+export function drawBorders(
+  ctx: CanvasRenderingContext2D,
+  borders: Border[],
+  toScreen: (east: number, north: number) => [number, number],
+  scale: number,
+): void {
+  if (!borders.length) return;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const border of borders) {
+    ctx.beginPath();
+    border.line.forEach(([e, n], i) => {
+      const [x, y] = toScreen(e, n);
+      if (i) ctx.lineTo(x, y);
+      else ctx.moveTo(x, y);
+    });
+    ctx.setLineDash([]);
+    ctx.lineWidth = 5 * scale;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.stroke();
+    ctx.setLineDash([9 * scale, 4 * scale, 2 * scale, 4 * scale]);
+    ctx.lineWidth = 2 * scale;
+    ctx.strokeStyle = '#862e9c';
+    ctx.stroke();
+  }
   ctx.restore();
 }

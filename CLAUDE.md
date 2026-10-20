@@ -112,7 +112,7 @@ Use the best available source for the region; fall back to global datasets.
 |---|---|---|
 | Elevation (DEM) | **In use (FR):** IGN LiDAR HD MNT (0.5 m), with IGN RGE ALTI (1 m) as gap fill. Others: USGS 3DEP lidar (US, ~1 m), swisstopo swissALTI3D (CH, 0.5 m), Austrian state ALS DGMs (AT, 1 m), Kartverket (NO), LINZ (NZ), GSI (JP) | **In use:** Copernicus GLO-30 DEM (30 m, a DSM that includes trees and buildings) |
 | Imagery | USGS NAIP, swisstopo SWISSIMAGE, IGN BD ORTHO | Sentinel-2 (10 m) |
-| Pistes, lifts, resort boundary | OpenStreetMap (`piste:type`, `piste:difficulty`, `aerialway=*`, `aerialway:*`, `landuse=winter_sports`) | OpenSkiMap (processed OSM ski data, GeoJSON exports) |
+| Pistes, lifts, resort boundary, national borders | OpenStreetMap (`piste:type`, `piste:difficulty`, `aerialway=*`, `aerialway:*`, `landuse=winter_sports`) | OpenSkiMap (processed OSM ski data, GeoJSON exports) |
 | Buildings | swissBUILDINGS3D (CH), national 3D building datasets | OSM buildings |
 | Land cover (forest, bare rock, glaciers, water) | Meta/WRI 1 m global canopy height (not yet: no overviews, ~375 MB tiles), national forest inventories | **In use:** ESA WorldCover 10 m 2021 v200 (CC BY 4.0, global COGs on AWS, windowed reads; see ADR 0003) |
 | Lift specs (capacity, speed, manufacturer, towers) | Lift-World (lift-world.info), remontees-mecaniques.net, resort websites | OSM `aerialway:*` tags |
@@ -339,6 +339,13 @@ Both come from OSM through Overpass (`sources/osm.py`). The response is cached u
 - Lifts that leave the near terrain extent are skipped (logged), e.g. links into neighbouring valleys, and so are ways under 40 m (a station's turn mapped as its own lift).
 - **Names** (`features.display_name`): OSM `name`, or `name:en` when `name` isn't in Latin script (Himalayan peaks carry Chinese, Tibetan and Nepali in one `name`).
 - **Peaks:** named `natural=peak` nodes, snapped to the highest DEM sample within 30 m. Every peak in the near extent is kept. Beyond it, only peaks of at least 3500 m (`FAR_PEAK_MIN_ELE`), so the horizon shows the big names.
+
+### Borders
+
+`pipeline/borders.py` adds national borders to `features.json` (`borders`: line in local metres, plus the country `left` and `right` of it walking from its first point). The ways of `admin_level=2` boundary relations crossing the map are chained, clipped to the near extent and simplified (5 m). The country on each side comes from one Overpass `is_in` request at points 300 m either side of each line's middle. Areas inside one country get none, and no second query.
+- Drawn only on the 2D maps, not in the world: a purple dash-dot line on the minimap and world map (`drawBorders` in `ui/map-icons.ts`), with the country names either side on the world map (`onScreenMiddle`).
+- The line is OSM's. Where countries disagree (Mont Blanc's summit), it's one version.
+- Current: Everest (China / Nepal along the summit ridge), Arlberg (Austria / Germany at Warth). Les 3 Vallées and Paradiski have none on their maps.
 
 ### Mountain restaurants
 

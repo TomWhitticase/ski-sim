@@ -82,6 +82,24 @@ def fetch_places(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict
     return _query(query, cache_dir, "places")
 
 
+def fetch_borders(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict]:
+    """Ways of national borders (members of admin_level=2 boundary relations) within the
+    bounds, with geometry. Empty where the area is inside one country."""
+    bbox = _bbox(lonlat_bounds)
+    query = (
+        "[out:json][timeout:180];"
+        f'relation["boundary"="administrative"]["admin_level"="2"]({bbox})->.c;'
+        f"way(r.c)({bbox});"
+        "out tags geom;"
+    )
+    return _query(query, cache_dir, "borders")
+
+
+def query(text: str, cache_dir: Path, description: str) -> list[dict]:
+    """Any Overpass query, cached by its text."""
+    return _query(text, cache_dir, description)
+
+
 def fetch_ski_areas(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict]:
     """Ski area outlines (`landuse=winter_sports` ways) within the bounds, with geometry."""
     query = (

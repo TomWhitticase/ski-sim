@@ -1,6 +1,6 @@
-import type { Lift, Peak, Restaurant } from '../features/types';
+import type { Border, Lift, Peak, Restaurant } from '../features/types';
 import type { Place } from '../nav/places';
-import { RESTAURANT_COLOUR, drawRestaurantIcon } from './map-icons';
+import { RESTAURANT_COLOUR, drawBorders, drawRestaurantIcon } from './map-icons';
 import { type PisteRecord, pisteColour, pisteTitle } from '../pistes/pistes';
 import type { Pose } from '../nav/pose';
 import type { Extent } from '../resort/manifest';
@@ -14,6 +14,7 @@ export interface WorldMapData {
   peaks: Peak[];
   pistes: PisteRecord[];
   restaurants: Restaurant[];
+  borders: Border[];
   places: Place[];
   groundHeight: (east: number, north: number) => number;
   toLatLon: (east: number, north: number) => { lat: number; lon: number };
@@ -26,6 +27,7 @@ const LIFT_COLOURS: Record<string, string> = {
   chair_lift: '#1864ab',
 };
 const DRAG_COLOUR = '#7048e8';
+const BORDER_TEXT = '#862e9c';
 /** Restaurant names appear once zoomed in this far (metres per pixel); dots before that. */
 const RESTAURANT_NAMES_MPP = 5;
 
@@ -209,6 +211,8 @@ export class WorldMap {
       return !hit;
     };
 
+    drawBorders(ctx, data.borders, (e, n) => this.toScreen(e, n), 1);
+    this.drawBorderNames(tryPlace);
     this.drawPlayer();
     this.drawMarker();
     if (this.show.lift) this.drawLifts(tryPlace);
@@ -433,6 +437,41 @@ export class WorldMap {
     ctx.stroke();
   }
 
+  /**
+   * Country names either side of each border, a little in from its middle, where they
+   * fit. The line is OSM's: where countries disagree about a border, it's one version.
+   */
+  private drawBorderNames(
+    tryPlace: (cx: number, top: number, w: number, h: number) => boolean,
+  ): void {
+    const { ctx } = this;
+    ctx.font = '600 11px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const border of this.data.borders) {
+      const pts = border.line.map(([e, n]) => this.toScreen(e, n));
+      const [x, y, dx, dy] = onScreenMiddle(pts, this.canvas.clientWidth, this.canvas.clientHeight);
+      if (Number.isNaN(x)) continue;
+      // Left of the line's direction on screen (y down) is (dy, -dx).
+      for (const [name, side] of [
+        [border.left, 1],
+        [border.right, -1],
+      ] as const) {
+        if (!name) continue;
+        const label = name.toUpperCase();
+        const width = ctx.measureText(label).width + 10;
+        const lx = x + side * dy * (width / 2 + 10);
+        const ly = y - side * dx * 22;
+        if (!tryPlace(lx, ly - 8, width, 16)) continue;
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.strokeText(label, lx, ly);
+        ctx.fillStyle = BORDER_TEXT;
+        ctx.fillText(label, lx, ly);
+      }
+    }
+  }
+
   private polyline(pts: [number, number][]): void {
     const { ctx } = this;
     ctx.beginPath();
@@ -576,4 +615,41 @@ export class WorldMap {
     info.style.transform = `translate(${x + 16}px, ${y + 16}px)`;
     info.hidden = false;
   }
+}
+
+/**
+ * A point near the middle of the part of a screen polyline that's in view, and the unit
+ * direction of the line there; NaNs if none of it is.
+ */
+export function onScreenMiddle(
+  pts: [number, number][],
+  width: number,
+  height: number,
+): [number, number, number, number] {
+  const inside = (p: [number, number]) => p[0] >= 0 && p[1] >= 0 && p[0] <= width && p[1] <= height;
+  const segs: { a: [number, number]; b: [number, number]; len: number }[] = [];
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1]!;
+    const b = pts[i]!;
+    if (!inside(a) || !inside(b)) continue;
+    const len = Math.sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2);
+    if (len < 1e-6) continue;
+    segs.push({ a, b, len });
+    total += len;
+  }
+  let left = total / 2;
+  for (const { a, b, len } of segs) {
+    if (left <= len) {
+      const t = left / len;
+      return [
+        a[0] + (b[0] - a[0]) * t,
+        a[1] + (b[1] - a[1]) * t,
+        (b[0] - a[0]) / len,
+        (b[1] - a[1]) / len,
+      ];
+    }
+    left -= len;
+  }
+  return [NaN, NaN, NaN, NaN];
 }

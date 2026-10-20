@@ -129,4 +129,14 @@ export interface ResortFeatures {
   peaks: Peak[];
   /** Missing in builds from before restaurants were added. */
   restaurants?: Restaurant[];
+  /** National borders on the map (from pipeline/borders.py); missing in older builds. */
+  borders?: Border[];
+}
+
+/** A national border line across the map (local metres) and the country either side. */
+export interface Border {
+  line: [number, number][];
+  /** Country to the left and right of the line, walking from its first point. */
+  left: string | null;
+  right: string | null;
 }

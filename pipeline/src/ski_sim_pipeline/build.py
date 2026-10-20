@@ -13,6 +13,7 @@ from rasterio.warp import Resampling
 
 from . import (
     approach,
+    borders,
     features,
     grading,
     landcover,
@@ -445,6 +446,13 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         feature_data["lifts"],
         piste_records,
         start_bases,
+    )
+
+    feature_data["borders"] = borders.build(
+        osm.fetch_borders(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root),
+        frame,
+        near_grid.extent,
+        lambda q: osm.query(q, raw_root, "countries either side of the borders"),
     )
 
     log.info("Building land cover (ESA WorldCover)")

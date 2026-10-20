@@ -1,6 +1,7 @@
 import { MINIMAP } from '../config';
+import type { Border } from '../features/types';
 import type { Extent } from '../resort/manifest';
-import { drawRestaurantIcon } from './map-icons';
+import { drawBorders, drawRestaurantIcon } from './map-icons';
 
 /**
  * North-up map centred on the player, drawn from the pipeline's minimap image.
@@ -11,6 +12,8 @@ export class Minimap {
   private readonly scaleLabel: HTMLElement;
   private zoomIndex: number = MINIMAP.defaultZoom;
   private lastKey = '';
+  /** National borders, drawn as dashed lines. */
+  borders: Border[] = [];
   /** Mountain restaurants (east, north), drawn as knife-and-fork badges. */
   restaurants: { east: number; north: number }[] = [];
   /** The map's guide marker (orange dot; on the edge when out of range). */
@@ -76,6 +79,12 @@ export class Minimap {
 
     const c = size / 2;
     const scale = size / span;
+    drawBorders(
+      ctx,
+      this.borders,
+      (e, n) => [c + (e - east) * scale, c - (n - north) * scale],
+      dpr,
+    );
     for (const r of this.restaurants) {
       const x = c + (r.east - east) * scale;
       const y = c - (r.north - north) * scale;

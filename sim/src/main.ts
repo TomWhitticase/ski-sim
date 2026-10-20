@@ -512,6 +512,7 @@ async function main(): Promise<void> {
     manifest.minimap.extent,
   );
   minimap.restaurants = restaurants;
+  minimap.borders = features.borders ?? [];
   const buildingsById = new Map(features.buildings.map((b) => [b.id, b]));
   const labels = new Labels(
     $('#labels'),
@@ -660,6 +661,7 @@ async function main(): Promise<void> {
       ),
       pistes: pisteData.pistes,
       restaurants,
+      borders: features.borders ?? [],
       groundHeight: (east, north) => groundHeight(east, -north),
       toLatLon: (east, north) => frame.toLatLon(east, north),
     },
