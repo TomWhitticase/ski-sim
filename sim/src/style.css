@@ -69,6 +69,7 @@ input {
 #hud {
   position: fixed;
   inset: 0;
+  z-index: 1; /* above the world labels (#labels) */
   pointer-events: none;
   user-select: none;
   transition: opacity 0.14s var(--ease);

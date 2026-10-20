@@ -33,12 +33,10 @@ test('O opens settings: field of view and camera options apply live and persist'
   await page.keyboard.press('Escape');
   await expect(modal).toBeHidden();
   await page.screenshot({ path: 'test-results/views/settings-wide-fov.png' });
-  // Third person has its own (narrower) field of view (on skis: flying has no views).
-  await page.keyboard.press('KeyF');
+  // Third person has its own (narrower) field of view.
   await page.keyboard.press('KeyV');
   await expect.poll(() => fov(page)).toBeCloseTo(70, 0);
   await page.keyboard.press('KeyV');
-  await page.keyboard.press('KeyF'); // flying again (no speed widening when it reloads)
   await expect.poll(() => fov(page)).toBeCloseTo(95, 0);
 
   await page.reload();

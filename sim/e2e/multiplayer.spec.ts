@@ -45,9 +45,21 @@ test('host and guest see each other skiing, on the host clock', async ({ context
   test.setTimeout(240_000);
   const errors: string[] = [];
   await context.addInitScript(() => {
+    // A fake pointer lock that releases like the real one (N opens the Multiplayer
+    // screen, which needs the mouse back).
+    const w = window as unknown as { unlocked?: boolean };
     Object.defineProperty(Document.prototype, 'pointerLockElement', {
-      get: () => document.querySelector('#scene'),
+      get: () => (w.unlocked ? null : document.querySelector('#scene')),
     });
+    Document.prototype.exitPointerLock = function () {
+      w.unlocked = true;
+      document.dispatchEvent(new Event('pointerlockchange'));
+    };
+    Element.prototype.requestPointerLock = function () {
+      w.unlocked = false;
+      document.dispatchEvent(new Event('pointerlockchange'));
+      return Promise.resolve();
+    };
     localStorage.setItem('ski-sim.mode', 'ski');
   });
 
@@ -74,8 +86,11 @@ test('host and guest see each other skiing, on the host clock', async ({ context
   await setName(guest, 'Bob');
   await expect(modal.locator('.mp-player')).toHaveText(['Alice · host (you)', /^Bob/]);
   await expect(guestModal.locator('.mp-player')).toHaveText([/^Alice · host/, 'Bob (you)']);
-  await guest.keyboard.press('Escape');
-  await host.keyboard.press('Escape');
+  // Back to the pause menu, then Resume (the mouse is captured again).
+  for (const page of [guest, host]) {
+    await page.locator('#menu-back').click();
+    await page.locator('#resume').click();
+  }
 
   // The guest sees the host's skier, with a name tag and a minimap dot.
   const seen = () => sim(guest, (s) => s.multiplayer.debug.dots[0] ?? null);
