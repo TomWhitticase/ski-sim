@@ -166,14 +166,14 @@ test('a double-clicked Join joins once', async ({ context }) => {
   const errors: string[] = [];
   const host = await open(context, HOST_AT, errors);
   await host.keyboard.press('KeyN');
-  const modal = host.locator('#multiplayer-modal');
+  const modal = host.locator('#opt-online');
   await modal.locator('.mp-host').click();
   await expect(modal.locator('.mp-code')).toHaveText(/^[A-Z2-9]{6}$/);
   const code = (await modal.locator('.mp-code').textContent())!;
 
   const guest = await open(context, GUEST_AT, errors);
   await guest.keyboard.press('KeyN');
-  const guestModal = guest.locator('#multiplayer-modal');
+  const guestModal = guest.locator('#opt-online');
   await guestModal.locator('.mp-code-input').fill(code);
   // Both clicks land before the first connection is open.
   await guestModal.locator('.mp-join').evaluate((b: HTMLElement) => {

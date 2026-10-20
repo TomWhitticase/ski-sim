@@ -138,7 +138,9 @@ test('M and Esc still close the map after clicking a filter checkbox', async ({ 
   await load(page);
   for (const key of ['KeyM', 'Escape']) {
     await page.keyboard.press('KeyM');
-    await page.locator('#world-map [data-show="lift"]').click(); // focuses the checkbox
+    // The checkbox itself is hidden behind its styled label: click the label, which
+    // toggles and focuses it.
+    await page.locator('#world-map label', { has: page.locator('[data-show="lift"]') }).click();
     await page.keyboard.press(key);
     await expect(page.locator('#world-map')).toBeHidden();
   }
