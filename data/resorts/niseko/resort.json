@@ -1,0 +1,11 @@
+{
+  "id": "niseko",
+  "name": "Niseko United",
+  "country": "JP",
+  "bounds": {
+    "south": 42.8165,
+    "west": 140.5966,
+    "north": 42.9085,
+    "east": 140.7534
+  }
+}

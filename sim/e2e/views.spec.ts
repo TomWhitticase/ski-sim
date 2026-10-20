@@ -59,6 +59,38 @@ const VIEWS = [
   { name: 'forest-floor', query: 'at=45.3890,6.5700,1502&heading=120&pitch=0' },
   { name: 'courchevel-tree-line', query: 'at=45.4050,6.6300,1950&heading=200&pitch=-10' },
   { name: 'glaciers', query: 'at=45.2700,6.6600,3300&heading=120&pitch=-15' },
+  // One overview per resort added from config alone (Copernicus terrain outside France).
+  { name: 'romme-alpin', query: 'resort=romme-alpin&at=60.3700,15.4000,650&heading=10&pitch=-12' },
+  { name: 'niseko-annupuri', query: 'resort=niseko&at=42.8500,140.7200,700&heading=295&pitch=-6' },
+  {
+    name: 'zermatt-matterhorn',
+    query: 'resort=zermatt&at=45.9830,7.7600,3300&heading=255&pitch=-4',
+  },
+  {
+    name: 'whistler-blackcomb',
+    query: 'resort=whistler-blackcomb&at=50.1350,-122.9200,1500&heading=200&pitch=-10',
+  },
+  { name: 'park-city', query: 'resort=park-city&at=40.6650,-111.4750,2500&heading=230&pitch=-10' },
+  {
+    name: 'snow-space-flachau',
+    query: 'resort=snow-space-salzburg&at=47.3650,13.3900,1500&heading=185&pitch=-10',
+  },
+  {
+    name: 'oberstdorf-fellhorn',
+    query: 'resort=oberstdorf-kleinwalsertal&at=47.3700,10.2500,1800&heading=220&pitch=-10',
+  },
+  {
+    name: 'garmisch-zugspitze',
+    query: 'resort=garmisch-zugspitze&at=47.4700,11.0600,2200&heading=235&pitch=-5',
+  },
+  {
+    name: 'grandvalira-soldeu',
+    query: 'resort=grandvalira&at=42.5950,1.6900,2600&heading=200&pitch=-12',
+  },
+  {
+    name: 'portes-du-soleil-avoriaz',
+    query: 'resort=portes-du-soleil&at=46.1650,6.7450,2200&heading=40&pitch=-12',
+  },
 ];
 
 for (const view of VIEWS) {

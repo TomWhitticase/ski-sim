@@ -1,0 +1,11 @@
+{
+  "id": "garmisch-zugspitze",
+  "name": "Garmisch-Classic – Zugspitze",
+  "country": "DE",
+  "bounds": {
+    "south": 47.3855,
+    "west": 10.9501,
+    "north": 47.4958,
+    "east": 11.129
+  }
+}

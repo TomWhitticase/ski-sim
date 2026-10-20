@@ -1,0 +1,11 @@
+{
+  "id": "snow-space-salzburg",
+  "name": "Snow Space Salzburg",
+  "country": "AT",
+  "bounds": {
+    "south": 47.2594,
+    "west": 13.1743,
+    "north": 47.3855,
+    "east": 13.5063
+  }
+}

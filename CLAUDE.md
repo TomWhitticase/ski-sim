@@ -24,7 +24,8 @@ The project is built by Claude Code, so **everything must be operable from text 
 ```sh
 # Pipeline (run from pipeline/)
 uv run ski-sim init <id> --name "Name" --country FR --bbox S,W,N,E   # or --ski-area "OSM name"
-uv run ski-sim build <id>          # fetch sources (cached in data/raw), write data/processed/<id>
+uv run ski-sim build <id> [<id>...] # fetch sources (cached in data/raw), write data/processed/<id>
+uv run ski-sim build --all         # every resort in data/resorts, one after another
 uv run pytest                                # tests
 uv run ruff check . && uv run ruff format --check .
 
@@ -56,12 +57,21 @@ Accuracy checks belong in automated tests, not eyeballing. The pipeline compares
 - **Speed:** ~0.8 s a shot. One page loads the sim once, then teleports the camera by hooking the dev-exposed camera, and falls back to a reload if the hook stops working. `--reload` forces a reload for every shot.
 - **Occlusion:** side and behind views try mirrored, further-out and higher candidates and keep the one buildings hide least. Captions show how much of each view is still hidden.
 
+### Changing the pipeline
+
+Built resorts are snapshots of the pipeline that built them: a pipeline change reaches a resort only when it's rebuilt. Sim-only changes need no rebuild.
+- **Format changes** (anything the sim reads differently: a renamed or moved field, a new required file, a changed encoding) bump `MANIFEST_VERSION` in `pipeline/.../build.py` and `SUPPORTED_VERSION` in `sim/src/resort/manifest.ts` together. The sim refuses any other version, so every resort must then be rebuilt before it loads. Take the next number after the highest on `main` *and* any open branch; two branches once both used 8.
+- **Other pipeline changes** (better buildings, grading, land cover...) leave old builds loadable but without the improvement until rebuilt.
+- **Rebuilding everything:** `uv run ski-sim build --all` builds every resort in `data/resorts/` in turn. It reuses the download caches, so it's processing only. A failed resort is logged and the rest still build; it exits non-zero and lists the failures at the end. Builds run one at a time on purpose: they share the caches and `resorts.json`, and each uses several GB of memory.
+- **Caches** (`data/raw/<source>/`) are kept forever. OSM responses are keyed by query text, so a changed query fetches afresh; delete `data/raw/osm/` to pick up newer OSM edits. Terrain and land-cover tiles never change. A new source downloads its own tiles once.
+- **Deploying a format change:** the live site fetches the published data, not the branch's. Rebuild and run `scripts/publish-data.sh` together with merging to `main`, or every resort on the site stops loading until you do.
+
 When something renders wrong, isolate it before guessing. Tinting each terrain layer a flat colour (near vs far) quickly shows which layer, or which gap, is at fault.
 
 ## Deployment
 
 GitHub Pages, all free. `ci.yml` runs lint/typecheck/unit tests (sim) and ruff/pytest (pipeline); e2e needs a GPU, so it stays local. `deploy.yml` (push to `main`, or manual) downloads `resorts.tar.gz` from the `data` release into `data/processed`, builds with `SIM_BASE=/<repo>/` and publishes `sim/dist` to Pages.
-- Resort data is built locally and published with `scripts/publish-data.sh [ids]` (default: every resort with a committed `resort.json`), which also writes a `resorts.json` listing only those and triggers a deploy.
+- Resort data is built locally (`ski-sim build --all`) and published with `scripts/publish-data.sh [ids]` (default: every resort with a committed `resort.json`), which also writes a `resorts.json` listing only those and triggers a deploy.
 - Asset URLs must go through `resortUrl` / `DATA_URL` (`resort/manifest.ts`), never a leading `/`: the site lives under `/<repo>/`. `VITE_DATA_URL` at build time can point the data at other storage (e.g. Cloudflare R2) if Pages' 1 GB site limit or bandwidth becomes a problem.
 
 ## Core principles
@@ -83,13 +93,14 @@ The whole pipeline is driven by `data/resorts/<id>/resort.json`, and only `id`, 
 - summit validation against every OSM peak with an `ele` tag.
 
 Lifts, stations, signs, buildings, mountain restaurants, pistes, peaks and sounds all come from OSM, and forests, rock, glaciers and lakes from ESA WorldCover, with no per-resort code.
-- **Neighbours are left out** (`territory.py`): the near terrain reaches past `bounds`, and a padded box often clips the next resort along. OSM `landuse=winter_sports` outlines centred inside our bounds are ours, the rest are neighbours. Lifts need a station on our ground, pistes need most of their points on it, and start villages and restaurants must be on it. Optional overrides: `origin`, `spawn` (lat/lon/heading/altitude), `terrain.near/far`, `minimap`, `landmarks`. Then open `?resort=<id>`, or set `DEFAULT_RESORT` in `sim/src/config.ts`.
+- **Neighbours are left out** (`territory.py`): the near terrain reaches past `bounds`, and a padded box often clips the next resort along. OSM `landuse=winter_sports` outlines centred inside our bounds are ours, the rest are neighbours. Lifts need a station on our ground, pistes need most of their points on it, and start villages and restaurants must be on it. Optional overrides: `origin`, `spawn` (lat/lon/heading/altitude), `terrain.near/far` (e.g. `near.sources` adding `copernicus-glo30` after IGN where a French area crosses a border), `minimap`, `landmarks`, `timezone` (IANA name; derived for single-zone countries in `config.TIMEZONE_BY_COUNTRY`, so set it for the US, Canada and other multi-zone countries, or it's estimated from the longitude with a warning). Then open `?resort=<id>`, or set `DEFAULT_RESORT` in `sim/src/config.ts`.
 
 Current resorts:
 - `les-3-vallees`: Val Thorens, Orelle, Les Menuires, Saint-Martin, Méribel incl. Mont Vallon, Courchevel.
 - `arlberg`: St. Anton, St. Christoph, Stuben, Zürs, Lech, Warth, Schröcken, plus Sonnenkopf. Copernicus terrain until an Austrian lidar source exists.
 - `paradiski`: La Plagne (incl. Montalbert, Champagny, Montchavin–Les Coches) and Les Arcs (incl. Peisey-Vallandry, Villaroger), linked by the Vanoise Express. Tignes and La Rosière next door are excluded.
 - `everest`: Mount Everest, Lhotse, Nuptse and the Khumbu valley to Kala Patthar (the spawn, looking at the summit). Copernicus terrain and WorldCover glaciers; OSM has no lifts or pistes there, so it's a fly / glide / ski-anywhere map with no start villages. The 30 m DSM rounds off the sharpest summits (Everest is ~115 m low).
+- `romme-alpin` (SE), `niseko` (JP: Hirafu, Hanazono, Village, Annupuri), `whistler-blackcomb` (CA), `park-city` (US: Park City Mountain incl. Canyons; Solitude over the ridge is cut off by the west edge), `snow-space-salzburg` (AT: St. Johann-Alpendorf, Wagrain, Flachau, plus linked Kleinarl and Zauchensee), `grandvalira` (AD), `garmisch-zugspitze` (DE), `oberstdorf-kleinwalsertal` (DE/AT: Nebelhorn, Fellhorn–Kanzelwand, Söllereck, Ifen, Walmendingerhorn, Heuberg), `zermatt` (CH/IT: Zermatt with Cervinia and Valtournenche), `portes-du-soleil` (FR/CH). Added from config alone, with no checks beyond one overview view each. All but Portes du Soleil are Copernicus terrain, so sharp summits come out low (Matterhorn ~195 m, Garmisch's Wetterstein 10–85 m); a national lidar source per country would fix it. Portes du Soleil is IGN lidar on the French side; the Swiss side comes from RGE ALTI, which holds coarse, Copernicus-like heights there (Dents du Midi summits ~400 m low). Copernicus is listed after them for anything left. Outside France the lidar tiles hold -9999 blended into their edge, so `build_near` treats anything under `ign.MIN_VALID` as missing and drops `IGN_EDGE_CELLS` around it. Niseko's start points are named after Hirafu's street blocks ("Niseko-Hirafu-1-jo 4-chome"), which OSM maps as places.
 
 ### Main menu
 
@@ -212,7 +223,7 @@ O (or the menu's "Settings" button) opens `ui/settings-menu.ts`: field of view, 
 ### Time of day
 
 The time shows above the minimap (with the clock speed unless it's real time). T (or the menu's "Time of day" button) opens `ui/time-menu.ts`: a 00:00–24:00 slider, presets and the clock speed (paused, real time, ×10, ×60, ×600). Persisted as `ski-sim.time-of-day`.
-- `env/time-of-day.ts` (pure, unit-tested) is the clock: advance by dt × rate, wrap at midnight. Times are local clock times on `SIM_DAY` (config: date and UTC offset); `simDate` turns them into an instant for `sunPosition`.
+- `env/time-of-day.ts` (pure, unit-tested) is the clock: advance by dt × rate, wrap at midnight. Times are local clock times on `SIM_DAY` (config: date and UTC offset); `simDate` turns them into an instant for `sunPosition`. The offset is the resort's: the pipeline writes `manifest.timezone` (zone name and its UTC offset on that day), and main.ts sets `SIM_DAY.utcOffsetHours` from it (UTC+1 for older builds without one).
 - Presets come from the real sun for the resort (`dayPresets`): sunrise and sunset when it's 3° up, midday at its highest, morning and afternoon halfway, night at 22:00.
 - `Environment.setTime` moves the sky's sun, the shadow-casting light and sets light levels (`daylight`, unit-tested). The light never comes from below 2°, and fades out by sunset. At night a blue hemisphere "moonlight" (0.5) keeps the slopes readable; the Preetham sky goes black.
 

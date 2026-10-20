@@ -1,0 +1,11 @@
+{
+  "id": "grandvalira",
+  "name": "Grandvalira",
+  "country": "AD",
+  "bounds": {
+    "south": 42.5015,
+    "west": 1.5567,
+    "north": 42.6135,
+    "east": 1.7833
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "park-city",
+  "name": "Park City",
+  "country": "US",
+  "bounds": {
+    "south": 40.5953,
+    "west": -111.583,
+    "north": 40.7131,
+    "east": -111.4805
+  },
+  "timezone": "America/Denver"
+}

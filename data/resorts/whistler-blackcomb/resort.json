@@ -1,0 +1,12 @@
+{
+  "id": "whistler-blackcomb",
+  "name": "Whistler Blackcomb",
+  "country": "CA",
+  "bounds": {
+    "south": 50.0257,
+    "west": -123.0145,
+    "north": 50.1356,
+    "east": -122.8377
+  },
+  "timezone": "America/Vancouver"
+}

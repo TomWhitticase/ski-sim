@@ -1,0 +1,20 @@
+{
+  "id": "portes-du-soleil",
+  "name": "Portes du Soleil",
+  "country": "FR",
+  "bounds": {
+    "south": 46.1265,
+    "west": 6.6105,
+    "north": 46.3435,
+    "east": 6.9295
+  },
+  "terrain": {
+    "near": {
+      "sources": [
+        "ign-lidar-hd",
+        "ign-rge-alti",
+        "copernicus-glo30"
+      ]
+    }
+  }
+}

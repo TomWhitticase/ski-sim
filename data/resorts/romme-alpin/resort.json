@@ -1,0 +1,11 @@
+{
+  "id": "romme-alpin",
+  "name": "Romme Alpin",
+  "country": "SE",
+  "bounds": {
+    "south": 60.3626,
+    "west": 15.3511,
+    "north": 60.4101,
+    "east": 15.4536
+  }
+}
