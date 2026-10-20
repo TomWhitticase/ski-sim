@@ -146,6 +146,8 @@ export class RideControls {
   update(dt: number, input: Input): boolean {
     this.look.apply(input);
     const lifts = this.lifts;
+    // The rate the lift clock just ran at (this frame's carriers), before W changes it.
+    const rate = lifts.rate;
     lifts.rate = this.fastForward && input.down('KeyW') ? FAST_FORWARD : 1;
     if (input.wasPressed('KeyS')) {
       this.skipToEnd();
@@ -191,7 +193,12 @@ export class RideControls {
       if (pose.moving) this.moved = true;
     }
 
-    if (dt > 0) this.velocity.copy(this.feet).sub(this.lastFeet).divideScalar(dt);
+    // Real speed, not fast-forwarded: jumping off keeps it.
+    if (dt > 0)
+      this.velocity
+        .copy(this.feet)
+        .sub(this.lastFeet)
+        .divideScalar(dt * rate);
     this.lastFeet.copy(this.feet);
     this.pose();
 
@@ -234,7 +241,7 @@ export class RideControls {
       if (t.entrance === 'back') velocity.copy(out).multiplyScalar(2);
       else velocity.copy(line.across).multiplyScalar(2).addScaledVector(out, 0.3);
     } else {
-      const speed = Math.max(Math.hypot(this.velocity.x, this.velocity.z) / this.lifts.rate, 2.5);
+      const speed = Math.max(Math.hypot(this.velocity.x, this.velocity.z), 2.5);
       velocity.copy(out).multiplyScalar(speed);
     }
     const heading = (Math.atan2(velocity.x, -velocity.z) * 180) / Math.PI;

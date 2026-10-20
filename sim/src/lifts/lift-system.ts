@@ -392,6 +392,11 @@ export class LiftSystem {
   rate = 1;
   /** [line, carrier] left out of the instanced carriers (the rider draws its own cabin). */
   hidden: [number, number] | null = null;
+  /**
+   * The lift you just got off. Riding a gondola down leaves you in its loading zone, so
+   * it doesn't scoop you up again until you've left that zone.
+   */
+  steppedOff: number | null = null;
   /** Problems found by the load-time checks (also logged as console errors). */
   readonly problems: string[] = [];
   private readonly groups = new Map<string, CarrierGroup>();
@@ -588,7 +593,10 @@ export class LiftSystem {
    * the loading point (a chair scooping you up, a cabin's door alongside), return it.
    */
   scoop(feet: Vector3): { line: number; carrier: number } | null {
+    const off = this.steppedOff;
+    if (off !== null && !this.lines[off]?.inLoadingZone(feet)) this.steppedOff = null;
     for (let li = 0; li < this.lines.length; li++) {
+      if (li === this.steppedOff) continue;
       const line = this.lines[li]!;
       if (Math.abs(line.loadPoint.x - feet.x) > 8 || Math.abs(line.loadPoint.z - feet.z) > 8)
         continue;

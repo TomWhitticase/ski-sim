@@ -807,6 +807,7 @@ async function main(): Promise<void> {
   const unload = () => {
     const { feet, velocity, heading } = ride.release();
     ride.leave();
+    lifts.steppedOff = ride.line;
     sound.thump(2.5);
     mode = 'ski';
     ski.place(
@@ -1004,7 +1005,7 @@ async function main(): Promise<void> {
         const l = lifts.lines[near.line]!;
         const vertical = `${Math.round(l.lift.vertical)} m ${near.down ? 'down' : 'up'}`;
         text =
-          !near.down && l.inLoadingZone(p)
+          !near.down && l.inLoadingZone(p) && lifts.steppedOff !== near.line
             ? `${l.name} loading point · wait here to be picked up (or press E)`
             : `E — ride ${l.name}${near.down ? ' down' : ''} (${liftTypeName(l.lift.type)}, ${vertical})`;
       } else if (mode === 'ski' && sled.canRemount(p)) {
