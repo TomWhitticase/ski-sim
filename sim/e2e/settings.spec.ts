@@ -9,11 +9,14 @@ test('O opens settings: field of view and camera options apply live and persist'
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  await page.goto('/?resort=les-3-vallees&at=45.2975,6.5800,2500&heading=150&pitch=-18');
+  // Standing on skis on the frozen lake (flat, so no speed widening): flying is out of
+  // body, with no first/third person to switch.
+  await page.addInitScript(() => localStorage.setItem('ski-sim.mode', 'ski'));
+  await page.goto('/?resort=les-3-vallees&at=45.28856,6.5752,2417.2&heading=90&pitch=-5');
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 30, null, { timeout: 90_000 });
   expect(await fov(page)).toBeCloseTo(85, 0); // first person by default
 
-  const modal = page.locator('#settings-modal');
+  const modal = page.locator('#opt-camera');
   await page.keyboard.press('KeyO');
   await expect(modal).toBeVisible();
   await modal.locator('input[name="fovFirst"]').fill('95');
@@ -39,7 +42,7 @@ test('O opens settings: field of view and camera options apply live and persist'
   await page.reload();
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 30, null, { timeout: 90_000 });
   expect(await fov(page)).toBeCloseTo(95, 0);
-  await page.locator('#open-settings').click();
+  await page.keyboard.press('KeyO');
   await expect(modal.locator('[data-invert="true"]')).toHaveAttribute('aria-checked', 'true');
   await modal.locator('.setup-reset').click();
   await expect.poll(() => fov(page)).toBeCloseTo(85, 0);

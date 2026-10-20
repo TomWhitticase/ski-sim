@@ -134,6 +134,29 @@ test('Esc closes the map without teleporting', async ({ page }) => {
   expect(await hudNumber(page, 'lat')).toBe(before);
 });
 
+test('M and Esc still close the map after clicking a filter checkbox', async ({ page }) => {
+  await load(page);
+  for (const key of ['KeyM', 'Escape']) {
+    await page.keyboard.press('KeyM');
+    // The checkbox itself is hidden behind its styled label: click the label, which
+    // toggles and focuses it.
+    await page.locator('#world-map label', { has: page.locator('[data-show="lift"]') }).click();
+    await page.keyboard.press(key);
+    await expect(page.locator('#world-map')).toBeHidden();
+  }
+});
+
+test('Esc closes the map while typing in its search box (M still types)', async ({ page }) => {
+  await load(page);
+  await page.keyboard.press('KeyM');
+  const search = page.locator('#world-map .map-search');
+  await search.pressSequentially('mont');
+  await expect(search).toHaveValue('mont');
+  await expect(page.locator('#world-map')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#world-map')).toBeHidden();
+});
+
 test('left clicking the map drops a guide marker you can see while skiing', async ({ page }) => {
   await load(page);
   await page.keyboard.press('KeyM');
@@ -189,4 +212,37 @@ test('Shift+M drops a marker where you are', async ({ page }) => {
   await expect(page.locator('#marker-hint')).toBeVisible();
   await expect(page.locator('#marker-hint [data-distance]')).toHaveText(/^\d+ m$/);
   await page.screenshot({ path: 'test-results/views/marker-hint.png' });
+});
+
+test('- and = zoom the minimap, but not while typing in the map search box', async ({ page }) => {
+  await load(page);
+  const scale = page.locator('#minimap .minimap-scale');
+  const before = await scale.textContent();
+  await page.keyboard.press('KeyM');
+  await page.locator('#world-map .map-search').fill('');
+  await page.locator('#world-map .map-search').pressSequentially('saint-martin');
+  await page.locator('#world-map .map-close').click();
+  await page.waitForTimeout(300);
+  expect(await scale.textContent()).toBe(before);
+  await page.keyboard.press('Minus');
+  await expect(scale).not.toHaveText(before!);
+});
+
+test('teleporting from the map before pressing Start still starts the sound', async ({ page }) => {
+  await page.addInitScript(() => {
+    const Real = window.AudioContext;
+    (window as unknown as { audioStarted: number }).audioStarted = 0;
+    window.AudioContext = class extends Real {
+      constructor(options?: AudioContextOptions) {
+        super(options);
+        (window as unknown as { audioStarted: number }).audioStarted++;
+      }
+    };
+  });
+  await load(page);
+  await page.keyboard.press('KeyM'); // straight from the main menu
+  await page.locator('.map-place-peak').first().click();
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { audioStarted: number }).audioStarted))
+    .toBe(1);
 });

@@ -21,9 +21,9 @@ test('time of day modal: preset, slider and speed move the sun, and persist afte
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   await load(page, 'at=45.3005,6.5765,2420&heading=150&pitch=-18');
-  const modal = page.locator('#time-modal');
+  const modal = page.locator('#opt-time');
   await expect(modal).toBeHidden();
-  await page.locator('#open-time').click();
+  await page.keyboard.press('KeyT');
   await expect(modal).toBeVisible();
   await expect(modal.locator('.setup-preset')).toHaveText([
     /^Sunrise · 0\d:\d\d$/,
@@ -72,7 +72,7 @@ test('time of day modal: preset, slider and speed move the sun, and persist afte
   expect(await clockSeconds(page)).toBe(9.5 * 3600);
   expect(await sun(page)).toBeCloseTo(morning, 3);
   await expect(page.locator('#clock')).toHaveText('09:30Paused');
-  await page.locator('#open-time').click();
+  await page.keyboard.press('KeyT');
   await expect(modal.locator('.setup-option.selected')).toHaveText('Paused');
   await expect(modal.locator('.setup-field .setup-value')).toHaveText('09:30');
   await page.waitForTimeout(500);
@@ -90,7 +90,7 @@ test('T opens the time of day from the game and F3 shows the sun', async ({ page
   await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
   await page.keyboard.press('F3');
   await page.keyboard.press('KeyT');
-  const modal = page.locator('#time-modal');
+  const modal = page.locator('#opt-time');
   await expect(modal).toBeVisible();
   await modal.locator('.setup-preset', { hasText: 'Night' }).click();
   await page.keyboard.press('KeyT');
@@ -105,7 +105,7 @@ for (const preset of ['Sunrise', 'Midday', 'Sunset', 'Night']) {
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
     await load(page, 'at=45.3005,6.5765,2420&heading=150&pitch=-18');
-    await page.locator('#open-time').click();
+    await page.keyboard.press('KeyT');
     await page.locator('.setup-option', { hasText: 'Paused' }).click();
     await page.locator('.setup-preset', { hasText: preset }).click();
     await page.keyboard.press('Escape');

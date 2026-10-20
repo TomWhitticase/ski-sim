@@ -53,10 +53,46 @@ def test_despike_fills_a_ring_of_pits_but_keeps_a_cliff():
     assert np.abs(heights - clean).max() < 1.0
 
 
-def test_grow_widens_a_mask_by_whole_cells():
-    from ski_sim_pipeline.grid import grow
+def test_mask_nodata_drops_nodata_and_the_blended_fringe_around_it():
+    from ski_sim_pipeline.grid import mask_nodata
 
-    mask = np.zeros((7, 7), dtype=bool)
-    mask[3, 3] = True
-    grown = grow(mask, 2)
-    assert grown[1:6, 1:6].all() and grown.sum() == 25
+    heights = np.full((20, 20), 2500.0, dtype=np.float32)
+    heights[:, :5] = -9999  # off the source's coverage
+    heights[:, 5] = -8245  # a resampling service blends nodata into the next pixel
+    heights[:, 6] = 1800  # ... and partly into the one after
+    out = mask_nodata(heights)
+    assert np.isnan(out[:, :8]).all()
+    assert (out[:, 8:] == 2500).all()
+    # Real heights are untouched, including below sea level.
+    assert (mask_nodata(np.full((4, 4), -300.0)) == -300).all()
+
+
+def test_fill_holes_meets_the_data_without_a_step():
+    from ski_sim_pipeline.grid import fill_holes
+
+    e, n = np.meshgrid(np.arange(200.0), np.arange(120.0))
+    truth = (1500 + 2.0 * e + 0.5 * n).astype(np.float32)  # a slope
+    heights = truth.copy()
+    heights[:, 120:] = np.nan  # off the lidar's coverage
+    coarse = truth + 15  # a DSM sitting 15 m higher (trees, another datum)
+    filled = fill_holes(heights, coarse, radius=10, band=4)
+    assert filled[:, 120:].all() and not filled[:, :120].any()
+    assert np.isfinite(heights).all()
+    # Across the join the surface keeps the slope: no 15 m step between any two cells.
+    steps = np.diff(heights, axis=1) - 2.0
+    assert np.abs(steps).max() < 4.0
+    # Away from the join each source is itself: lidar intact, the coarse layer unshifted.
+    assert heights[:, :110] == pytest.approx(truth[:, :110])
+    assert heights[:, 140:] == pytest.approx(coarse[:, 140:])
+
+
+def test_fill_holes_leaves_cells_neither_source_covers():
+    from ski_sim_pipeline.grid import fill_holes
+
+    heights = np.full((30, 30), np.nan, dtype=np.float32)
+    heights[:, :10] = 1000
+    layer = np.full((30, 30), 1010, dtype=np.float32)
+    layer[:, 25:] = np.nan
+    fill_holes(heights, layer, radius=4, band=2)
+    assert np.isnan(heights[:, 25:]).all()
+    assert np.isfinite(heights[:, :25]).all()

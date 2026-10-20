@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Lift, Peak } from '../features/types';
-import { liftLabel, peakLabel } from './labels';
+import { liftIcon, liftLabel, peakLabel } from './labels';
 
 const support = (east: number, top: number) => ({
   east,
@@ -75,5 +75,17 @@ describe('peakLabel', () => {
     expect(montBlanc.tier).toBeLessThan(local.tier);
     const tacul = peakLabel({ ...peak, east: 50_000, ele: 4248 }, extent);
     expect(montBlanc.tier).toBeLessThan(tacul.tier); // the higher giant wins an overlap
+  });
+});
+
+describe('lift icons', () => {
+  it('groups lift types into chair, gondola, cable car and drag icons', () => {
+    expect(liftIcon('chair_lift')).toBe('chair');
+    expect(liftIcon('gondola')).toBe('gondola');
+    expect(liftIcon('mixed_lift')).toBe('gondola');
+    expect(liftIcon('cable_car')).toBe('cable-car');
+    for (const t of ['drag_lift', 't-bar', 'j-bar', 'platter', 'rope_tow', 'magic_carpet']) {
+      expect(liftIcon(t)).toBe('drag');
+    }
   });
 });

@@ -1,8 +1,9 @@
 import numpy as np
 import pytest
+from PIL import Image
 
 from ski_sim_pipeline.export import encode_heights
-from ski_sim_pipeline.minimap import downsample
+from ski_sim_pipeline.minimap import downsample, preview
 
 
 def test_encode_round_trip_within_half_quantum():
@@ -27,3 +28,25 @@ def test_encode_rejects_nan():
 def test_downsample_block_mean():
     a = np.arange(16, dtype=float).reshape(4, 4)
     assert downsample(a, 2).tolist() == [[2.5, 4.5], [10.5, 12.5]]
+
+
+def test_dashes_are_even_whatever_the_vertex_spacing():
+    import math
+
+    from ski_sim_pipeline.minimap import dashes
+
+    # Uneven vertices (1 px, then 30 px, then a bend, then 0.5 px steps).
+    line = [(0, 0), (1, 0), (31, 0), (31, 20)] + [(31 + 0.5 * i, 20) for i in range(1, 41)]
+    out = dashes(line, 7, 5)
+    lengths = [sum(math.dist(a, b) for a, b in zip(d, d[1:], strict=False)) for d in out]
+    assert all(abs(n - 7) < 1e-6 for n in lengths[:-1])  # the last one may be cut short
+    assert lengths[-1] <= 7 + 1e-6
+    # Each dash starts 12 px (7 on + 5 off) along the line after the one before.
+    assert out[1][0] == (12, 0)
+    assert len(out) == math.ceil(71 / 12)
+
+
+def test_preview_fits_the_long_side_and_keeps_the_shape():
+    small = preview(Image.new("RGB", (2000, 3750)), size=1024)
+    assert small.size == (546, 1024)
+    assert preview(Image.new("RGB", (300, 200)), size=1024).size == (300, 200)

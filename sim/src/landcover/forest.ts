@@ -7,7 +7,6 @@ import {
   normalGeometry,
   positionGeometry,
   sin,
-  smoothstep,
   transformNormalToView,
   vec3,
 } from 'three/tsl';
@@ -219,6 +218,17 @@ export class Forest {
     this.evict();
   }
 
+  /**
+   * Draw every tree in range at one detail level (null: back to normal), so the levels
+   * can be compared side by side (`e2e/forest.spec.ts`).
+   */
+  showOnly(level: number | null): void {
+    this.lods.forEach((lod, i) => {
+      lod.distance = level === null ? LODS[i]!.distance : i === level ? FOREST_DRAW_DISTANCE : 0;
+    });
+    this.dirty = true;
+  }
+
   /** Trees drawn per detail level, nearest first. */
   get counts(): number[] {
     return this.lods.map((l) => l.geometry.instanceCount);
@@ -353,8 +363,9 @@ function createTreeMaterial(): MeshStandardNodeMaterial {
 
   const needles = mix(NEEDLES, NEEDLES_LIGHT, r2);
   const foliage = mix(needles, TWIGS, species);
-  // Snow on upward faces of the tiers, thinner on bare larch twigs.
-  const snow = tint.x.mul(smoothstep(0, 0.45, n.y)).mul(mix(float(1), float(0.35), species));
+  // Snow on the tiers (the geometry has already taken it off steep faces), thinner on
+  // bare larch twigs.
+  const snow = tint.x.mul(mix(float(1), float(0.35), species));
   material.colorNode = mix(mix(foliage, SNOW, snow), BARK, tint.y);
   material.roughnessNode = mix(float(0.9), float(0.7), snow);
   material.metalness = 0;

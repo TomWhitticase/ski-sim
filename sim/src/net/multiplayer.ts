@@ -14,7 +14,7 @@ import {
   roomId,
   type SharedClock,
 } from './room';
-import { NetSession, type Role } from './session';
+import { NetSession, type Role, SEND_HZ } from './session';
 import { openTransport, type TransportKind } from './transport';
 
 /** What multiplayer needs from the running sim. */
@@ -38,7 +38,7 @@ export interface MultiplayerSim {
 }
 
 /**
- * Hosting and joining games: owns the session, the Multiplayer dialog and the remote
+ * Hosting and joining games: owns the session, the Multiplayer tab and the remote
  * players. Nothing touches the network until you host or join.
  */
 export class Multiplayer {
@@ -50,16 +50,22 @@ export class Multiplayer {
   /** Guest: how far the local lift clock is behind the host's, still to make up (s). */
   private liftError = 0;
   private name: string;
+  /** Host/Join presses so far (connecting is async). */
+  private attempts = 0;
 
   constructor(
     private readonly sim: MultiplayerSim,
-    dialog: HTMLDialogElement,
+    /** The Multiplayer screen, made before any map loads; this takes over its buttons. */
+    menu: MultiplayerMenu,
     private readonly transport: TransportKind,
     autoJoin: string | null,
+    /** Chose "Host" before picking a resort: open a game as soon as the map's ready. */
+    autoHost = false,
   ) {
     this.name = loadName(localStorage);
     this.remote = new RemotePlayers(sim.scene, sim.tags, sim.groundHeight);
-    this.menu = new MultiplayerMenu(dialog, this.name, {
+    this.menu = menu;
+    menu.actions = {
       host: () => void this.start('host', makeRoomCode()),
       join: (code) => void this.start('guest', code),
       leave: () => this.leave(),
@@ -75,13 +81,15 @@ export class Multiplayer {
         this.session?.rename();
         this.render();
       },
-    });
+    };
     window.addEventListener('pagehide', () => this.session?.leave());
+    // The frame loop stops while the map is open or the tab is in the background; keep
+    // sending and pinging anyway, or the host drops you after a few seconds.
+    setInterval(() => this.session?.update(), 1000 / SEND_HZ);
     this.render();
-    if (autoJoin) {
-      void this.start('guest', autoJoin);
-      this.menu.open();
-    }
+    // An invite link: join straight away (progress shows on the Multiplayer screen).
+    if (autoJoin) void this.start('guest', autoJoin);
+    else if (autoHost) void this.start('host', makeRoomCode());
   }
 
   /** In a game (hosting, or joined/joining one). */
@@ -136,15 +144,19 @@ export class Multiplayer {
 
   private async start(role: Role, code: string): Promise<void> {
     if (this.session) this.leave();
+    // A second click while the first is still connecting: only the latest goes ahead.
+    const attempt = ++this.attempts;
     this.setStatus(role === 'host' ? 'Opening a game…' : `Looking for game ${code}…`);
     let transport;
     try {
       transport = await openTransport(this.transport)(roomId(code));
     } catch (e) {
+      if (attempt !== this.attempts) return;
       console.warn('[net] could not connect', e);
       this.setStatus('Could not reach the matchmaking relays. Are you online?', true);
       return;
     }
+    if (attempt !== this.attempts) return transport.leave();
     this.liftError = 0;
     this.session = new NetSession(
       transport,

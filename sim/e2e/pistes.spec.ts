@@ -58,12 +58,12 @@ test('off the pistes the HUD says so, and flying high hides the run row', async 
 
 test('3 toggles piste colours and remembers the choice', async ({ page }) => {
   await load(page);
-  const toggle = page.locator('#toggles [data-toggle="pistes"] b');
-  await expect(toggle).toHaveText('ON');
+  const toggle = page.locator('#opt-display [data-toggle="pistes"]');
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
   await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
   await page.keyboard.press('Digit3');
-  await expect(toggle).toHaveText('OFF');
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
   await page.reload();
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10);
-  await expect(toggle).toHaveText('OFF');
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
 });

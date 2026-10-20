@@ -167,6 +167,7 @@ export class Minimap {
   }
 
   private readonly onKeyDown = (e: KeyboardEvent) => {
+    if (e.target instanceof HTMLInputElement) return; // a "-" typed in a name or search
     if (e.code === 'Equal' || e.code === 'NumpadAdd') {
       this.zoomIndex = Math.max(this.zoomIndex - 1, 0);
     } else if (e.code === 'Minus' || e.code === 'NumpadSubtract') {

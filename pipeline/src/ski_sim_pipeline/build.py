@@ -29,7 +29,15 @@ from . import bases as base_finder
 from .config import Area, ResortConfig, load_resort
 from .export import write_heightmap
 from .frame import LocalFrame
-from .grid import Grid, despike, grow, reproject_into, sample_bilinear, stitch_far_to_near
+from .grid import (
+    Grid,
+    despike,
+    fill_holes,
+    reproject_array,
+    reproject_into,
+    sample_bilinear,
+    stitch_far_to_near,
+)
 from .sources import copernicus, ign, osm, worldcover
 
 log = logging.getLogger(__name__)
@@ -37,7 +45,6 @@ log = logging.getLogger(__name__)
 MANIFEST_VERSION = 9  # with the sim's SUPPORTED_VERSION; see CLAUDE.md "Changing the pipeline"
 LANDMARK_SEARCH_RADIUS = 30.0  # OSM summit nodes are often a few metres off the true top
 LANDMARK_TOLERANCE = 15.0
-IGN_EDGE_CELLS = 3  # near cells dropped along the edge of IGN coverage (France's border)
 SIM_DAY = datetime(2026, 2, 15, 12, tzinfo=UTC)  # the sim's day (SIM_DAY in sim/src/config.ts)
 
 
@@ -82,26 +89,31 @@ def build_near(
                     path,
                     Resampling.average,
                     src_crs=ign.CRS,
-                    src_nodata=ign.NODATA,
                 )
-            # Drop the edge of IGN's coverage too: blended with -9999, it's too low.
-            missing = ~(layer_heights >= ign.MIN_VALID)
-            layer_heights[grow(missing, IGN_EDGE_CELLS)] = np.nan
+            foreign = grid.empty()
+            for path in ign.fetch_source_mask(layer, bounds, raw_dir):
+                values, transform = ign.foreign_mask(path)
+                reproject_array(foreign, grid, frame, values, transform, ign.CRS, Resampling.max)
+            if (foreign > 0).any():
+                log.info(
+                    "Near terrain: %s is foreign fill over %.2f%% of cells, not used",
+                    source,
+                    100 * float((foreign > 0).mean()),
+                )
+                layer_heights[foreign > 0] = np.nan
         else:
             raise ValueError(f"Unsupported near terrain source {source!r}")
-        fill = np.isnan(heights) & ~np.isnan(layer_heights)
-        heights[fill] = layer_heights[fill]
+        fill = fill_holes(heights, layer_heights)
         coverage[source] = round(float(fill.mean()), 6)
         log.info("Near terrain: %.2f%% of cells from %s", 100 * fill.mean(), source)
         if not np.isnan(heights).any():
             break
 
-    holes = np.isnan(heights)
-    if holes.any():
-        log.warning("Near terrain: %d cells filled from far terrain", holes.sum())
+    if np.isnan(heights).any():
         east, north = np.broadcast_arrays(*grid.coords())
-        heights[holes] = sample_bilinear(far, far_grid, east[holes], north[holes])
-        coverage["far"] = round(float(holes.mean()), 6)
+        fill = fill_holes(heights, sample_bilinear(far, far_grid, east, north).astype(np.float32))
+        log.warning("Near terrain: %d cells filled from far terrain", fill.sum())
+        coverage["far"] = round(float(fill.mean()), 6)
     spikes = despike(heights)
     if spikes:
         log.info("Near terrain: %d pit/spike cells (lidar artefacts) smoothed", spikes)
@@ -244,8 +256,12 @@ def build_pistes(
     fine = pistes.rasterise(shapes, fine_grid, runs)
     overlay_factor = round(near_grid.cell_size / pistes.RASTER_CELL)
     lookup_factor = round(pistes.LOOKUP_CELL / pistes.RASTER_CELL)
-    pistes.overlay_image(fine, runs, overlay_factor).save(
+    gaps = pistes.dash_gaps(shapes, runs, fine_grid)
+    pistes.overlay_image(fine, runs, overlay_factor, gaps).save(
         out_dir / "pistes-overlay.png", optimize=True
+    )
+    pistes.ungroomed_image(fine, runs, overlay_factor, gaps).save(
+        out_dir / "pistes-ungroomed.png", optimize=True
     )
     pistes.lookup_image(fine, runs, lookup_factor).save(
         out_dir / "pistes-lookup.png", optimize=True
@@ -288,6 +304,8 @@ def build_pistes(
     return {
         "file": "pistes.json",
         "overlay": {"file": "pistes-overlay.png", "cellSize": near_grid.cell_size},
+        # How much of the overlay's coverage is unprepared snow (same grid).
+        "ungroomed": {"file": "pistes-ungroomed.png"},
         "lookup": {"file": "pistes-lookup.png", "cellSize": pistes.LOOKUP_CELL},
         "lit": {"file": "pistes-lit.png", "cellSize": pistes.LIT_CELL, "extent": lit[1].to_json()}
         if lit
@@ -432,6 +450,10 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     feature_data = build_features(cfg, frame, raw_root, near, near_grid, far, far_grid, ours)
     clearance = feature_data.pop("_clearance")
     places = osm.fetch_places(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root)
+    places += [
+        {"type": "node", "lat": p.lat, "lon": p.lon, "tags": {"name": n, "place": "village"}}
+        for p, n in zip(cfg.places, cfg.place_names, strict=True)
+    ]
     start_bases = base_finder.find_bases(
         places,
         feature_data["lifts"],
@@ -446,9 +468,8 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     else:
         validation = validate_peaks(feature_data["peaks"], near_grid.extent)
 
-    log.info("Building pistes (OpenStreetMap)")
-    pistes_meta = build_pistes(frame, raw_root, near, near_grid, out_dir, ours, feature_data)
-    piste_records = json.loads((out_dir / "pistes.json").read_text())["pistes"]
+    # Restaurants level their sites into the terrain, so they go before anything that's
+    # placed at a stored height on it (piste markers, floodlights, snow park features).
     feature_data["restaurants"] = restaurants.extract(
         osm.fetch_restaurants(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root),
         frame,
@@ -457,9 +478,12 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         near_grid,
         feature_data["buildings"],
         feature_data["lifts"],
-        piste_records,
+        pistes.summarise(piste_runs, lambda e, n: sample_bilinear(near, near_grid, e, n)),
         start_bases,
     )
+    log.info("Building pistes (OpenStreetMap)")
+    pistes_meta = build_pistes(frame, raw_root, near, near_grid, out_dir, ours, feature_data)
+    piste_records = json.loads((out_dir / "pistes.json").read_text())["pistes"]
 
     feature_data["borders"] = borders.build(
         osm.fetch_borders(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root),
@@ -497,6 +521,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     minimap.draw_pistes(image, piste_records, ext.west - half, ext.north + half, mm_cell)
     minimap.draw_features(image, feature_data, ext.west - half, ext.north + half, mm_cell)
     image.save(out_dir / "minimap.png", optimize=True)
+    minimap.preview(image).save(out_dir / "preview.jpg", quality=82, optimize=True)
     minimap_meta = {
         "file": "minimap.png",
         "extent": {
@@ -509,6 +534,8 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
 
     spawn_east, spawn_north = frame.to_local(cfg.spawn.lon, cfg.spawn.lat)
     now = datetime.now(UTC).replace(microsecond=0).isoformat()
+    # Copernicus fills the near grid outside other sources, directly or via the far grid.
+    copernicus_near = round(coverage.get("copernicus-glo30", 0) + coverage.get("far", 0), 6)
     manifest = {
         "version": MANIFEST_VERSION,
         "generatedAt": now,
@@ -553,6 +580,18 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
                 }
                 for source, fraction in coverage.items()
                 if source in ign.LAYERS and fraction > 0
+            ),
+            *(
+                [
+                    {
+                        "layer": "terrain.near",
+                        **copernicus.PROVENANCE,
+                        "processedResolution": near_grid.cell_size,
+                        "coverage": copernicus_near,
+                    }
+                ]
+                if copernicus_near > 0
+                else []
             ),
             {
                 "layer": "terrain.far",

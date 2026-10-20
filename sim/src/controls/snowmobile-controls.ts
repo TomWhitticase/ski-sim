@@ -216,6 +216,16 @@ export class SnowmobileControls {
     this.updateLights();
   }
 
+  /**
+   * Out of body (fly mode): the sled stays where you left it with you sat on it, drawn
+   * whole. Still 'riding', so it isn't parked and doesn't coast; it just isn't updated.
+   */
+  showFrozen(): void {
+    this.root.visible = true;
+    this.rider.root.visible = true;
+    this.rider.setFirstPerson(false, true);
+  }
+
   /** How dark it is (0 day … 1 night); the headlight comes on as it gets dark. */
   setDarkness(darkness: number): void {
     if (darkness === this.darkness) return;

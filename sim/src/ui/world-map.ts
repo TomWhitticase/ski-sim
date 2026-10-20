@@ -183,7 +183,7 @@ export class WorldMap {
       canvas.height = Math.round(h * dpr);
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = '#1b222d';
+    ctx.fillStyle = '#e1e8ef'; // beyond the map: light, like the menus
     ctx.fillRect(0, 0, w, h);
 
     const e = data.imageExtent;

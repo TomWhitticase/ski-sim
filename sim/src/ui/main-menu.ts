@@ -1,5 +1,13 @@
-import type { StartBase } from '../resort/manifest';
-import { Modal } from './modal';
+import { type Extent, resortUrl, type StartBase } from '../resort/manifest';
+import { OptionsTab } from './options-hub';
+import {
+  frameStarts,
+  pinAt,
+  SCREEN_NAMES,
+  type ScreenId,
+  ScreenStack,
+  startsAspect,
+} from './screens';
 
 export interface ResortEntry {
   id: string;
@@ -14,80 +22,164 @@ export interface ResortEntry {
 export type StartChoice = StartBase | null;
 
 export interface MenuHandlers {
-  /** A ski area was highlighted: list its start points (`setStarts`). */
+  /** A ski area was highlighted: fetch its start points (`setStarts`). */
   onSelect: (resortId: string) => void;
-  /** Load the highlighted ski area, starting at `choice` once it's ready. */
-  onLoad: (resortId: string, choice: StartChoice) => void;
-  /** The loaded area is ready and the player pressed Start (or Continue / Go to). */
+  /** Load a ski area (a fresh page if one's already loaded), starting at `choice`. */
+  onLoad: (resortId: string, choice: StartChoice, options: { host: boolean }) => void;
+  /** The loaded area is ready and you pressed Start (or Resume, or picked a new start). */
   onPlay: (choice: StartChoice) => void;
 }
 
+/** A menu screen something else opens and closes (the Multiplayer screen). */
+export interface ScreenControl {
+  open(): void;
+  close(): void;
+  isOpen(): boolean;
+}
+
+const regions = new Intl.DisplayNames(['en'], { type: 'region' });
+const countryName = (code: string) => (code ? (regions.of(code) ?? code) : '');
+const metres = (m: number) => `${Math.round(m).toLocaleString('en-GB')} m`;
+
+const TIPS = [
+  'M opens the map: right click anywhere to go there.',
+  'Ctrl tucks; Shift ploughs; S with A or D is a hockey stop.',
+  'F flies out of your body; F again goes back to your skier.',
+  'E at a lift’s bottom station rides it; hold W to fast-forward.',
+  'H hides everything for full immersion.',
+  'P opens a paraglider, even mid-air; B brings a snowmobile.',
+];
+
 /**
- * The ski-sim main menu: pick a ski area, then where to start, then load it and play.
- * Nothing heavy downloads until you press Load. Shown at load and whenever the mouse is
- * released (Esc), where it doubles as the pause menu.
- *
- * The big button always says what it will do: choose an area, load it (with progress),
- * start skiing, or carry on.
+ * The menus (light glass), one screen at a time:
+ *   Title → Resorts → Resort (start points) → Loading → skiing; Esc in game → Pause.
+ * Esc or the ← in the corner goes back one screen (`ScreenStack`). Nothing heavy downloads
+ * until you choose where to ski, unless the link names a resort or a game.
  */
 export class MainMenu {
-  private choice: StartChoice = null;
-  private readonly resortsEl: HTMLElement;
-  private readonly startsEl: HTMLElement;
-  private readonly button: HTMLButtonElement;
-  private readonly status: HTMLElement;
-  private readonly bar: HTMLElement;
-  private readonly needsMap: HTMLButtonElement[];
+  readonly controls = new OptionsTab(document.querySelector<HTMLElement>('#opt-controls')!);
+  private readonly screens = new ScreenStack('title');
+  private readonly $ = <T extends HTMLElement = HTMLElement>(s: string) =>
+    this.root.querySelector<T>(s)!;
   private resorts: ResortEntry[] = [];
-  /** The highlighted ski area. */
+  /** The highlighted ski area (Resorts and Resort screens). */
   private selected: string | null = null;
   /** The ski area this page has loaded (or is loading). */
   private current: string | null = null;
   private phase: 'idle' | 'loading' | 'ready' | 'error' = 'idle';
   private started = false;
+  /** The start picked on the Resort screen. */
+  private choice: StartChoice = null;
+  /** The start to use when the loading area is ready. */
+  private loadChoice: StartChoice = null;
   private bases: StartBase[] = [];
-  readonly controls = new Modal(document.querySelector<HTMLDialogElement>('#controls-modal')!);
+  private extent: Extent | null = null;
+  private hasSaved = false;
+  /** Pressed "Host a game" before choosing a resort. */
+  private hosting = false;
+  private continueTo: string | null = null;
+  private unlockedAt = 0;
 
   constructor(
-    root: HTMLElement,
+    private readonly root: HTMLElement,
     private readonly handlers: MenuHandlers,
   ) {
-    this.resortsEl = root.querySelector('#menu-resorts')!;
-    this.startsEl = root.querySelector('#menu-starts')!;
-    this.button = root.querySelector('#start')!;
-    this.status = root.querySelector('#status')!;
-    this.bar = root.querySelector('#load-progress')!;
-    this.needsMap = [...root.querySelectorAll<HTMLButtonElement>('[data-needs-map]')];
-    root.querySelector('#open-controls')!.addEventListener('click', () => this.controls.open());
-    this.button.addEventListener('click', () => this.press());
+    const on = (s: string, f: () => void) => this.$(s).addEventListener('click', f);
+    on('#menu-back', () => this.back());
+    on('#title-continue', () => this.continueGame());
+    on('#continue-card', () => this.continueGame());
+    on('#title-play', () => this.go('resorts'));
+    on('#open-controls', () => this.controls.open());
+    on('#choose-start', () => this.go('resort'));
+    on('#ski-from', () => void this.skiFrom());
+    on('#start', () => this.start());
+    on('#resume', () => this.handlers.onPlay(null));
+    on('#pause-start', () => {
+      if (this.current) this.selectResort(this.current);
+      this.go('resort');
+    });
+    on('#pause-resort', () => this.go('resorts'));
+    on('#pause-quit', () => void this.quit());
+    this.$('#menu-search').addEventListener('input', () => this.filter());
+    this.$('#menu-country').addEventListener('change', () => this.filter());
+    document.addEventListener('pointerlockchange', () => {
+      if (!document.pointerLockElement) this.unlockedAt = performance.now();
+    });
+    document.addEventListener('keydown', (e) => this.key(e));
     this.render();
+  }
+
+  /** The Multiplayer screen, for the multiplayer menu to open and close. */
+  readonly multiplayer: ScreenControl = {
+    open: () => this.go('multiplayer'),
+    close: () => {
+      if (this.screens.current === 'multiplayer') this.back();
+    },
+    isOpen: () => this.visible && this.screens.current === 'multiplayer',
+  };
+
+  /** Host a game before any map's loaded: choose where first. */
+  hostFromResort(): void {
+    this.hosting = true;
+    this.go('resorts');
   }
 
   /** The ski areas, with `selected` highlighted (null: none yet). */
   setResorts(resorts: ResortEntry[], selected: string | null): void {
-    this.resorts = resorts;
-    this.resortsEl.replaceChildren(
-      ...resorts.map((r) => {
+    this.resorts = [...resorts].sort((a, b) => a.name.localeCompare(b.name));
+    const countries = [...new Set(this.resorts.map((r) => r.country).filter(Boolean))].sort(
+      (a, b) => countryName(a).localeCompare(countryName(b)),
+    );
+    const select = this.$<HTMLSelectElement>('#menu-country');
+    select.replaceChildren(
+      new Option('All countries', ''),
+      ...countries.map((c) => new Option(countryName(c), c)),
+    );
+    this.$('#menu-resorts').replaceChildren(
+      ...this.resorts.map((r) => {
         const b = document.createElement('button');
-        b.className = 'menu-item';
+        b.type = 'button';
+        b.className = 'resort-card';
         b.dataset.resort = r.id;
-        const detail = [
-          r.country ? (new Intl.DisplayNames(['en'], { type: 'region' }).of(r.country) ?? '') : '',
-          r.lifts ? `${r.lifts} lifts` : '',
-          r.pistes ? `${r.pistes} pistes` : '',
-        ]
-          .filter(Boolean)
-          .join(' · ');
-        b.innerHTML = '<span class="menu-item-name"></span><span class="menu-item-detail"></span>';
+        b.dataset.country = r.country;
+        b.dataset.search =
+          `${r.name} ${countryName(r.country)} ${(r.bases ?? []).join(' ')}`.toLowerCase();
+        b.innerHTML =
+          '<span class="resort-thumb"><img loading="lazy" alt="" /></span>' +
+          '<span class="menu-item-name"></span><span class="menu-item-detail"></span>';
+        const img = b.querySelector('img')!;
+        img.src = resortUrl(r.id, 'preview.jpg');
+        img.addEventListener('error', () => img.remove());
         b.querySelector('.menu-item-name')!.textContent = r.name;
-        b.querySelector('.menu-item-detail')!.textContent = detail;
+        b.querySelector('.menu-item-detail')!.textContent = detailOf(r);
         b.addEventListener('click', () => this.selectResort(r.id));
-        b.addEventListener('dblclick', () => this.button.click());
+        b.addEventListener('dblclick', () => this.go('resort'));
         return b;
       }),
     );
+    this.filter();
     if (selected) this.selectResort(selected);
     else this.render();
+  }
+
+  /** The last area played, offered as Continue on the title screen (null: first visit). */
+  setContinue(resortId: string | null, detail: string): void {
+    this.continueTo = resortId;
+    const card = this.$('#continue-card');
+    card.hidden = !resortId;
+    this.$('#title-continue').hidden = !resortId;
+    if (resortId) {
+      card.querySelector('b')!.textContent = this.name(resortId);
+      card.querySelector('small')!.textContent = detail;
+      const img = card.querySelector('img')!;
+      img.src = resortUrl(resortId, 'preview.jpg');
+      img.onerror = () => (img.style.visibility = 'hidden');
+    }
+    // Returning: Continue leads, choosing a resort is second; first visit: Play.
+    const play = this.$('#title-play');
+    play.textContent = resortId ? 'Choose a resort' : 'Play';
+    play.classList.toggle('btn-primary', !resortId);
+    this.$('#open-ski-setup').hidden = !!resortId; // in Options for returning players
   }
 
   /** The highlighted ski area (or null). */
@@ -95,170 +187,429 @@ export class MainMenu {
     return this.selected;
   }
 
-  /** Start locations for `resortId`, if it's still the highlighted one. */
+  /** Start points (and the map's extent) for `resortId`, if it's still highlighted. */
   setStarts(
     resortId: string,
     bases: StartBase[],
     hasSavedPosition: boolean,
+    extent: Extent,
     preferred?: string | null,
   ): void {
     if (resortId !== this.selected) return;
-    this.bases = bases;
-    const here = this.started && resortId === this.current;
-    const items: { label: string; detail: string; choice: StartChoice }[] = [];
-    if (here || hasSavedPosition) {
-      items.push({
-        label: here ? 'Continue where you are' : 'Where you left off',
-        detail: '',
-        choice: null,
-      });
-    }
-    for (const base of bases) {
-      items.push({ label: base.name, detail: `by the ${base.lift} lift`, choice: base });
-    }
-    const buttons = items.map((item) => {
-      const b = document.createElement('button');
-      b.className = 'menu-item';
-      b.innerHTML = '<span class="menu-item-name"></span><span class="menu-item-detail"></span>';
-      b.querySelector('.menu-item-name')!.textContent = item.label;
-      b.querySelector('.menu-item-detail')!.textContent = item.detail;
-      b.addEventListener('click', () => this.select(item.choice, b));
-      b.addEventListener('dblclick', () => this.button.click());
-      return b;
-    });
-    this.startsEl.replaceChildren(...buttons);
-    // Default: a start asked for by name, else carry on if there's somewhere to carry on
-    // from, else the first village.
-    const wanted = preferred ? items.findIndex((i) => i.choice?.name === preferred) : -1;
-    const index = Math.max(wanted, 0);
-    this.select(items[index]?.choice ?? null, buttons[index]);
+    this.bases = [...bases].sort((a, b) => b.ground - a.ground);
+    this.extent = extent;
+    this.hasSaved = hasSavedPosition;
+    const wanted = preferred ? this.bases.find((b) => b.name === preferred) : undefined;
+    // Default: a start asked for by name, else where you left off, else the highest village.
+    this.choice = wanted ?? (this.offersSaved ? null : (this.bases[0] ?? null));
+    this.renderPreview();
+    this.renderStarts();
   }
 
-  /** The start points are on their way (or couldn't be read). */
+  /** The start points couldn't be read. */
   setStartsMessage(resortId: string, text: string): void {
     if (resortId !== this.selected) return;
-    const p = document.createElement('p');
-    p.className = 'menu-note';
-    p.textContent = text;
-    this.startsEl.replaceChildren(p);
+    this.$('#menu-villages').textContent = text;
   }
 
-  /** This page is now loading `resortId`. */
+  /** This page is now loading `resortId` (straight away from a link, or chosen). */
   loading(resortId: string): void {
     this.current = resortId;
     this.phase = 'loading';
+    this.screens.reset('loading');
+    const where = this.loadChoice?.name ?? (this.hasSaved ? 'Where you left off' : 'Resort start');
+    this.$('#loading-where').textContent = `${this.name(resortId)} · ${where}`;
+    this.$('.loading-tip').textContent = `Tip · ${TIPS[Math.floor(Math.random() * TIPS.length)]}`;
     this.progress('Starting…', 0);
+    this.render();
+  }
+
+  /** The start to use once loaded (set before `loading` from a link's `start=`). */
+  setLoadChoice(choice: StartChoice): void {
+    this.loadChoice = choice;
   }
 
   /** Loading progress: what's happening and how far along (0-1). */
   progress(text: string, fraction: number): void {
     if (this.phase !== 'loading') return;
-    this.status.textContent = text;
-    this.status.classList.remove('error');
-    this.bar.querySelector('i')!.style.width = `${Math.round(fraction * 100)}%`;
-    this.render();
+    const status = this.$('#status');
+    status.textContent = text;
+    status.classList.remove('error');
+    this.$('#load-progress i').style.width = `${Math.round(fraction * 100)}%`;
   }
 
-  /** The loaded area is drawn and you can play. */
+  /** The loaded area is drawn: one button to start. */
   ready(): void {
     this.phase = 'ready';
+    document.body.classList.add('world');
+    this.$('#status').textContent = `${this.name(this.current)} is ready`;
+    this.$('#load-progress i').style.width = '100%';
     this.render();
   }
 
-  /** Loading failed: say why; the button retries. */
+  /** Loading failed: say why; the button tries again. */
   failed(message: string): void {
     this.phase = 'error';
+    this.screens.reset('loading');
+    const status = this.$('#status');
+    status.textContent = message;
+    status.classList.add('error');
     this.render();
-    this.status.textContent = message;
-    this.status.classList.add('error');
+  }
+
+  /** Playing (the mouse is captured): next time the menu shows, it's the pause menu. */
+  resumed(): void {
+    this.screens.reset('pause');
+    const confirm = this.$<HTMLDialogElement>('#confirm');
+    if (confirm.open) confirm.close('stay');
+    this.render();
+  }
+
+  /** A line on the pause menu (e.g. the game code when hosting); null hides it. */
+  setPauseNote(text: string | null): void {
+    const note = this.$('#pause-host');
+    note.hidden = !text;
+    note.textContent = text ?? '';
+  }
+
+  /** On the pause menu (playing, mouse released). */
+  get isPaused(): boolean {
+    return this.started && this.screens.current === 'pause';
+  }
+
+  private get visible(): boolean {
+    return (
+      !document.body.classList.contains('flying') && !document.body.classList.contains('map-open')
+    );
+  }
+
+  /** "Where you left off" makes sense only when you aren't already skiing there. */
+  private get offersSaved(): boolean {
+    return this.hasSaved && !(this.started && this.selected === this.current);
   }
 
   private name(id: string | null): string {
     return this.resorts.find((r) => r.id === id)?.name ?? id ?? '';
   }
 
-  private selectResort(id: string): void {
-    this.selected = id;
-    for (const child of this.resortsEl.children) {
-      child.classList.toggle('selected', (child as HTMLElement).dataset.resort === id);
-    }
-    this.bases = [];
-    this.choice = null;
-    this.setStartsMessage(id, 'Finding start points…');
+  private go(id: ScreenId): void {
+    if (id === 'title') this.hosting = false;
+    this.screens.push(id);
     this.render();
+    if (id === 'resort') requestAnimationFrame(() => this.renderMap());
+    if (id === 'resorts') {
+      const search = this.$<HTMLInputElement>('#menu-search');
+      search.focus();
+      this.$('#menu-resorts .selected')?.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  private back(): void {
+    // Loading can't be backed out of mid-way: Cancel goes back to a fresh menu.
+    if (this.screens.current === 'loading') {
+      location.href = location.pathname;
+      return;
+    }
+    if (this.screens.back()) {
+      if (this.screens.current === 'title') this.hosting = false;
+      this.render();
+    }
+  }
+
+  private continueGame(): void {
+    if (!this.continueTo) return;
+    this.selected = this.continueTo;
+    this.loadChoice = null;
+    this.hasSaved = true;
+    this.handlers.onLoad(this.continueTo, null, { host: false });
+  }
+
+  private selectResort(id: string): void {
+    if (id !== this.selected) {
+      this.bases = [];
+      this.extent = null;
+      this.choice = null;
+    }
+    this.selected = id;
+    for (const card of this.$('#menu-resorts').children) {
+      card.classList.toggle('selected', (card as HTMLElement).dataset.resort === id);
+    }
+    this.renderPreview();
+    this.renderStarts();
     this.handlers.onSelect(id);
   }
 
-  private press(): void {
-    const id = this.selected;
-    if (!id) return;
-    if (id !== this.current) {
-      this.handlers.onLoad(id, this.choice);
-    } else if (this.phase === 'error') {
-      location.reload();
-    } else if (this.phase === 'ready') {
-      const choice = this.choice;
-      this.started = true;
-      // Next time the menu opens (Esc), default to carrying on from where you are.
-      this.setStarts(id, this.bases, true);
-      this.handlers.onPlay(choice);
+  private filter(): void {
+    const words = this.$<HTMLInputElement>('#menu-search').value.toLowerCase().split(/\s+/);
+    const country = this.$<HTMLSelectElement>('#menu-country').value;
+    let shown = 0;
+    for (const card of this.$('#menu-resorts').children) {
+      const el = card as HTMLElement;
+      el.hidden =
+        (!!country && el.dataset.country !== country) ||
+        !words.every((w) => (el.dataset.search ?? '').includes(w));
+      if (!el.hidden) shown++;
     }
+    this.$('#menu-resort-count').textContent =
+      shown === this.resorts.length
+        ? `${this.resorts.length} ski areas`
+        : `${shown} of ${this.resorts.length} ski areas`;
+  }
+
+  /** The Resorts screen's right-hand panel: the highlighted area. */
+  private renderPreview(): void {
+    const r = this.resorts.find((x) => x.id === this.selected);
+    this.$('#menu-title').textContent = r?.name ?? '';
+    this.$('#menu-kicker').textContent = r ? countryName(r.country) : '';
+    const img = this.$<HTMLImageElement>('#menu-preview');
+    if (r) {
+      img.style.visibility = '';
+      img.onerror = () => (img.style.visibility = 'hidden');
+      const src = resortUrl(r.id, 'preview.jpg');
+      if (img.getAttribute('src') !== src) img.src = src;
+    }
+    const tiles: [string, string][] = [
+      ['Lifts', r?.lifts ? String(r.lifts) : '–'],
+      ['Runs', r?.pistes ? String(r.pistes) : '–'],
+      ['Starts', this.bases.length ? String(this.bases.length) : '–'],
+    ];
+    if (this.bases.length) {
+      tiles.push([
+        'Top start',
+        `${Math.round(this.bases[0]!.ground).toLocaleString('en-GB')}<span class="unit">m</span>`,
+      ]);
+    }
+    this.$('#menu-stats').innerHTML = tiles
+      .map(([k, v]) => `<div><span class="lab">${k}</span><b>${v}</b></div>`)
+      .join('');
+    const villages = this.bases.map((b) => b.name);
+    this.$('#menu-villages').textContent = villages.length
+      ? `${villages.slice(0, 6).join(' · ')}${villages.length > 6 ? ` · +${villages.length - 6} more` : ''}`
+      : r && !r.bases?.length
+        ? 'No start villages: you start at the resort’s viewpoint.'
+        : 'Finding start points…';
+  }
+
+  /** The Resort screen: the start list beside the map with a pin for each. */
+  private renderStarts(): void {
+    const r = this.resorts.find((x) => x.id === this.selected);
+    this.$('#resort-title').textContent = r?.name ?? '';
+    this.$('#resort-kicker').textContent = r ? countryName(r.country) : '';
+    this.$('#menu-starts-count').textContent = this.bases.length ? String(this.bases.length) : '';
+    const items: { label: string; detail: string; altitude: number | null; choice: StartChoice }[] =
+      [];
+    if (this.offersSaved || !this.bases.length) {
+      items.push({
+        label: this.bases.length ? 'Where you left off' : 'Resort start',
+        detail: '',
+        altitude: null,
+        choice: null,
+      });
+    }
+    for (const b of this.bases) {
+      items.push({ label: b.name, detail: b.lift, altitude: b.ground, choice: b });
+    }
+    this.$('#menu-starts').replaceChildren(
+      ...items.map((item) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'menu-item';
+        b.classList.toggle('selected', item.choice === this.choice);
+        b.innerHTML =
+          '<span class="menu-item-name"></span><span class="menu-item-detail"></span><span class="menu-item-alt"></span>';
+        b.querySelector('.menu-item-name')!.textContent = item.label;
+        b.querySelector('.menu-item-detail')!.textContent = item.detail;
+        b.querySelector('.menu-item-alt')!.textContent =
+          item.altitude === null ? '' : metres(item.altitude);
+        b.addEventListener('click', () => this.pick(item.choice));
+        b.addEventListener('dblclick', () => void this.skiFrom());
+        return b;
+      }),
+    );
+    this.renderMap();
     this.render();
   }
 
-  /** The button, progress bar and status always agree with the state. */
-  private render(): void {
-    const b = this.button;
+  /** The preview map, framed on the start points, with a pin for each. */
+  private renderMap(): void {
+    const view = this.$('.starts-view');
+    const img = this.$<HTMLImageElement>('#starts-map-img');
+    const pins = this.$('#starts-pins');
+    const extent = this.extent;
+    if (!this.selected || !extent) {
+      pins.replaceChildren();
+      img.style.visibility = 'hidden';
+      return;
+    }
+    const src = resortUrl(this.selected, 'preview.jpg');
+    if (img.getAttribute('src') !== src) {
+      img.src = src;
+      img.style.visibility = '';
+      img.onerror = () => (img.style.visibility = 'hidden');
+    }
+    // The map panel takes the shape of the area the starts cover, then frames them.
+    this.$('.starts-map').style.aspectRatio = String(startsAspect(extent, this.bases));
+    const aspect = view.clientWidth / Math.max(1, view.clientHeight) || 1;
+    const frame = frameStarts(extent, this.bases, aspect);
+    img.style.left = `${frame.left * 100}%`;
+    img.style.top = `${frame.top * 100}%`;
+    img.style.width = `${frame.width * 100}%`;
+    img.style.height = `${frame.height * 100}%`;
+    pins.replaceChildren(
+      ...this.bases.map((b) => {
+        const { x, y } = pinAt(extent, frame, b);
+        const pin = document.createElement('button');
+        pin.type = 'button';
+        pin.className = 'start-pin';
+        pin.classList.toggle('selected', b === this.choice);
+        pin.style.left = `${x * 100}%`;
+        pin.classList.toggle('flip', x > 0.6); // label to the left near the right edge
+        pin.style.top = `${y * 100}%`;
+        pin.innerHTML = '<i></i><span></span>';
+        pin.querySelector('span')!.textContent = b.name;
+        pin.title = `${b.name} · ${metres(b.ground)}`;
+        pin.addEventListener('click', () => this.pick(b));
+        pin.addEventListener('dblclick', () => void this.skiFrom());
+        return pin;
+      }),
+    );
+  }
+
+  private pick(choice: StartChoice): void {
+    this.choice = choice;
+    this.renderStarts();
+  }
+
+  /** The Resort screen's button: go there now, or load the area there. */
+  private async skiFrom(): Promise<void> {
     const id = this.selected;
-    const here = id !== null && id === this.current;
-    const loadingHere = here && this.phase === 'loading';
-    this.bar.hidden = !loadingHere;
-    b.classList.toggle('loading', loadingHere);
-    if (!id) {
-      b.disabled = true;
-      b.textContent = 'Choose a ski area';
-    } else if (!here) {
-      b.disabled = false;
-      b.textContent = this.current ? `Switch to ${this.name(id)}` : `Load ${this.name(id)}`;
-    } else if (this.phase === 'loading') {
-      b.disabled = true;
-      b.textContent = `Loading ${this.name(id)}…`;
-    } else if (this.phase === 'error') {
-      b.disabled = false;
-      b.textContent = 'Try again';
-    } else {
-      b.disabled = false;
-      b.textContent = !this.started
-        ? 'Start skiing'
-        : this.choice
-          ? `Go to ${this.choice.name}`
-          : 'Continue';
+    if (!id) return;
+    if (this.started && id === this.current) {
+      this.handlers.onPlay(this.choice); // already here: just move
+      return;
     }
-    if (this.phase !== 'loading' && this.phase !== 'error') {
-      this.status.classList.remove('error');
-      this.status.textContent =
-        this.phase === 'ready' && here
-          ? this.started
-            ? `Paused · ${this.name(id)}`
-            : `${this.name(id)} is ready`
-          : this.current && !here
-            ? `Switching leaves ${this.name(this.current)}`
-            : id
-              ? 'Pick where to start, then load the map'
-              : 'Pick a ski area';
+    if (this.current && id !== this.current) {
+      const leave = await this.confirm(
+        `Leave ${this.name(this.current)}?`,
+        `${this.name(id)} loads in its place. Your position here is saved.`,
+      );
+      if (!leave) return;
     }
-    // Menus that need a world (time of day, multiplayer) wait for one.
-    for (const el of this.needsMap) {
+    this.loadChoice = this.choice;
+    this.handlers.onLoad(id, this.choice, { host: this.hosting });
+  }
+
+  /** Loading screen's button once ready (or after an error, try again). */
+  private start(): void {
+    if (this.phase === 'error') {
+      location.reload();
+      return;
+    }
+    if (this.phase !== 'ready') return;
+    this.started = true;
+    this.screens.reset('pause');
+    this.render();
+    this.handlers.onPlay(this.loadChoice);
+  }
+
+  private async quit(): Promise<void> {
+    const leave = await this.confirm(
+      `Leave ${this.name(this.current)}?`,
+      'You’ll go back to the main menu. Your position is saved.',
+    );
+    if (leave) location.href = location.pathname;
+  }
+
+  private confirm(title: string, text: string): Promise<boolean> {
+    const dialog = this.$<HTMLDialogElement>('#confirm');
+    dialog.querySelector('h2')!.textContent = title;
+    dialog.querySelector('p')!.textContent = text;
+    dialog.returnValue = '';
+    dialog.showModal();
+    return new Promise((resolve) =>
+      dialog.addEventListener('close', () => resolve(dialog.returnValue === 'leave'), {
+        once: true,
+      }),
+    );
+  }
+
+  /** Esc goes back; Enter does the screen's main action. */
+  private key(e: KeyboardEvent): void {
+    if (!this.visible || document.querySelector('dialog[open]')) return;
+    if (e.key === 'Escape') {
+      // The Esc that released the mouse also arrives here: it isn't a "back".
+      if (performance.now() - this.unlockedAt < 400) return;
+      const search = this.$<HTMLInputElement>('#menu-search');
+      if (e.target === search && search.value) return; // the field clears itself
+      e.preventDefault();
+      this.back();
+      return;
+    }
+    if (e.key !== 'Enter') return;
+    if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLSelectElement) return;
+    const s = this.screens.current;
+    if (s === 'title') {
+      if (this.continueTo) this.continueGame();
+      else this.go('resorts');
+    } else if (s === 'resorts') {
+      // In the search box, Enter picks the first match.
+      const first = [...this.$('#menu-resorts').children].find((c) => !(c as HTMLElement).hidden);
+      if (e.target instanceof HTMLInputElement && first)
+        this.selectResort((first as HTMLElement).dataset.resort!);
+      if (this.selected) this.go('resort');
+    } else if (s === 'resort') void this.skiFrom();
+    else if (s === 'loading') this.start();
+    else if (s === 'pause') this.handlers.onPlay(null);
+    else return;
+    e.preventDefault();
+  }
+
+  /** Show the screen on top, its ← and buttons in agreement with the state. */
+  private render(): void {
+    const current = this.screens.current;
+    this.root.dataset.screen = current;
+    for (const s of this.root.querySelectorAll<HTMLElement>('.screen')) {
+      s.hidden = s.dataset.screen !== current;
+    }
+    const back = this.$('#menu-back');
+    const previous = this.screens.previous;
+    back.hidden = current === 'loading' ? this.phase === 'ready' : !previous;
+    back.querySelector('.crumb-to')!.textContent =
+      current === 'loading' ? 'Cancel' : previous ? SCREEN_NAMES[previous] : '';
+
+    // Resort screen's button says exactly what it'll do.
+    const where =
+      this.choice?.name ?? (this.bases.length ? 'where you left off' : 'the resort start');
+    const here = this.started && this.selected === this.current;
+    this.$('#ski-from').textContent = here
+      ? this.choice
+        ? `Go to ${this.choice.name}`
+        : 'Back to where you were'
+      : `${this.hosting ? 'Host from' : 'Ski from'} ${where}`;
+    this.$<HTMLButtonElement>('#choose-start').disabled = !this.selected;
+
+    const start = this.$<HTMLButtonElement>('#start');
+    start.hidden = this.phase !== 'ready' && this.phase !== 'error';
+    start.textContent = this.phase === 'error' ? 'Try again' : 'Start skiing';
+    this.$('#load-progress').hidden = this.phase === 'error';
+    this.$('#pause-title').textContent = this.name(this.current);
+
+    // Menus that need a world (time of day) wait for one.
+    for (const el of document.querySelectorAll<HTMLButtonElement>('[data-needs-map]')) {
       el.disabled = this.phase !== 'ready';
       el.title = el.disabled ? 'Load a ski area first' : '';
     }
   }
+}
 
-  private select(choice: StartChoice, el?: HTMLElement): void {
-    this.choice = choice;
-    for (const child of this.startsEl.children) child.classList.toggle('selected', child === el);
-    this.render();
-  }
+function detailOf(r: ResortEntry): string {
+  return [
+    countryName(r.country),
+    r.lifts ? `${r.lifts} lifts` : '',
+    r.pistes ? `${r.pistes} runs` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 export const LAST_RESORT_KEY = 'ski-sim.resort';

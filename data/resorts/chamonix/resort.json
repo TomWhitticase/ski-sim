@@ -1,0 +1,22 @@
+{
+  "id": "chamonix",
+  "name": "Chamonix Mont-Blanc",
+  "country": "FR",
+  "bounds": {
+    "south": 45.826,
+    "west": 6.756,
+    "north": 46.035,
+    "east": 6.99
+  },
+  "terrain": {
+    "near": {
+      "extent": { "west": -12500, "east": 10000, "south": -12000, "north": 13000 }
+    }
+  },
+  "spawn": {
+    "lat": 45.9400,
+    "lon": 6.8700,
+    "altitude": 1500,
+    "heading": 170
+  }
+}

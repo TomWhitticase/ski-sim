@@ -53,6 +53,69 @@ const VIEWS = [
     name: 'paradiski-plagne-centre',
     query: 'resort=paradiski&at=45.5030,6.6700,2150&heading=40&pitch=-12',
   },
+  // Chamonix, sector by sector, then the high-mountain lifts and the lidar's edges (where
+  // RGE ALTI takes over in Switzerland and Italy).
+  { name: 'chamonix-spawn', query: 'resort=chamonix' },
+  {
+    name: 'chamonix-grands-montets',
+    query: 'resort=chamonix&at=45.9840,6.9150,2250&heading=125&pitch=-8',
+  },
+  {
+    name: 'chamonix-brevent',
+    query: 'resort=chamonix&at=45.9200,6.8800,2100&heading=310&pitch=-8',
+  },
+  { name: 'chamonix-flegere', query: 'resort=chamonix&at=45.9330,6.8700,2200&heading=20&pitch=-8' },
+  {
+    name: 'chamonix-aiguille-du-midi',
+    query: 'resort=chamonix&at=45.8812,6.8925,3830&heading=232&pitch=-6',
+  },
+  {
+    name: 'chamonix-panoramic',
+    query: 'resort=chamonix&at=45.8560,6.9200,3650&heading=322&pitch=-4',
+  },
+  { name: 'chamonix-le-tour', query: 'resort=chamonix&at=45.9950,6.9300,2300&heading=55&pitch=-8' },
+  {
+    name: 'chamonix-les-houches',
+    query: 'resort=chamonix&at=45.9000,6.8150,1800&heading=235&pitch=-8',
+  },
+  {
+    name: 'chamonix-swiss-edge',
+    query: 'resort=chamonix&at=46.0250,6.9400,2700&heading=60&pitch=-12',
+  },
+  {
+    name: 'chamonix-italian-edge',
+    query: 'resort=chamonix&at=45.8600,6.9100,3700&heading=150&pitch=-12',
+  },
+  // Tignes – Val d'Isère: the spawn, Tignes le Lac and its lake, the Grande Motte glacier,
+  // and Val d'Isère village under Bellevarde.
+  { name: 'tignes-spawn', query: 'resort=tignes-val-disere' },
+  {
+    name: 'tignes-le-lac',
+    query: 'resort=tignes-val-disere&at=45.4610,6.8980,2350&heading=60&pitch=-14',
+  },
+  {
+    name: 'tignes-grande-motte',
+    query: 'resort=tignes-val-disere&at=45.4420,6.8950,3100&heading=190&pitch=-12',
+  },
+  {
+    name: 'val-disere-village',
+    query: 'resort=tignes-val-disere&at=45.4560,6.9900,2150&heading=240&pitch=-14',
+  },
+  // Le Grand Domaine: Valmorel's village and Saint-François-Longchamp under the Col de la
+  // Madeleine.
+  {
+    name: 'grand-domaine-valmorel',
+    query: 'resort=grand-domaine&at=45.4560,6.4380,1700&heading=40&pitch=-12',
+  },
+  {
+    name: 'grand-domaine-st-francois',
+    query: 'resort=grand-domaine&at=45.4050,6.3700,1900&heading=80&pitch=-12',
+  },
+  // Off-piste on the snow: the Pylônes freeride itineraries at Grands Montets, dashed.
+  {
+    name: 'chamonix-freeride-dashes',
+    query: 'resort=chamonix&at=45.94036,6.94993,3500&heading=40&pitch=-25',
+  },
   // Land cover: Méribel's forests (pistes and lift lines cut through them), a skier's-eye
   // view under the trees, and the Vanoise glaciers.
   { name: 'meribel-forest', query: 'at=45.3890,6.5700,1700&heading=120&pitch=-5' },

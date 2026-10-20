@@ -6,14 +6,14 @@ import {
   type TimeOfDay,
   type TimePreset,
 } from '../env/time-of-day';
-import { Modal } from './modal';
+import { fillRange, OptionsTab } from './options-hub';
 
 /**
  * Time of day: a slider and presets that move the sun, and how fast the clock runs.
  * Changes apply straight away through `onChange`; `sync()` keeps the slider following
- * the running clock while the dialog is open.
+ * the running clock while the tab is open.
  */
-export class TimeMenu extends Modal {
+export class TimeMenu extends OptionsTab {
   private readonly slider: HTMLInputElement;
   private readonly value: HTMLElement;
   private readonly sunEl: HTMLElement;
@@ -24,7 +24,7 @@ export class TimeMenu extends Modal {
   private shown = -1;
 
   constructor(
-    el: HTMLDialogElement,
+    el: HTMLElement,
     private readonly clock: TimeOfDay,
     private readonly presets: TimePreset[],
     private readonly sunElevation: () => number,
@@ -99,6 +99,7 @@ export class TimeMenu extends Modal {
     if (!force && (minute === this.shown || !this.isOpen)) return;
     this.shown = minute;
     if (!this.dragging) this.slider.value = String(minute * 60);
+    fillRange(this.slider);
     this.value.textContent = formatTime(this.clock.seconds);
     const el = Math.round(this.sunElevation());
     this.sunEl.textContent =

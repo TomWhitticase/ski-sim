@@ -86,3 +86,25 @@ def test_steep_climb_out_of_a_station_stays_within_the_bend_limits():
     ]
     bends = [abs(b - a) for a, b in zip(slopes, slopes[1:], strict=False)]
     assert max(bends, default=0) <= 14.5
+
+
+def test_a_ridge_tower_far_out_on_a_long_span_is_not_pinned_to_the_approach():
+    # A cable car crossing a ridge 1.5 km out: the rope bends ~50° over the ridge tower,
+    # far more than the approach's per-tower limit.
+    def g(e, n):
+        n = np.asarray(n, dtype=float)
+        return 3000 + np.maximum(0, 600 - np.abs(n - 1500))
+
+    sups = [
+        sup(0, 3000, 3008, "station"),
+        sup(300, 3000, 3025),
+        sup(1500, 3600, 3625),  # on the crest
+        sup(2700, 3000, 3025),
+        sup(3000, 3000, 3008, "station"),
+    ]
+    lift = make_lift(sups, kind="cable_car")
+    terms = [terminal("bottom", 0, 3000, 1.0), terminal("top", 3000, 3000, -1.0)]
+    smooth_lift(lift, terms, g)
+    crest = [s for s in lift["supports"] if abs(s["north"] - 1500) < 50]
+    assert len(crest) == 1
+    assert crest[0]["top"] == 3625 and not crest[0].get("adjusted")

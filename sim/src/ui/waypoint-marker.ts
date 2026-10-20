@@ -27,6 +27,7 @@ export class WaypointMarker {
   private readonly view = new Vector3();
   private waypoint: Waypoint | null = null;
   private ground = 0;
+  private hidden = false;
 
   constructor(
     scene: Scene,
@@ -65,9 +66,15 @@ export class WaypointMarker {
     return this.waypoint;
   }
 
+  /** Hidden with the HUD (H): the beam and pin go, the marker stays set. */
+  setHidden(hidden: boolean): void {
+    this.hidden = hidden;
+    this.beam.visible = !!this.waypoint && !hidden;
+  }
+
   set(w: Waypoint | null): void {
     this.waypoint = w;
-    this.beam.visible = !!w;
+    this.beam.visible = !!w && !this.hidden;
     this.el.hidden = !w;
     if (this.hint) this.hint.hidden = !w;
     if (!w) return;

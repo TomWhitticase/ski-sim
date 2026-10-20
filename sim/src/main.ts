@@ -66,6 +66,10 @@ import {
   runLabel,
 } from './pistes/pistes';
 import { loadPose, type Pose, savePose } from './nav/pose';
+import { showCredits } from './ui/credits';
+import { BodyMarker } from './ui/body-marker';
+import { DisplayMenu, type WorldToggle } from './ui/display-menu';
+import { applyDisplay, loadDisplay, saveDisplay } from './ui/display-settings';
 import { Hud } from './ui/hud';
 import {
   type LabelKind,
@@ -80,11 +84,11 @@ import { SkiSetupMenu } from './ui/ski-setup-menu';
 import { TimeMenu } from './ui/time-menu';
 import { Minimap } from './ui/minimap';
 import { WorldMap } from './ui/world-map';
-import { Pegman } from './controls/pegman';
 import { SkyTransition } from './nav/sky-transition';
-import { sampleAvatar } from './net/local-avatar';
+import { addSpirit, sampleAvatar } from './net/local-avatar';
 import { Multiplayer } from './net/multiplayer';
-import { parseRoomCode } from './net/room';
+import { cleanName, loadName, NAME_KEY, parseRoomCode } from './net/room';
+import { MultiplayerMenu } from './ui/multiplayer-menu';
 
 declare global {
   interface Window {
@@ -169,6 +173,8 @@ async function main(): Promise<void> {
   let load: (id: string) => void = () => {};
   const chosen = new Promise<string>((resolve) => (load = resolve));
   let loaded = false;
+  // Chose "Host a game" before choosing where: open one once the map's ready.
+  let hostAfterLoad = params.get('host') === '1';
   const menu: MainMenu = new MainMenu($('#overlay'), {
     onSelect: (id) => {
       manifestOf(id).then(
@@ -177,42 +183,95 @@ async function main(): Promise<void> {
             id,
             m.bases ?? [],
             (id === suggested && params.has('at')) || loadPose(localStorage, id) !== null,
+            m.minimap.extent,
             id === suggested ? params.get('start') : null,
           ),
         (e: unknown) => menu.setStartsMessage(id, e instanceof Error ? e.message : String(e)),
       );
     },
-    onLoad: (id, choice) => {
-      if (!loaded) return load(id);
+    onLoad: (id, _choice, { host }) => {
+      if (!loaded) {
+        hostAfterLoad ||= host;
+        return load(id);
+      }
       // Another area: a fresh page that loads it straight away, at the chosen start.
-      const url = new URL(location.href);
-      url.search = `?resort=${encodeURIComponent(id)}`;
-      if (choice) url.searchParams.set('start', choice.name);
-      location.href = url.toString();
+      location.href = resortLink(id, _choice?.name ?? null, host);
     },
     onPlay: (choice) => play(choice),
   });
   failLoad = (message) => menu.failed(message);
   menu.setResorts(resorts, suggested);
+  // Returning players: Continue (where they left off) leads the title screen.
+  const lastPlayed = localStorage.getItem(LAST_RESORT_KEY);
+  if (known(lastPlayed)) {
+    const pose = loadPose(localStorage, lastPlayed!);
+    menu.setContinue(
+      lastPlayed,
+      pose
+        ? `Where you left off · ${Math.round(pose.altitude).toLocaleString('en-GB')} m`
+        : 'From the resort start',
+    );
+  }
+  /** A page that loads `id` straight away (at `start`), keeping test/network switches. */
+  const resortLink = (id: string, start: string | null, host: boolean) => {
+    const url = new URL(location.href);
+    url.search = `?resort=${encodeURIComponent(id)}`;
+    if (start) url.searchParams.set('start', start);
+    if (host) url.searchParams.set('host', '1');
+    if (params.get('net')) url.searchParams.set('net', params.get('net')!);
+    return url.toString();
+  };
+  // The Multiplayer screen exists from the start. Until a map's loaded, Host means "choose
+  // where first" and Join loads the game's resort; then `Multiplayer` takes it over.
+  const multiplayerMenu = new MultiplayerMenu(
+    $('#mp-panel'),
+    menu.multiplayer,
+    loadName(localStorage),
+    {
+      host: () => menu.hostFromResort(),
+      join: (code) => {
+        const url = new URL(resortLink(menu.selectedResort ?? suggested, null, false));
+        url.searchParams.set('join', code);
+        location.href = url.toString();
+      },
+      leave: () => {},
+      goTo: () => {},
+      rename: (name) => localStorage.setItem(NAME_KEY, cleanName(name)),
+    },
+  );
+  $('#open-multiplayer').addEventListener('click', () => multiplayerMenu.open());
   let changeSkis: (setup: SkiSetup) => void = () => {};
-  const skiSetup = new SkiSetupMenu($('#ski-setup-modal'), loadSetup(localStorage), (setup) => {
+  const skiSetup = new SkiSetupMenu($('#opt-ski'), loadSetup(localStorage), (setup) => {
     saveSetup(localStorage, setup);
     changeSkis(setup);
   });
   $('#open-ski-setup').addEventListener('click', () => skiSetup.open());
   loadCamera(localStorage);
-  const settingsMenu = new SettingsMenu($('#settings-modal'), () => saveCamera(localStorage));
+  const settingsMenu = new SettingsMenu($('#opt-camera'), () => saveCamera(localStorage));
   $('#open-settings').addEventListener('click', () => settingsMenu.open());
+  loadDisplay(localStorage);
+  applyDisplay();
+  window.addEventListener('resize', () => applyDisplay());
+  // World switches (1–4, V, K) do nothing until a map is loaded (they're disabled till then).
+  let onWorldToggle: (name: WorldToggle) => void = () => {};
+  const displayMenu = new DisplayMenu(
+    $('#opt-display'),
+    (name) => onWorldToggle(name),
+    () => saveDisplay(localStorage),
+  );
 
   if (auto) load(suggested);
   const resortId = await chosen;
   loaded = true;
   localStorage.setItem(LAST_RESORT_KEY, resortId);
-  menu.loading(resortId);
   const manifest = await manifestOf(resortId);
+  // A link's start point (switching areas from the menu carries the choice over).
+  const linkStart = params.get('start');
+  if (linkStart) menu.setLoadChoice(manifest.bases?.find((b) => b.name === linkStart) ?? null);
+  menu.loading(resortId);
   document.title = `${manifest.resort.name} · ski-sim`;
-  $('#attribution').textContent =
-    'Terrain: ' + manifest.provenance.map((p) => p.attribution).join(' · ');
+  // The data credits live in Options → Data & credits.
+  showCredits($('#opt-credits .modal-body'), manifest.provenance);
   // Downloads are the first 80% of the bar; building the world is the rest.
   const downloads = new Downloads((fraction, bytes) =>
     menu.progress(`Downloading map data · ${formatBytes(bytes)}`, fraction * 0.8),
@@ -226,6 +285,7 @@ async function main(): Promise<void> {
     pisteData,
     pisteOverlay,
     pisteLookupPixels,
+    ungroomedPixels,
     litPixels,
     nearCoverPixels,
     farCoverPixels,
@@ -236,6 +296,9 @@ async function main(): Promise<void> {
     fetchJson<PisteData>(resortUrl(resortId, manifest.pistes.file), get),
     loadPixels(resortUrl(resortId, manifest.pistes.overlay.file), get),
     loadPixels(resortUrl(resortId, manifest.pistes.lookup.file), get),
+    manifest.pistes.ungroomed
+      ? loadPixels(resortUrl(resortId, manifest.pistes.ungroomed.file), get)
+      : null,
     litMeta ? loadPixels(resortUrl(resortId, litMeta.file), get) : null,
     loadPixels(resortUrl(resortId, manifest.landCover.near.file), get),
     loadPixels(resortUrl(resortId, manifest.landCover.far.file), get),
@@ -284,7 +347,7 @@ async function main(): Promise<void> {
   const { lat: originLat, lon: originLon } = manifest.origin;
   const environment = new Environment(scene, simDate(clock.seconds), originLat, originLon);
   const timeMenu = new TimeMenu(
-    $('#time-modal'),
+    $('#opt-time'),
     clock,
     dayPresets((t) => sunPosition(simDate(t), originLat, originLon).elevation),
     () => environment.sun.elevation,
@@ -295,7 +358,6 @@ async function main(): Promise<void> {
       multiplayer.clockChanged();
     },
   );
-  $('#open-time').addEventListener('click', () => timeMenu.open());
   // The time above the minimap (with the clock speed unless it's real time).
   const clockTime = $('#clock [data-time]');
   const clockRate = $('#clock [data-rate]');
@@ -317,6 +379,7 @@ async function main(): Promise<void> {
       snowDetail: true,
       pistes: {
         overlay: overlayTexture(pisteOverlay),
+        ungroomed: ungroomedPixels ? overlayTexture(ungroomedPixels) : undefined,
         tint: pisteTint,
         floodlit:
           litMeta && litPixels
@@ -506,7 +569,7 @@ async function main(): Promise<void> {
   farTerrain.update(camera.position, Infinity);
   forest?.update(camera);
 
-  const hud = new Hud($('#hud'), $('#run'), $('#toggles'), $('#fly-speed'));
+  const hud = new Hud($('#hud'));
   const minimap = await Minimap.load(
     $<HTMLCanvasElement>('#minimap canvas'),
     resortUrl(resortId, manifest.minimap.file),
@@ -529,8 +592,7 @@ async function main(): Promise<void> {
   );
   const sound = new Sound(!prefs.sound);
   const sky = new SkyTransition($('#sky-flash'), (up) => sound.whoosh(up));
-  const pegman = new Pegman();
-  scene.add(pegman.root);
+  let hudShown = prefs.hud;
   const savePrefs = () =>
     localStorage.setItem(
       PREFS_KEY,
@@ -538,28 +600,50 @@ async function main(): Promise<void> {
         lift: labels.isVisible('lift'),
         peak: labels.isVisible('peak'),
         restaurant: labels.isVisible('restaurant'),
-        pistes: pisteTint.value > 0,
+        pistes: pisteColours,
         sound: !sound.isMuted,
+        hud: hudShown,
       }),
     );
+  /** A display toggle changed: the Display tab's switch, and a short message in game. */
+  const showToggle = (name: WorldToggle, on: boolean, announce: boolean) => {
+    displayMenu.set(name, on);
+    hud.setToggle(name, on, announce && input.locked);
+  };
   const toggleLabels = (kind: LabelKind) => {
     labels.setVisible(kind, !labels.isVisible(kind));
-    hud.setToggle(kind, labels.isVisible(kind));
+    showToggle(kind, labels.isVisible(kind), true);
     savePrefs();
   };
+  // Piste colours are drawn while chosen (3) and the HUD is shown (H hides them too).
+  let pisteColours = prefs.pistes;
+  const applyPisteColours = () => (pisteTint.value = pisteColours && hudShown ? 1 : 0);
   const togglePisteColours = () => {
-    pisteTint.value = pisteTint.value > 0 ? 0 : 1;
-    hud.setToggle('pistes', pisteTint.value > 0);
+    pisteColours = !pisteColours;
+    applyPisteColours();
+    showToggle('pistes', pisteColours, true);
+    savePrefs();
+  };
+  /** H: full immersion. Every overlay goes: HUD, labels, markers, piste colours. */
+  const toggleHud = () => {
+    hudShown = !hudShown;
+    showToggle('hud', hudShown, true);
+    applyPisteColours();
+    waypoint.setHidden(!hudShown);
     savePrefs();
   };
   const toggleSound = () => {
     sound.setMuted(!sound.isMuted);
+    showToggle('sound', !sound.isMuted, true);
     savePrefs();
   };
-  hud.setToggle('lift', labels.isVisible('lift'));
-  hud.setToggle('peak', labels.isVisible('peak'));
-  hud.setToggle('restaurant', labels.isVisible('restaurant'));
-  hud.setToggle('pistes', pisteTint.value > 0);
+  showToggle('lift', labels.isVisible('lift'), false);
+  showToggle('peak', labels.isVisible('peak'), false);
+  showToggle('restaurant', labels.isVisible('restaurant'), false);
+  showToggle('pistes', pisteColours, false);
+  showToggle('sound', !sound.isMuted, false);
+  showToggle('hud', hudShown, false);
+  applyPisteColours();
   const debug = $('#debug');
   const multiplayer = new Multiplayer(
     {
@@ -567,7 +651,10 @@ async function main(): Promise<void> {
       resort: resortId,
       tags: $('#labels'),
       groundHeight,
-      sample: (out) => sampleAvatar(mode, { fly, ski, glider, ride, sled }, out),
+      sample: (out) => {
+        sampleAvatar(body ?? mode, { fly, ski, glider, ride, sled }, out);
+        if (body) addSpirit(out, fly);
+      },
       lifts,
       clock,
       timeChanged: () => {
@@ -577,7 +664,7 @@ async function main(): Promise<void> {
       },
       goTo: (at) => {
         // On the snow a few metres from them, looking their way.
-        if (mode === 'ride') setMode('ski');
+        if (mode === 'ride' || mode === 'fly') setMode('ski'); // your skier lands there
         const pose = groundedPose(
           { east: at.x - 4, north: -at.z, altitude: at.y, heading: 90, pitch: 0 },
           (east, north) => groundHeight(east, -north),
@@ -595,11 +682,11 @@ async function main(): Promise<void> {
         ride.fastForward = !multiplayer.active; // the lift clock is shared
       },
     },
-    $('#multiplayer-modal'),
+    multiplayerMenu,
     params.get('net') === 'loopback' ? 'loopback' : 'webrtc',
     parseRoomCode(params.get('join') ?? ''),
+    hostAfterLoad,
   );
-  $('#open-multiplayer').addEventListener('click', () => multiplayer.menu.open());
 
   // Teleports reset the speed readout so the jump doesn't register as motion.
   let speedReset = true;
@@ -671,6 +758,7 @@ async function main(): Promise<void> {
     (marker) => setWaypoint(marker),
   );
   // The guide marker placed on the map (left click): a beam and an on-screen pin.
+  const bodyMarker = new BodyMarker($('#labels'));
   const waypoint = new WaypointMarker(scene, $('#labels'), groundHeight, $('#marker-hint'));
   const setWaypoint = (w: { east: number; north: number } | null) => {
     waypoint.set(w);
@@ -679,21 +767,73 @@ async function main(): Promise<void> {
     saveWaypoint(localStorage, resortId, w);
   };
   setWaypoint(loadWaypoint(localStorage, resortId));
+  waypoint.setHidden(!hudShown);
   // Third person unless you've chosen first (V).
   let view: 'first-person' | 'chase' =
     localStorage.getItem(VIEW_KEY) === 'first-person' ? 'first-person' : 'chase';
-  const setView = (next: typeof view) => {
+  const setView = (next: typeof view, announce = false) => {
     view = next;
-    fly.view = view;
     ski.setView(view);
     glider.setView(view);
     sled.setView(view);
     document.body.classList.toggle('chase', view === 'chase');
-    hud.setToggle('view', view === 'first-person');
+    showToggle('view', view === 'first-person', announce);
     localStorage.setItem(VIEW_KEY, view);
   };
   setView(view);
+  onWorldToggle = (name) => {
+    if (name === 'view') setView(view === 'first-person' ? 'chase' : 'first-person');
+    else if (name === 'pistes') togglePisteColours();
+    else if (name === 'sound') toggleSound();
+    else if (name === 'hud') toggleHud();
+    else toggleLabels(name);
+  };
+  /**
+   * Out of body: flying (F) leaves the skier you were (on skis, a paraglider or the
+   * snowmobile) frozen where it was, and you fly about without one. F puts you back in it,
+   * moving as it was; R (or any other way out of fly mode) brings it to you instead.
+   */
+  let body: 'ski' | 'glide' | 'sled' | null = null;
+  /** Your frozen skier's head (world), for its tag and map dot. */
+  const bodyHead = new Vector3();
+  const bodyPosition = () =>
+    body === 'ski'
+      ? ski.skier.position
+      : body === 'glide'
+        ? glider.position
+        : body === 'sled'
+          ? sled.parts.root.position
+          : null;
+  /** Leave the frozen skier behind for good (it's coming to you instead). */
+  const dropBody = () => {
+    if (body === 'sled') sled.setActive(false); // parked where it was
+    body = null;
+  };
+  /** Show the modes' models: the active one, plus your frozen skier while flying. */
+  const activate = () => {
+    ski.setActive(mode === 'ski' || mode === 'ride');
+    glider.setActive(mode === 'glide');
+    if (body !== 'sled') sled.setActive(mode === 'sled');
+    if (body === 'ski') ski.showFrozen();
+    else if (body === 'glide') glider.showFrozen();
+    else if (body === 'sled') sled.showFrozen();
+    trails.break(); // don't join this mode's tracks to the last one's
+    hud.setMode(mode);
+    hud.setFlyKeys(mode === 'fly' ? (body ? 'body' : 'free') : null);
+    document.body.classList.toggle('skiing', mode !== 'fly');
+    speedReset = true;
+    localStorage.setItem(MODE_KEY, mode);
+  };
+  /** F while flying: back into your skier, as and where you left it. */
+  const returnToBody = () => {
+    if (!body) return;
+    mode = body;
+    body = null;
+    activate();
+    persistPose();
+  };
   const setMode = (next: Mode) => {
+    if (mode === 'fly') dropBody();
     const pose = currentPose();
     // Ski and glide poses track the feet; fly mode's is the eye.
     const eye = mode === 'fly' ? pose : { ...pose, altitude: pose.altitude + EYE_HEIGHT };
@@ -720,6 +860,16 @@ async function main(): Promise<void> {
     }
     const look = controls().look;
     const previous = mode;
+    if (next === 'fly' && (previous === 'ski' || previous === 'glide' || previous === 'sled')) {
+      // Out of body: float up out of where the camera is (behind and above you in
+      // third person; just back from your head in first person).
+      body = previous;
+      const cam = camera.position;
+      const back = view === 'first-person' ? 2.5 : 0;
+      eye.east = cam.x + Math.sin(look.yaw) * back;
+      eye.north = -(cam.z + Math.cos(look.yaw) * back);
+      eye.altitude = cam.y + (view === 'first-person' ? 0.8 : 0);
+    }
     mode = next;
     if (mode === 'ski') {
       if (previous === 'fly') {
@@ -739,16 +889,10 @@ async function main(): Promise<void> {
       if (sled.canRemount(feet)) sled.remount(look.pitch);
       else sled.mount(feet, velocity, look.yaw, look.pitch);
     }
-    ski.setActive(mode === 'ski' || mode === 'ride');
-    glider.setActive(mode === 'glide');
-    sled.setActive(mode === 'sled');
-    trails.break(); // don't join this mode's tracks to the last one's
-    hud.setMode(mode);
-    document.body.classList.toggle('skiing', mode !== 'fly');
-    speedReset = true;
-    localStorage.setItem(MODE_KEY, mode);
+    activate();
   };
   hud.setMode(mode);
+  hud.setFlyKeys(mode === 'fly' ? 'free' : null);
   document.body.classList.toggle('skiing', mode !== 'fly');
   let nearTower = false;
   /** E: straight onto the loading point, to wait for the next carrier. */
@@ -768,6 +912,7 @@ async function main(): Promise<void> {
   const unload = () => {
     const { feet, velocity, heading } = ride.release();
     ride.leave();
+    lifts.steppedOff = ride.line;
     sound.thump(2.5);
     mode = 'ski';
     ski.place(
@@ -787,8 +932,12 @@ async function main(): Promise<void> {
   const closeMap = (resumeFlying: boolean) => {
     worldMap.close();
     document.body.classList.remove('map-open');
-    // Closing from a click or key press counts as a user gesture, so pointer lock is allowed.
-    if (resumeFlying) void input.lock();
+    // Closing from a click or key press counts as a user gesture, so pointer lock (and
+    // audio, if the map was opened from the main menu before pressing Start) is allowed.
+    if (resumeFlying) {
+      sound.start();
+      void input.lock();
+    }
   };
 
   window.addEventListener('resize', () => {
@@ -798,8 +947,22 @@ async function main(): Promise<void> {
   });
   document.addEventListener('pointerlockchange', () => {
     document.body.classList.toggle('flying', input.locked);
+    if (input.locked) menu.resumed();
   });
-  // Ctrl sprints, but Ctrl+W closes the tab on Windows/Linux and can't be intercepted.
+  $('#pause-map').addEventListener('click', openMap);
+  $('#pause-options').addEventListener('click', () => settingsMenu.open());
+  $('#pause-multiplayer').addEventListener('click', () => multiplayer.menu.open());
+  // On the pause menu: the game you're in, if any.
+  document.addEventListener('pointerlockchange', () => {
+    if (input.locked) return;
+    const d = multiplayer.debug;
+    menu.setPauseNote(
+      d.code
+        ? `${d.role === 'host' ? 'Hosting' : 'In'} game ${d.code} · ${d.players.length} ${d.players.length === 1 ? 'player' : 'players'}`
+        : null,
+    );
+  });
+  // Ctrl tucks, but Ctrl+W closes the tab on Windows/Linux and can't be intercepted.
   // Ask before leaving instead. (On macOS Ctrl+W does nothing, so skip the prompt.)
   if (!/Mac|iPhone|iPad/.test(navigator.userAgent)) {
     window.addEventListener('beforeunload', (e) => {
@@ -808,52 +971,22 @@ async function main(): Promise<void> {
   }
   window.addEventListener('pagehide', persistPose);
   document.addEventListener('visibilitychange', persistPose);
+  const hubKeys: Record<string, { toggle(): void }> = {
+    KeyG: skiSetup,
+    KeyT: timeMenu,
+    KeyO: settingsMenu,
+    KeyN: multiplayer.menu,
+  };
   document.addEventListener('keydown', (e) => {
-    if (e.target instanceof HTMLInputElement) return; // typing in the map search box
-    if (
-      e.code === 'KeyN' &&
-      !e.repeat &&
-      !worldMap.isOpen &&
-      !skiSetup.isOpen &&
-      !timeMenu.isOpen &&
-      !settingsMenu.isOpen
-    ) {
+    // Typing in the map search box or a name field (a focused checkbox or slider isn't).
+    // Esc still closes the map from its search box.
+    const typing = e.target instanceof HTMLInputElement && !NON_TEXT_INPUTS.has(e.target.type);
+    if (typing && !(e.code === 'Escape' && worldMap.isOpen)) return;
+    // G / T / O / N open their Options tab (or close the hub if it's already on it).
+    const tab = !e.repeat && !worldMap.isOpen ? hubKeys[e.code] : undefined;
+    if (tab) {
       if (document.pointerLockElement) document.exitPointerLock();
-      multiplayer.menu.toggle();
-      return;
-    }
-    if (document.querySelector('#multiplayer-modal[open]')) return;
-    if (
-      e.code === 'KeyG' &&
-      !e.repeat &&
-      !worldMap.isOpen &&
-      !timeMenu.isOpen &&
-      !settingsMenu.isOpen
-    ) {
-      if (document.pointerLockElement) document.exitPointerLock();
-      skiSetup.toggle();
-      return;
-    }
-    if (
-      e.code === 'KeyT' &&
-      !e.repeat &&
-      !worldMap.isOpen &&
-      !skiSetup.isOpen &&
-      !settingsMenu.isOpen
-    ) {
-      if (document.pointerLockElement) document.exitPointerLock();
-      timeMenu.toggle();
-      return;
-    }
-    if (
-      e.code === 'KeyO' &&
-      !e.repeat &&
-      !worldMap.isOpen &&
-      !skiSetup.isOpen &&
-      !timeMenu.isOpen
-    ) {
-      if (document.pointerLockElement) document.exitPointerLock();
-      settingsMenu.toggle();
+      tab.toggle();
       return;
     }
     if (document.querySelector('dialog[open]')) return; // a menu dialog has the keyboard
@@ -879,15 +1012,24 @@ async function main(): Promise<void> {
         if (near) boardLift(near.line, near.down);
       }
     } else if (e.code === 'KeyF' && !e.repeat && !worldMap.isOpen) {
-      setMode(mode === 'fly' ? 'ski' : 'fly');
+      // F: out of your body to fly, and back into it; with no body to go back to, land.
+      if (mode === 'fly') {
+        if (body) returnToBody();
+        else setMode('ski');
+      } else if (mode !== 'ride') {
+        setMode('fly'); // not off a lift: you'd leave your body hanging on the chair
+      }
+    } else if (e.code === 'KeyR' && !e.repeat && !worldMap.isOpen && mode === 'fly') {
+      setMode('ski'); // your skier comes to the ground below you
     } else if (e.code === 'KeyP' && !e.repeat && !worldMap.isOpen) {
       // Deploy the paraglider (keeping your momentum), or drop it and ski.
       setMode(mode === 'glide' ? 'ski' : 'glide');
     } else if (e.code === 'KeyB' && !e.repeat && !worldMap.isOpen && mode !== 'ride') {
       // Get on a snowmobile (keeping your momentum), or step off it onto your skis.
       setMode(mode === 'sled' ? 'ski' : 'sled');
-    } else if (e.code === 'KeyV' && !e.repeat) {
-      setView(view === 'first-person' ? 'chase' : 'first-person');
+    } else if (e.code === 'KeyV' && !e.repeat && mode !== 'fly') {
+      // Flying is always a free camera: there's no first or third person.
+      setView(view === 'first-person' ? 'chase' : 'first-person', true);
     } else if (e.code === 'F3') {
       e.preventDefault();
       debug.hidden = !debug.hidden;
@@ -899,6 +1041,8 @@ async function main(): Promise<void> {
       togglePisteColours();
     } else if ((e.code === 'Digit4' || e.code === 'Numpad4') && !e.repeat) {
       toggleLabels('restaurant');
+    } else if (e.code === 'KeyH' && !e.repeat) {
+      toggleHud();
     } else if (e.code === 'KeyK' && !e.repeat) {
       toggleSound();
     }
@@ -992,7 +1136,7 @@ async function main(): Promise<void> {
         const l = lifts.lines[near.line]!;
         const vertical = `${Math.round(l.lift.vertical)} m ${near.down ? 'down' : 'up'}`;
         text =
-          !near.down && l.inLoadingZone(p)
+          !near.down && l.inLoadingZone(p) && lifts.steppedOff !== near.line
             ? `${l.name} loading point · wait here to be picked up (or press E)`
             : `E — ride ${l.name}${near.down ? ' down' : ''} (${liftTypeName(l.lift.type)}, ${vertical})`;
       } else if (mode === 'ski' && sled.canRemount(p)) {
@@ -1001,7 +1145,15 @@ async function main(): Promise<void> {
     }
     if (text !== promptText) {
       promptText = text;
-      prompt.textContent = text;
+      // "E — ride …" shows its key as a keycap.
+      const key = /^([A-Z]) — (.*)$/.exec(text);
+      if (key) {
+        const kbd = document.createElement('kbd');
+        kbd.textContent = key[1]!;
+        prompt.replaceChildren(kbd, key[2]!);
+      } else {
+        prompt.textContent = text;
+      }
       prompt.hidden = !text;
     }
   };
@@ -1087,22 +1239,10 @@ async function main(): Promise<void> {
     }
     if (mode !== 'sled') sled.idle(dt); // a parked sled settles where you left it
     updateLiftSound();
-    if (mode === 'fly') {
-      // Third-person flying shows the yellow Street View man where you are.
-      ski.skier.visible = false;
-      if (view === 'chase') {
-        const top = fly.speed * FLY.sprintMultiplier;
-        pegman.update(dt, fly.position, fly.look.yaw, fly.currentVelocity, top);
-      } else {
-        pegman.hide();
-      }
-    } else {
-      pegman.hide();
-    }
+    if (mode === 'fly') ski.skier.visible = body === 'ski'; // no body of your own in fly mode
     hud.setFlySpeed(
-      mode === 'fly' ? fly.speed * (fly.sprinting ? FLY.sprintMultiplier : 1) : null,
+      mode === 'fly' ? fly.speed : null,
       Math.log(fly.speed / FLY.minSpeed) / Math.log(FLY.maxSpeed / FLY.minSpeed),
-      fly.sprinting,
     );
     input.endFrame();
     // Your position (fly eye or skier's feet), not the camera, which may be behind you.
@@ -1160,9 +1300,25 @@ async function main(): Promise<void> {
               ? sled.speed
               : speed;
     updateSnowFx(dt, ownSpeed);
-    hud.update({ altitude: here.y, lat, lon, speed: ownSpeed });
+    const heading = controls().heading;
+    const ground = groundHeight(here.x, here.z);
+    // Slope underfoot from the ground either side (2 m), only near the snow.
+    const slope =
+      here.y - ground < 60
+        ? (Math.atan(
+            Math.hypot(
+              groundHeight(here.x + 2, here.z) - groundHeight(here.x - 2, here.z),
+              groundHeight(here.x, here.z + 2) - groundHeight(here.x, here.z - 2),
+            ) / 4,
+          ) *
+            180) /
+          Math.PI
+        : null;
+    const w = waypoint.current;
+    hud.setMarker(w ? (Math.atan2(w.east - east, w.north - north) * 180) / Math.PI : null);
+    hud.update({ altitude: here.y, lat, lon, speed: ownSpeed, heading, slope });
     // Which run is underfoot (only meaningful near the snow).
-    const nearSnow = here.y - groundHeight(here.x, here.z) < 60;
+    const nearSnow = here.y - ground < 60;
     const piste = nearSnow ? pisteLookup.at(east, north) : null;
     hud.setPiste(
       mode === 'ride'
@@ -1173,8 +1329,18 @@ async function main(): Promise<void> {
             ? { name: runLabel(piste), colour: pisteColour(piste) }
             : { name: 'Off-piste', colour: null },
     );
-    minimap.players = multiplayer.dots;
-    worldMap.setPlayers(multiplayer.dots);
+    // Out of body: your frozen skier gets a tag, and a white dot on the maps.
+    const left = bodyPosition();
+    if (left) bodyHead.set(left.x, left.y + 2.2, left.z);
+    bodyMarker.update(camera, left ? bodyHead : null, here);
+    const dots = left
+      ? [
+          ...multiplayer.dots,
+          { east: left.x, north: -left.z, colour: '#ffffff', name: 'Your skier' },
+        ]
+      : multiplayer.dots;
+    minimap.players = dots;
+    worldMap.setPlayers(dots);
     minimap.draw(east, north, controls().heading);
     updatePrompt();
     labels.update(camera);
@@ -1196,7 +1362,7 @@ async function main(): Promise<void> {
             ? `heading ${sled.sledHeading.toFixed(1)}° · sled ${(sled.speed * 3.6).toFixed(0)} km/h · ${Math.round(sled.rpm)} rpm${sled.airborne ? ' (air)' : ''}${sled.inPowder ? ' · powder' : ''}`
             : mode === 'ski'
               ? `heading ${ski.heading.toFixed(1)}° · ski ${(ski.speed * 3.6).toFixed(0)} km/h${ski.airborne ? ' (air)' : ''} · ${ski.view}`
-              : `heading ${fly.heading.toFixed(1)}° · fly speed ${fly.speed.toFixed(0)} m/s${fly.sprinting ? ' (sprint)' : ''}`,
+              : `heading ${fly.heading.toFixed(1)}° · fly speed ${fly.speed.toFixed(0)} m/s`,
         `sun az ${environment.sun.azimuth.toFixed(1)}° el ${environment.sun.elevation.toFixed(1)}°`,
       ].join('\n');
     }
@@ -1232,6 +1398,7 @@ const MODE_KEY = 'ski-sim.mode';
 /** Width of the groove each snowmobile ski's keel cuts (m). */
 const SLED_SKI_GROOVE = 0.1;
 const VIEW_KEY = 'ski-sim.view';
+const NON_TEXT_INPUTS = new Set(['checkbox', 'radio', 'range']);
 
 function loadMode(): Mode {
   // A reload mid-flight drops you into ski mode (you fall and land); sledders keep the sled.
@@ -1248,11 +1415,19 @@ interface Prefs {
   restaurant: boolean;
   pistes: boolean;
   sound: boolean;
+  hud: boolean;
 }
 
 function loadPrefs(): Prefs {
   // Markers start off: a clean view until you turn them on (1-4).
-  const defaults = { lift: false, peak: false, restaurant: false, pistes: false, sound: true };
+  const defaults = {
+    lift: false,
+    peak: false,
+    restaurant: false,
+    pistes: false,
+    sound: true,
+    hud: true,
+  };
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') };
   } catch {

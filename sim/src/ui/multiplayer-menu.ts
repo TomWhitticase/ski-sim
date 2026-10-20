@@ -1,5 +1,5 @@
 import { CODE_LENGTH, parseRoomCode } from '../net/room';
-import { Modal } from './modal';
+import type { ScreenControl } from './main-menu';
 
 export interface MultiplayerView {
   /** Not in a game: null. */
@@ -21,10 +21,12 @@ export interface MultiplayerActions {
 }
 
 /**
- * Multiplayer: your name, host a game (a code and an invite link to share) or join one
- * with a code, then who's playing and a way to leave. The networking lives in `net/`.
+ * Multiplayer (its own menu screen, from the title and the pause menu, or N): your name,
+ * host a game (a code and an invite link to share) or join one with a code, then who's
+ * playing and a way to leave. The networking lives in `net/`; before a map is loaded,
+ * main.ts gives it actions that pick a resort to host from or load the game to join.
  */
-export class MultiplayerMenu extends Modal {
+export class MultiplayerMenu {
   private readonly nameInput: HTMLInputElement;
   private readonly codeInput: HTMLInputElement;
   private readonly lobby: HTMLElement;
@@ -37,8 +39,13 @@ export class MultiplayerMenu extends Modal {
   private readonly hostButton: HTMLButtonElement;
   private shownPlayers = '';
 
-  constructor(el: HTMLDialogElement, name: string, actions: MultiplayerActions) {
-    super(el);
+  constructor(
+    readonly el: HTMLElement,
+    private readonly screen: ScreenControl,
+    name: string,
+    /** What the buttons do (swapped once the multiplayer session exists). */
+    public actions: MultiplayerActions,
+  ) {
     const body = el.querySelector<HTMLElement>('.modal-body')!;
     body.innerHTML = `
       <section>
@@ -48,12 +55,12 @@ export class MultiplayerMenu extends Modal {
       <section class="mp-lobby">
         <h3>Play with friends</h3>
         <div class="mp-row">
-          <button class="menu-primary mp-host" type="button">Host a game</button>
+          <button class="btn btn-primary mp-host" type="button">Host a game</button>
           <span class="setup-hint">Get a code to share. Your browser relays everyone, so keep this tab open.</span>
         </div>
         <div class="mp-row">
           <input class="mp-input mp-code-input" name="room-code" placeholder="Code" maxlength="${CODE_LENGTH + 2}" autocomplete="off" spellcheck="false" />
-          <button class="menu-action mp-join" type="button">Join</button>
+          <button class="btn mp-join" type="button">Join</button>
         </div>
       </section>
       <section class="mp-room" hidden>
@@ -61,11 +68,11 @@ export class MultiplayerMenu extends Modal {
         <div class="mp-row">
           <span class="mp-code"></span>
           <input class="mp-input mp-link" name="invite-link" readonly />
-          <button class="menu-action mp-copy" type="button">Copy invite link</button>
+          <button class="btn mp-copy" type="button">Copy invite link</button>
         </div>
         <h3>Players</h3>
         <ul class="mp-players"></ul>
-        <button class="menu-action mp-leave" type="button">Leave game</button>
+        <button class="btn mp-leave" type="button">Leave game</button>
       </section>
       <p class="mp-status" role="status"></p>
       <p class="setup-hint">
@@ -75,7 +82,7 @@ export class MultiplayerMenu extends Modal {
     const $ = <T extends HTMLElement>(s: string) => body.querySelector<T>(s)!;
     this.nameInput = $('[name="player-name"]');
     this.nameInput.value = name;
-    this.nameInput.addEventListener('change', () => actions.rename(this.nameInput.value));
+    this.nameInput.addEventListener('change', () => this.actions.rename(this.nameInput.value));
     this.codeInput = $('.mp-code-input');
     this.lobby = $('.mp-lobby');
     this.room = $('.mp-room');
@@ -85,10 +92,10 @@ export class MultiplayerMenu extends Modal {
     this.statusEl = $('.mp-status');
     this.hostButton = $('.mp-host');
     this.joinButton = $('.mp-join');
-    this.hostButton.addEventListener('click', () => actions.host());
+    this.hostButton.addEventListener('click', () => this.actions.host());
     const join = () => {
       const code = parseRoomCode(this.codeInput.value);
-      if (code) actions.join(code);
+      if (code) this.actions.join(code);
       else
         this.render({
           ...EMPTY,
@@ -107,11 +114,28 @@ export class MultiplayerMenu extends Modal {
         () => this.flash('Select the link and copy it'),
       );
     });
-    $('.mp-leave').addEventListener('click', () => actions.leave());
+    $('.mp-leave').addEventListener('click', () => this.actions.leave());
     this.playersEl.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLElement>('[data-go]');
-      if (b) actions.goTo(Number(b.dataset.go));
+      if (b) this.actions.goTo(Number(b.dataset.go));
     });
+  }
+
+  get isOpen(): boolean {
+    return this.screen.isOpen();
+  }
+
+  open(): void {
+    this.screen.open();
+  }
+
+  close(): void {
+    this.screen.close();
+  }
+
+  toggle(): void {
+    if (this.isOpen) this.close();
+    else this.open();
   }
 
   get name(): string {

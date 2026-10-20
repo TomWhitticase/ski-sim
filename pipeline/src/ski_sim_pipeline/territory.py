@@ -4,7 +4,9 @@ The near terrain reaches past the resort's `bounds` (snapped outward, and the bo
 themselves are a padded box), so it often takes in the edge of the next resort along.
 OSM maps ski areas as `landuse=winter_sports` outlines: ours are the ones centred inside
 our bounds, the rest are neighbours. A point is ours if it's in one of our outlines, or
-inside our bounds and not in a neighbour's.
+inside our bounds and not in a neighbour's. A lift with a station in a neighbour's
+outline is theirs even if its other end reaches our ground (a link into a shared summit
+station, like Courmayeur's Skyway arriving at Pointe Helbronner).
 """
 
 from __future__ import annotations
@@ -33,6 +35,15 @@ class Territory:
         if not self.bounds.contains(east, north):
             return False
         return self._neighbours is None or not self._neighbours.contains(p)
+
+    def neighbours(self, east: float, north: float) -> bool:
+        """In a neighbouring ski area's outline (and not one of ours)."""
+        if self._neighbours is None:
+            return False
+        p = Point(east, north)
+        return self._neighbours.contains(p) and not (
+            self._own is not None and self._own.contains(p)
+        )
 
 
 def from_osm(elements: list[dict], frame: LocalFrame, bounds: Extent) -> Territory:

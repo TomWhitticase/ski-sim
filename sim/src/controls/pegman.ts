@@ -29,15 +29,16 @@ export class Pegman {
   private lean = 0;
   private bank = 0;
   private time = 0;
+  private readonly material: MeshStandardNodeMaterial;
 
   constructor() {
     // A little self-lit, so he stays the bright map-icon yellow in shade and at dusk.
-    const material = new MeshStandardNodeMaterial({
+    const material = (this.material = new MeshStandardNodeMaterial({
       color: YELLOW,
       emissive: YELLOW,
       emissiveIntensity: 0.25,
       roughness: 0.45,
-    });
+    }));
     const part = (geometry: CapsuleGeometry | SphereGeometry, parent: Object3D) => {
       const mesh = new Mesh(geometry, material);
       mesh.castShadow = true;
@@ -94,6 +95,18 @@ export class Pegman {
     // Arms out a little, as in the map icon.
     this.arms[0]!.rotation.z = -0.55 - Math.sin(this.time * 1.7) * 0.05;
     this.arms[1]!.rotation.z = 0.55 + Math.sin(this.time * 1.7) * 0.05;
+  }
+
+  /** See-through (< 1) for a player flying out of body. */
+  setOpacity(opacity: number): void {
+    if (this.material.opacity === opacity) return;
+    this.material.opacity = opacity;
+    const transparent = opacity < 1;
+    if (this.material.transparent !== transparent) {
+      this.material.transparent = transparent;
+      this.material.depthWrite = !transparent;
+      this.material.needsUpdate = true;
+    }
   }
 
   hide(): void {

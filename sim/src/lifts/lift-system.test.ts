@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Lift } from '../features/types';
-import { LiftLine } from './lift-system';
+import { LiftLine, LiftSystem } from './lift-system';
 
 const terminal = (end: 'bottom' | 'top', north: number, dirN: number, pad: number) => ({
   end,
@@ -105,5 +105,37 @@ describe('LiftLine both ways', () => {
     expect(c.nextToLoad(0, true).carrier).toBe(1);
     const at = c.pose(1, 0, c.down!.loadPoint.clone(), c.down!.loadPoint.clone());
     expect(at.distance).toBeCloseTo(c.op.length); // docked at the top when cabin 0 boards
+  });
+});
+
+describe('LiftSystem.scoop', () => {
+  const gondola = {
+    ...lift,
+    type: 'gondola',
+    occupancy: 8,
+    terminals: lift.terminals.map((t) => ({ ...t, kind: 'gondola' as const })),
+  } as Lift;
+  // Flat pads at the terminals, so the load-time checks pass.
+  const system = new LiftSystem([gondola], (_x, z) => (z > -500 ? 2000 : 2300));
+  const line = system.lines[0]!;
+  /** Run the lift clock until a cabin reaches the loading point; whether it took `feet`. */
+  const nextCabin = (feet: { x: number; y: number; z: number }) => {
+    system.update(line.nextToLoad(system.time).inSeconds + 0.01);
+    return system.scoop(feet as never);
+  };
+
+  it('scoops you up in the loading zone as a cabin arrives', () => {
+    expect(nextCabin(line.loadPoint)?.line).toBe(0);
+  });
+
+  it("doesn't take you straight back up after riding down", () => {
+    const off = line.loadingSpot(); // where a rider coming down is let off
+    expect(line.inLoadingZone(off)).toBe(true);
+    system.steppedOff = 0;
+    expect(nextCabin(off)).toBeNull();
+    expect(nextCabin(off)).toBeNull();
+    // Out of the zone and back in: on you get.
+    system.scoop(off.clone().addScaledVector(line.across, 10));
+    expect(nextCabin(off)?.line).toBe(0);
   });
 });

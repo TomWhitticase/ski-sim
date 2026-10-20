@@ -98,6 +98,10 @@ class ResortConfig:
     # The resort's own `bounds` in local metres (None without bounds). The near terrain
     # is snapped outward from it, so it can reach into a neighbouring resort.
     area: Extent | None = None
+    # Ski villages OSM has no place node for (a purpose-built resort village often has
+    # none): treated like OSM villages when finding start points.
+    places: tuple[GeoPoint, ...] = ()
+    place_names: tuple[str, ...] = ()
 
 
 # Defaults that make a resort config just id + name + country + lat/lon bounds.
@@ -105,7 +109,7 @@ DEFAULT_NEAR_CELL = 4.0
 DEFAULT_FAR_CELL = 50.0
 MAX_GRID_SIZE = 8000
 FAR_MARGIN = 55_000.0  # horizon terrain this far beyond the resort area (m)
-NEAR_SOURCES_BY_COUNTRY = {"FR": ("ign-lidar-hd", "ign-rge-alti")}
+NEAR_SOURCES_BY_COUNTRY = {"FR": ("ign-lidar-hd", "ign-rge-alti", "copernicus-glo30")}
 FALLBACK_NEAR_SOURCES = ("copernicus-glo30",)
 # Countries with one time zone. Others (US, CA, ...) should set `timezone` in the resort
 # config; without it the zone is estimated from the longitude.
@@ -251,6 +255,8 @@ def load_resort(path: Path) -> ResortConfig:
             for lm in raw.get("landmarks", [])
         ),
         area=_area(b, origin) if b else None,
+        places=tuple(GeoPoint(p["lat"], p["lon"]) for p in raw.get("places", [])),
+        place_names=tuple(p["name"] for p in raw.get("places", [])),
     )
 
 

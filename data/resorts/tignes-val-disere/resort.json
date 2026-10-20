@@ -1,0 +1,11 @@
+{
+  "id": "tignes-val-disere",
+  "name": "Tignes – Val d'Isère",
+  "country": "FR",
+  "bounds": {
+    "south": 45.3815,
+    "west": 6.8388,
+    "north": 45.5235,
+    "east": 7.0942
+  }
+}

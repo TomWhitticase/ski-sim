@@ -21,6 +21,11 @@ const TAG_DISTANCE = 4000;
 /** Tag height above the feet (m); a pilot's goes above the wing. */
 const TAG_HEIGHT = 2.4;
 const GLIDER_TAG_HEIGHT = 9;
+/** How see-through a player's flying figure is while their skier waits (out of body). */
+const SPIRIT_OPACITY = 0.4;
+/** The flying figure leans fully at this speed (the default fly speed × 3; m/s). */
+const PEGMAN_TOP_SPEED = FLY.speed * 3;
+const ZERO = new Vector3();
 const OCCLUSION_SAMPLES = 32;
 
 /** Tag and minimap colours, by player number. */
@@ -60,6 +65,7 @@ class RemoteAvatar {
   private readonly velocity = new Vector3();
   private readonly rotation = new Quaternion();
   private readonly euler = new Euler(0, 0, 0, 'YXZ');
+  private readonly spirit = new Vector3();
   /** Anchor for the tag (world). */
   readonly head = new Vector3();
   visible = false;
@@ -107,13 +113,20 @@ class RemoteAvatar {
     const skier = mode === 'ski' || mode === 'ride' ? (this.skier ??= this.addSkier()) : null;
     const glider = mode === 'glide' ? (this.glider ??= this.addGlider()) : null;
     const sled = mode === 'sled' ? (this.sled ??= this.addSled()) : null;
-    const pegman = mode === 'fly' ? (this.pegman ??= this.addPegman()) : null;
+    // Flying: the yellow figure; out of body, a see-through one beside their frozen skier.
+    const spirit = (flags & Flag.Spirit) !== 0;
+    const pegman = mode === 'fly' || spirit ? (this.pegman ??= this.addPegman()) : null;
     if (this.skier) this.skier.root.visible = !!skier;
     if (this.glider) this.glider.root.visible = !!glider;
     if (this.sled) this.sled.parts.root.visible = !!sled;
-    if (pegman) {
+    if (pegman && spirit) {
+      this.spirit.fromArray(pose, SLOT.spirit).add(this.position);
+      pegman.setOpacity(SPIRIT_OPACITY);
+      pegman.update(dt, this.spirit, pose[SLOT.spirit + 3]!, ZERO, PEGMAN_TOP_SPEED);
+    } else if (pegman) {
       const yaw = this.euler.setFromQuaternion(this.rotation, 'YXZ').y;
-      pegman.update(dt, this.position, yaw, this.velocity, FLY.speed * FLY.sprintMultiplier);
+      pegman.setOpacity(1);
+      pegman.update(dt, this.position, yaw, this.velocity, PEGMAN_TOP_SPEED);
     } else {
       this.pegman?.hide();
     }

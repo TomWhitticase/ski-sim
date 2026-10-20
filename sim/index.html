@@ -11,38 +11,50 @@
 
     <div id="labels"></div>
 
-    <div id="hud" class="panel"></div>
-
-    <div id="map-side">
-      <div id="clock" class="panel"><span data-time></span><span data-rate></span></div>
-      <div id="minimap" class="panel">
-        <canvas></canvas>
-        <span class="minimap-scale"></span>
+    <!-- In the world: dark glass (theme.css). Everything here ignores the mouse. -->
+    <div id="hud" class="glass-dark">
+      <div id="compass" hidden></div>
+      <div class="hud-side">
+        <div id="minimap" class="glass">
+          <canvas></canvas>
+          <span class="minimap-scale"></span>
+        </div>
+        <div class="glass hud-where">
+          <span id="clock"><span data-time></span><span data-rate></span></span>
+          <span class="hud-coords"
+            ><span data-field="lat"></span><span data-field="lon"></span
+          ></span>
+        </div>
+        <div id="marker-hint" class="glass" hidden>
+          <span class="marker-dot"></span>Marker <span data-distance></span>
+          <span class="marker-key"><kbd>J</kbd> teleport</span>
+        </div>
+        <!-- Quick toggles: always on screen, small, lit when on. -->
+        <div id="toggles"></div>
       </div>
-      <div id="run" class="panel" hidden></div>
-      <div id="toggles" class="panel"></div>
-      <div id="marker-hint" class="panel" hidden>
-        <span class="marker-dot"></span>Marker <span data-distance></span>
-        <span class="marker-key"><kbd>J</kbd> teleport</span>
+      <div class="hud-bottom">
+        <div id="run" class="glass" hidden></div>
+        <div class="glass hud-stats tiles"></div>
       </div>
+      <div class="fly-bottom">
+        <div id="fly-keys" class="glass" hidden></div>
+        <div id="fly-speed" class="glass" hidden></div>
+      </div>
+      <div id="prompt" class="glass" hidden></div>
+      <div id="debug" class="glass" hidden></div>
     </div>
 
     <div id="crosshair"></div>
-
-    <div id="prompt" hidden></div>
-    <div id="fly-speed" hidden></div>
     <div id="sky-flash"></div>
 
-    <div id="debug" class="panel" hidden></div>
-
-    <div id="world-map" hidden>
+    <div id="world-map" class="glass-light" hidden>
       <canvas></canvas>
       <div class="map-cursor" hidden></div>
       <div class="map-scale"></div>
-      <aside class="map-panel">
+      <aside class="map-panel glass">
         <header>
           <h2 class="map-title"></h2>
-          <button class="map-close" title="Close (M)">✕</button>
+          <button class="map-close" title="Close (M)" aria-label="Close">✕</button>
         </header>
         <p class="map-here"></p>
         <input
@@ -51,10 +63,12 @@
           placeholder="Search pistes, lifts, peaks and restaurants…"
         />
         <div class="map-filters">
-          <label><input type="checkbox" data-show="lift" checked /> Lifts</label>
-          <label><input type="checkbox" data-show="piste" checked /> Pistes</label>
-          <label><input type="checkbox" data-show="peak" checked /> Peaks</label>
-          <label><input type="checkbox" data-show="restaurant" checked /> Restaurants</label>
+          <label><input type="checkbox" data-show="lift" checked /><span>Lifts</span></label>
+          <label><input type="checkbox" data-show="piste" checked /><span>Pistes</span></label>
+          <label><input type="checkbox" data-show="peak" checked /><span>Peaks</span></label>
+          <label
+            ><input type="checkbox" data-show="restaurant" checked /><span>Restaurants</span></label
+          >
         </div>
         <ul class="map-places"></ul>
         <p class="map-hint">
@@ -64,219 +78,334 @@
       </aside>
     </div>
 
-    <div id="overlay">
-      <div class="overlay-card menu">
-        <h1>ski-sim</h1>
-        <div class="menu-columns">
-          <section>
-            <h2>Ski area</h2>
-            <div id="menu-resorts" class="menu-list"></div>
-          </section>
-          <section>
-            <h2>Start at</h2>
-            <div id="menu-starts" class="menu-list"></div>
-          </section>
+    <!-- Menus: light glass, one screen at a time (ui/main-menu.ts, ui/screens.ts). Esc or
+         the ← in the corner goes back one screen. -->
+    <div id="overlay" class="glass-light" data-screen="title">
+      <button id="menu-back" class="crumb glass" type="button" hidden>
+        <span aria-hidden="true">←</span> <span class="crumb-to"></span>
+      </button>
+
+      <section class="screen screen-title" data-screen="title">
+        <div class="title-card glass">
+          <div class="brand brand-big"><i></i>ski-sim</div>
+          <p class="lab title-tag">Real mountains, real data</p>
+          <button id="continue-card" class="continue-card" type="button" hidden>
+            <span class="continue-map"><img alt="" /></span>
+            <span class="continue-text"
+              ><span class="lab">Continue</span><b></b><small></small
+            ></span>
+          </button>
+          <div class="title-actions">
+            <button id="title-continue" class="btn btn-primary" type="button" hidden>
+              Continue
+            </button>
+            <button id="title-play" class="btn btn-primary" type="button">Play</button>
+            <button id="open-multiplayer" class="btn" type="button">Multiplayer</button>
+            <button id="open-ski-setup" class="btn" type="button">Ski setup</button>
+            <button id="open-settings" class="btn" type="button">Options</button>
+          </div>
         </div>
-        <p id="status">Finding ski areas…</p>
-        <div id="load-progress" hidden><i></i></div>
-        <button id="start" disabled>Choose a ski area</button>
-        <div class="menu-actions">
-          <button id="open-ski-setup" class="menu-action" type="button">
-            Ski setup <kbd>G</kbd>
-          </button>
-          <button id="open-time" class="menu-action" type="button" data-needs-map disabled>
-            Time of day <kbd>T</kbd>
-          </button>
-          <button id="open-settings" class="menu-action" type="button">
-            Settings <kbd>O</kbd>
-          </button>
-          <button id="open-multiplayer" class="menu-action" type="button" data-needs-map disabled>
-            Multiplayer <kbd>N</kbd>
-          </button>
-          <button id="open-controls" class="menu-action" type="button">Controls</button>
+        <button id="open-controls" class="title-foot" type="button">Controls</button>
+      </section>
+
+      <section class="screen screen-resorts" data-screen="resorts" hidden>
+        <div class="resorts-card glass">
+          <div class="resorts-browse">
+            <div class="resorts-tools">
+              <input
+                id="menu-search"
+                class="browser-search"
+                type="search"
+                placeholder="Search resorts or countries…"
+                autocomplete="off"
+              />
+              <select id="menu-country" class="menu-select" aria-label="Country"></select>
+            </div>
+            <div class="lab"><span id="menu-resort-count"></span></div>
+            <div id="menu-resorts" class="resort-grid"></div>
+          </div>
+          <aside class="resort-preview">
+            <div class="lab" id="menu-kicker"></div>
+            <h1 id="menu-title"></h1>
+            <div class="preview-map"><img id="menu-preview" alt="" /></div>
+            <div class="tiles" id="menu-stats"></div>
+            <p id="menu-villages" class="preview-villages"></p>
+            <button id="choose-start" class="btn btn-primary" type="button">
+              Choose start point →
+            </button>
+          </aside>
         </div>
-      </div>
+      </section>
+
+      <section class="screen screen-resort" data-screen="resort" hidden>
+        <div class="starts-card glass">
+          <div class="lab" id="resort-kicker"></div>
+          <h2 id="resort-title"></h2>
+          <div class="lab menu-starts-head">
+            <span>Start at</span><span id="menu-starts-count"></span>
+          </div>
+          <div id="menu-starts" class="menu-list"></div>
+          <button id="ski-from" class="btn btn-primary" type="button">Ski</button>
+        </div>
+        <div class="starts-map glass">
+          <div class="starts-view">
+            <img id="starts-map-img" alt="" />
+            <div id="starts-pins"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen screen-loading" data-screen="loading" hidden>
+        <div class="loading-card glass">
+          <div class="lab" id="loading-where"></div>
+          <h2 id="status">Finding ski areas…</h2>
+          <div id="load-progress"><i></i></div>
+          <p class="loading-tip"></p>
+          <button id="start" class="btn btn-primary" type="button" hidden>Start skiing</button>
+        </div>
+      </section>
+
+      <section class="screen screen-pause" data-screen="pause" hidden>
+        <div class="pause-card glass">
+          <div class="lab">Paused</div>
+          <h2 id="pause-title"></h2>
+          <p id="pause-host" class="pause-host" hidden></p>
+          <div class="pause-items">
+            <button id="resume" class="pause-item on" type="button">Resume <kbd>↵</kbd></button>
+            <button id="pause-map" class="pause-item" type="button">Map <kbd>M</kbd></button>
+            <button id="pause-start" class="pause-item" type="button">Change start point</button>
+            <button id="pause-resort" class="pause-item" type="button">Change resort</button>
+            <button id="pause-multiplayer" class="pause-item" type="button">
+              Multiplayer <kbd>N</kbd>
+            </button>
+            <button id="pause-options" class="pause-item" type="button">
+              Options <kbd>O</kbd>
+            </button>
+            <button id="pause-quit" class="pause-item muted" type="button">Main menu</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen screen-multiplayer" data-screen="multiplayer" hidden>
+        <div id="mp-panel" class="mp-card glass">
+          <header class="hub-head">
+            <h2>Multiplayer</h2>
+            <p>Peer to peer; share a code with friends</p>
+          </header>
+          <div class="modal-body multiplayer"></div>
+        </div>
+      </section>
+
+      <dialog id="confirm" class="confirm glass-light">
+        <form method="dialog" class="confirm-card glass">
+          <h2></h2>
+          <p></p>
+          <div class="confirm-actions">
+            <button class="btn" value="stay">Stay</button>
+            <button class="btn btn-primary" value="leave" autofocus>Leave</button>
+          </div>
+        </form>
+      </dialog>
     </div>
 
-    <dialog id="controls-modal" class="modal" aria-labelledby="controls-title">
-      <div class="modal-card">
-        <header class="modal-header">
-          <h2 id="controls-title">Controls</h2>
-          <button class="modal-close" type="button" title="Close (Esc)" aria-label="Close">
-            ✕
+    <!-- Options: one light-glass dialog, a tab per menu. G / T / O open their tab. -->
+    <dialog id="options" class="hub glass-light" aria-label="Options">
+      <div class="hub-card glass">
+        <nav class="hub-tabs">
+          <div class="lab">Options</div>
+          <button type="button" data-tab="opt-camera">Camera <kbd>O</kbd></button>
+          <button type="button" data-tab="opt-display">Display</button>
+          <button type="button" data-tab="opt-controls">Controls</button>
+          <button type="button" data-tab="opt-ski">Ski setup <kbd>G</kbd></button>
+          <button type="button" data-tab="opt-time" data-needs-map disabled>
+            Time of day <kbd>T</kbd>
           </button>
-        </header>
-        <div class="modal-body controls-sections">
-          <section>
-            <h3>Getting around</h3>
-            <dl class="controls">
-              <dt>F</dt>
-              <dd>Switch fly / ski mode</dd>
-              <dt>M</dt>
-              <dd>Map: right click to teleport, left click for a guide marker</dd>
-              <dt>Shift + M</dt>
-              <dd>Drop a guide marker where you are</dd>
-              <dt>J</dt>
-              <dd>Teleport to the guide marker</dd>
-              <dt>E</dt>
-              <dd>
-                Ride a lift (at its bottom station) · hold W to fast-forward, S to skip to the top
-              </dd>
-              <dt>Esc</dt>
-              <dd>Release the mouse (pause menu)</dd>
-            </dl>
-          </section>
-          <section>
-            <h3>Ski</h3>
-            <dl class="controls">
-              <dt>Mouse / A D</dt>
-              <dd>Steer</dd>
-              <dt>W</dt>
-              <dd>Skate, double-pole, or walk up steep slopes</dd>
-              <dt>Ctrl</dt>
-              <dd>Tuck (toggle; W or Shift stands you up)</dd>
-              <dt>Shift</dt>
-              <dd>Snowplough</dd>
-              <dt>S + A / D</dt>
-              <dd>Pivot skis (hockey stop)</dd>
-              <dt>Space</dt>
-              <dd>Jump</dd>
-              <dt>[ / ]</dt>
-              <dd>Lean forward / back; in the air, front flip / backflip</dd>
-              <dt>G</dt>
-              <dd>Ski setup</dd>
-              <dt>T</dt>
-              <dd>Time of day</dd>
-              <dt>N</dt>
-              <dd>Multiplayer: host or join a game</dd>
-            </dl>
-          </section>
-          <section>
-            <h3>Fly</h3>
-            <dl class="controls">
-              <dt>WASD</dt>
-              <dd>Fly</dd>
-              <dt>Ctrl</dt>
-              <dd>Sprint</dd>
-              <dt>Space / Shift</dt>
-              <dd>Up / down</dd>
-              <dt>Scroll</dt>
-              <dd>Fly speed</dd>
-            </dl>
-          </section>
-          <section>
-            <h3>Paraglider</h3>
-            <dl class="controls">
-              <dt>P</dt>
-              <dd>Deploy / release the wing (keeps your speed)</dd>
-              <dt>A / D</dt>
-              <dd>Bank and turn</dd>
-              <dt>W / S</dt>
-              <dd>Speed bar / brakes</dd>
-            </dl>
-          </section>
-          <section>
-            <h3>Snowmobile</h3>
-            <dl class="controls">
-              <dt>B</dt>
-              <dd>Get on / off (keeps your speed; the sled stays parked)</dd>
-              <dt>W</dt>
-              <dd>Throttle</dd>
-              <dt>S</dt>
-              <dd>Brake; hold when stopped to reverse</dd>
-              <dt>A / D</dt>
-              <dd>Steer</dd>
-              <dt>Shift + A / D</dt>
-              <dd>Hang off into the turn (tighter turns, side-hilling)</dd>
-            </dl>
-          </section>
-          <section>
-            <h3>View &amp; sound</h3>
-            <dl class="controls">
-              <dt>Mouse</dt>
-              <dd>Look around</dd>
-              <dt>V</dt>
-              <dd>First / third person</dd>
-              <dt>O</dt>
-              <dd>Settings (field of view, mouse, camera distance)</dd>
-              <dt>1</dt>
-              <dd>Lift names</dd>
-              <dt>2</dt>
-              <dd>Peak names</dd>
-              <dt>3</dt>
-              <dd>Piste colours</dd>
-              <dt>K</dt>
-              <dd>Sound on / off</dd>
-              <dt>- / =</dt>
-              <dd>Minimap zoom</dd>
-              <dt>F3</dt>
-              <dd>Debug info</dd>
-            </dl>
-          </section>
-        </div>
+          <button type="button" data-tab="opt-credits">Data &amp; credits</button>
+          <button class="hub-close" type="button" title="Close (Esc)">Close <kbd>Esc</kbd></button>
+        </nav>
+
+        <section id="opt-camera" class="hub-panel" hidden>
+          <header class="hub-head">
+            <h2>Camera</h2>
+            <p>Applies live behind this panel</p>
+          </header>
+          <div class="modal-body settings"></div>
+          <footer class="modal-footer">
+            <button class="setup-reset btn" type="button">Reset to defaults</button>
+            <button class="modal-close btn btn-primary" type="button">Done</button>
+          </footer>
+        </section>
+
+        <section id="opt-display" class="hub-panel" hidden>
+          <header class="hub-head">
+            <h2>Display</h2>
+            <p>What's drawn in the world, and how the interface looks</p>
+          </header>
+          <div class="modal-body display"></div>
+          <footer class="modal-footer">
+            <span></span>
+            <button class="modal-close btn btn-primary" type="button">Done</button>
+          </footer>
+        </section>
+
+        <section id="opt-controls" class="hub-panel" hidden>
+          <header class="hub-head">
+            <h2>Controls</h2>
+            <p>Keyboard and mouse</p>
+          </header>
+          <div class="modal-body controls-sections">
+            <section>
+              <h3>Getting around</h3>
+              <dl class="controls">
+                <dt>F</dt>
+                <dd>Fly out of your body (your skier waits); F again to go back to it</dd>
+                <dt>R</dt>
+                <dd>While flying: ski from where you are</dd>
+                <dt>M</dt>
+                <dd>Map: right click to teleport, left click for a guide marker</dd>
+                <dt>Shift + M</dt>
+                <dd>Drop a guide marker where you are</dd>
+                <dt>J</dt>
+                <dd>Teleport to the guide marker</dd>
+                <dt>E</dt>
+                <dd>
+                  Ride a lift (at its bottom station) · hold W to fast-forward, S to skip to the top
+                </dd>
+                <dt>Esc</dt>
+                <dd>Release the mouse (pause menu)</dd>
+              </dl>
+            </section>
+            <section>
+              <h3>Ski</h3>
+              <dl class="controls">
+                <dt>Mouse / A D</dt>
+                <dd>Steer</dd>
+                <dt>W</dt>
+                <dd>Skate, double-pole, or walk up steep slopes</dd>
+                <dt>Ctrl</dt>
+                <dd>Tuck (toggle; W or Shift stands you up)</dd>
+                <dt>Shift</dt>
+                <dd>Snowplough</dd>
+                <dt>S + A / D</dt>
+                <dd>Pivot skis (hockey stop)</dd>
+                <dt>Space</dt>
+                <dd>Jump</dd>
+                <dt>[ / ]</dt>
+                <dd>Lean forward / back; in the air, front flip / backflip</dd>
+                <dt>G</dt>
+                <dd>Ski setup</dd>
+                <dt>T</dt>
+                <dd>Time of day</dd>
+                <dt>N</dt>
+                <dd>Multiplayer: host or join a game</dd>
+              </dl>
+            </section>
+            <section>
+              <h3>Fly</h3>
+              <dl class="controls">
+                <dt>WASD</dt>
+                <dd>Fly</dd>
+                <dt>Space / Shift</dt>
+                <dd>Up / down</dd>
+                <dt>Scroll</dt>
+                <dd>Fly speed</dd>
+              </dl>
+            </section>
+            <section>
+              <h3>Paraglider</h3>
+              <dl class="controls">
+                <dt>P</dt>
+                <dd>Deploy / release the wing (keeps your speed)</dd>
+                <dt>A / D</dt>
+                <dd>Bank and turn</dd>
+                <dt>W / S</dt>
+                <dd>Speed bar / brakes</dd>
+              </dl>
+            </section>
+            <section>
+              <h3>Snowmobile</h3>
+              <dl class="controls">
+                <dt>B</dt>
+                <dd>Get on / off (keeps your speed; the sled stays parked)</dd>
+                <dt>W</dt>
+                <dd>Throttle</dd>
+                <dt>S</dt>
+                <dd>Brake; hold when stopped to reverse</dd>
+                <dt>A / D</dt>
+                <dd>Steer</dd>
+                <dt>Shift + A / D</dt>
+                <dd>Hang off into the turn (tighter turns, side-hilling)</dd>
+              </dl>
+            </section>
+            <section>
+              <h3>View &amp; sound</h3>
+              <dl class="controls">
+                <dt>Mouse</dt>
+                <dd>Look around</dd>
+                <dt>V</dt>
+                <dd>First / third person</dd>
+                <dt>O</dt>
+                <dd>Options (camera, display, controls)</dd>
+                <dt>1</dt>
+                <dd>Lift names</dd>
+                <dt>2</dt>
+                <dd>Peak names</dd>
+                <dt>3</dt>
+                <dd>Piste colours</dd>
+                <dt>4</dt>
+                <dd>Restaurant names</dd>
+                <dt>K</dt>
+                <dd>Sound on / off</dd>
+                <dt>- / =</dt>
+                <dd>Minimap zoom</dd>
+                <dt>F3</dt>
+                <dd>Debug info</dd>
+              </dl>
+            </section>
+          </div>
+          <footer class="modal-footer">
+            <span></span>
+            <button class="modal-close btn btn-primary" type="button">Done</button>
+          </footer>
+        </section>
+
+        <section id="opt-ski" class="hub-panel" hidden>
+          <header class="hub-head">
+            <h2>Ski setup</h2>
+            <p>Real ski properties; the physics follows them</p>
+          </header>
+          <div class="modal-body ski-setup"></div>
+          <footer class="modal-footer">
+            <button class="setup-reset btn" type="button">Reset to All-mountain</button>
+            <button class="modal-close btn btn-primary" type="button">Done</button>
+          </footer>
+        </section>
+
+        <section id="opt-time" class="hub-panel" hidden>
+          <header class="hub-head">
+            <h2>Time of day</h2>
+            <p>The sun's real path for this resort</p>
+          </header>
+          <div class="modal-body time-of-day"></div>
+          <footer class="modal-footer">
+            <span></span>
+            <button class="modal-close btn btn-primary" type="button">Done</button>
+          </footer>
+        </section>
+
+        <section id="opt-credits" class="hub-panel" hidden>
+          <header class="hub-head">
+            <h2>Data &amp; credits</h2>
+            <p>Where this mountain comes from</p>
+          </header>
+          <div class="modal-body credits"></div>
+          <footer class="modal-footer">
+            <span></span>
+            <button class="modal-close btn btn-primary" type="button">Done</button>
+          </footer>
+        </section>
       </div>
     </dialog>
-
-    <dialog id="ski-setup-modal" class="modal" aria-labelledby="ski-setup-title">
-      <div class="modal-card">
-        <header class="modal-header">
-          <h2 id="ski-setup-title">Ski setup</h2>
-          <button class="modal-close" type="button" title="Close (Esc)" aria-label="Close">
-            ✕
-          </button>
-        </header>
-        <div class="modal-body ski-setup"></div>
-        <footer class="modal-footer">
-          <button class="setup-reset menu-action" type="button">Reset to All-mountain</button>
-          <button class="modal-close menu-primary" type="button">Done</button>
-        </footer>
-      </div>
-    </dialog>
-
-    <dialog id="time-modal" class="modal" aria-labelledby="time-title">
-      <div class="modal-card">
-        <header class="modal-header">
-          <h2 id="time-title">Time of day</h2>
-          <button class="modal-close" type="button" title="Close (Esc)" aria-label="Close">
-            ✕
-          </button>
-        </header>
-        <div class="modal-body time-of-day"></div>
-        <footer class="modal-footer">
-          <button class="modal-close menu-primary" type="button">Done</button>
-        </footer>
-      </div>
-    </dialog>
-
-    <dialog id="settings-modal" class="modal" aria-labelledby="settings-title">
-      <div class="modal-card">
-        <header class="modal-header">
-          <h2 id="settings-title">Settings</h2>
-          <button class="modal-close" type="button" title="Close (Esc)" aria-label="Close">
-            ✕
-          </button>
-        </header>
-        <div class="modal-body settings"></div>
-        <footer class="modal-footer">
-          <button class="setup-reset menu-action" type="button">Reset to defaults</button>
-          <button class="modal-close menu-primary" type="button">Done</button>
-        </footer>
-      </div>
-    </dialog>
-
-    <dialog id="multiplayer-modal" class="modal" aria-labelledby="multiplayer-title">
-      <div class="modal-card">
-        <header class="modal-header">
-          <h2 id="multiplayer-title">Multiplayer</h2>
-          <button class="modal-close" type="button" title="Close (Esc)" aria-label="Close">
-            ✕
-          </button>
-        </header>
-        <div class="modal-body multiplayer"></div>
-      </div>
-    </dialog>
-
-    <div id="attribution"></div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

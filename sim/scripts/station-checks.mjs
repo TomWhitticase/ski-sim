@@ -2,10 +2,13 @@
 // Each check takes (lift, terminal) and returns a list of problem strings (empty = fine).
 // Add new checks to CHECKS; station-audit.mjs runs them all.
 
+// Per terminal kind, mirroring pipeline/approach.py (RAIL, MAX_EXIT_ANGLE, MIN_TOWER):
 /** Height of the rope above the pad where it leaves the station (m). */
-const EXIT_ROPE_HEIGHT = 5;
+const EXIT_ROPE_HEIGHT = { chair: 2.35, gondola: 4.3, cabin: 7.45, drag: 4.0 };
 /** Steepest acceptable rope angle between the station exit and the next support. */
-const MAX_EXIT_ANGLE_DEG = 18;
+const MAX_EXIT_ANGLE_DEG = { chair: 18, gondola: 18, cabin: 35, drag: 25 };
+/** Shortest buildable tower (top above ground, m). */
+const MIN_TOWER = { chair: 4, gondola: 5, cabin: 8, drag: 3 };
 /** How far off the line axis a support can be and still count as "on this line" (m). */
 const LINE_TOLERANCE = 20;
 
@@ -30,7 +33,11 @@ function towerInsideHall(lift, t) {
   return problems;
 }
 
-/** (b) The rope leaving the station must not climb or drop too steeply to the next support. */
+/**
+ * (b) The rope leaving the station must not climb or drop too steeply to the next support.
+ * Where the ground outside climbs steeper than the limit, a minimum-height tower is the
+ * gentlest rope possible (a chair up a 35° slope follows it): that's not a fault.
+ */
 function steepExitRope(lift, t) {
   let next = null;
   for (const s of lift.supports) {
@@ -39,9 +46,14 @@ function steepExitRope(lift, t) {
     if (!next || u < next.u) next = { u, s };
   }
   if (!next) return [];
-  const rise = next.s.top - (t.pad + EXIT_ROPE_HEIGHT);
-  const angle = (Math.atan2(Math.abs(rise), next.u - t.length) * 180) / Math.PI;
-  if (angle <= MAX_EXIT_ANGLE_DEG) return [];
+  const rail = t.pad + EXIT_ROPE_HEIGHT[t.kind];
+  const run = next.u - t.length;
+  const rise = next.s.top - rail;
+  const angle = (Math.atan2(Math.abs(rise), run) * 180) / Math.PI;
+  const forcedRise =
+    next.s.kind === 'station' ? 0 : Math.max(next.s.ground + MIN_TOWER[t.kind] - rail, 0);
+  const forced = (Math.atan2(forcedRise, run) * 180) / Math.PI;
+  if (angle <= Math.max(MAX_EXIT_ANGLE_DEG[t.kind], forced) + 0.5) return [];
   return [
     `exit rope ${angle.toFixed(1)}° to the next ${next.s.kind} ` +
       `(${rise.toFixed(1)} m over ${(next.u - t.length).toFixed(1)} m)`,

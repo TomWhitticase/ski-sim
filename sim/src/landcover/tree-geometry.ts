@@ -3,7 +3,8 @@ import { BufferAttribute, BufferGeometry, Vector3 } from 'three/webgpu';
 /**
  * A snow-laden conifer, 1 m tall with its base at the origin, in stacked drooping tiers:
  * each tier's top is snow, its jagged rim fades to needles, its underside is dark. Flat
- * shaded (non-indexed). Attribute `tint` = (snow 0..1, trunk 0/1).
+ * shaded (non-indexed). Attribute `tint` = (snow 0..1, trunk 0/1): the snow already
+ * accounts for how steep each face is, so the material just paints it.
  */
 export interface TreeShape {
   tiers: number;
@@ -13,6 +14,12 @@ export interface TreeShape {
   /** Draw tier undersides (dark needles seen from below / the side). */
   undersides: boolean;
   trunk: boolean;
+  /**
+   * Snow load multiplier. Coarse shapes have fewer, steeper tiers that would hold less
+   * snow and read darker than the detailed tree they stand in for at a distance, so they
+   * carry more to look the same (`tree-geometry.test.ts` checks they match).
+   */
+  snow: number;
 }
 
 export const DETAILED: TreeShape = {
@@ -21,6 +28,7 @@ export const DETAILED: TreeShape = {
   radius: 0.2,
   undersides: true,
   trunk: true,
+  snow: 1,
 };
 export const SIMPLE: TreeShape = {
   tiers: 3,
@@ -28,6 +36,7 @@ export const SIMPLE: TreeShape = {
   radius: 0.2,
   undersides: true,
   trunk: false,
+  snow: 1.4,
 };
 export const MINIMAL: TreeShape = {
   tiers: 2,
@@ -35,6 +44,7 @@ export const MINIMAL: TreeShape = {
   radius: 0.19,
   undersides: false,
   trunk: false,
+  snow: 2,
 };
 
 const CROWN_BASE = 0.14;
@@ -50,9 +60,17 @@ export function crownRadiusAt(y: number, height: number): number {
   return DETAILED.radius * height * (1 - t);
 }
 
+/** How much of a tier's snow stays on a face with this upward normal component (0..1). */
+export function snowOn(normalY: number): number {
+  const t = Math.min(1, Math.max(0, normalY / 0.45));
+  return t * t * (3 - 2 * t);
+}
+
 export function createTreeGeometry(shape: TreeShape): BufferGeometry {
   const positions: number[] = [];
   const tints: number[] = [];
+  const edge1 = new Vector3();
+  const edge2 = new Vector3();
   const tri = (
     a: Vector3,
     b: Vector3,
@@ -63,7 +81,11 @@ export function createTreeGeometry(shape: TreeShape): BufferGeometry {
     trunk = 0,
   ) => {
     positions.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
-    tints.push(ta, trunk, tb, trunk, tc, trunk);
+    // Snow on upward faces of the tiers (flat shaded, so per face).
+    const ny = edge1.subVectors(b, a).cross(edge2.subVectors(c, a)).normalize().y;
+    const k = snowOn(ny) * shape.snow;
+    const snow = (t: number) => Math.min(1, t * k);
+    tints.push(snow(ta), trunk, snow(tb), trunk, snow(tc), trunk);
   };
 
   if (shape.trunk) {

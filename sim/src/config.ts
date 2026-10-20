@@ -31,8 +31,7 @@ export const FLY = {
   /** Default fly speed in m/s; adjusted with the mouse wheel. */
   speed: 60,
   minSpeed: 2,
-  maxSpeed: 500,
-  sprintMultiplier: 3,
+  maxSpeed: 1500,
   mouseSensitivity: 0.0022,
   /** Velocity smoothing rate (1/s); higher is snappier. */
   responsiveness: 6,
