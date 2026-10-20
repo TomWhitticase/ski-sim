@@ -827,8 +827,12 @@ async function main(): Promise<void> {
   const closeMap = (resumeFlying: boolean) => {
     worldMap.close();
     document.body.classList.remove('map-open');
-    // Closing from a click or key press counts as a user gesture, so pointer lock is allowed.
-    if (resumeFlying) void input.lock();
+    // Closing from a click or key press counts as a user gesture, so pointer lock (and
+    // audio, if the map was opened from the main menu before pressing Start) is allowed.
+    if (resumeFlying) {
+      sound.start();
+      void input.lock();
+    }
   };
 
   window.addEventListener('resize', () => {
@@ -859,7 +863,10 @@ async function main(): Promise<void> {
     KeyN: multiplayer.menu,
   };
   document.addEventListener('keydown', (e) => {
-    if (e.target instanceof HTMLInputElement) return; // typing in the map search box
+    // Typing in the map search box or a name field (a focused checkbox or slider isn't).
+    // Esc still closes the map from its search box.
+    const typing = e.target instanceof HTMLInputElement && !NON_TEXT_INPUTS.has(e.target.type);
+    if (typing && !(e.code === 'Escape' && worldMap.isOpen)) return;
     // G / T / O / N open their Options tab (or close the hub if it's already on it).
     const tab = !e.repeat && !worldMap.isOpen ? hubKeys[e.code] : undefined;
     if (tab) {
@@ -1269,6 +1276,7 @@ const MODE_KEY = 'ski-sim.mode';
 /** Width of the groove each snowmobile ski's keel cuts (m). */
 const SLED_SKI_GROOVE = 0.1;
 const VIEW_KEY = 'ski-sim.view';
+const NON_TEXT_INPUTS = new Set(['checkbox', 'radio', 'range']);
 
 function loadMode(): Mode {
   // A reload mid-flight drops you into ski mode (you fall and land); sledders keep the sled.
