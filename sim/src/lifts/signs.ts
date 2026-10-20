@@ -80,10 +80,6 @@ function drawAtlas(lines: LiftLine[]): CanvasTexture {
 }
 
 /**
- * Name boards at the bottom and top of every lift, on two posts beside the line.
- * One texture atlas and one instanced mesh for all of them (plus one for the posts).
- */
-/**
  * Name boards mounted on each lift's stations (over the entrance; on the line end where
  * riders arrive at the top): positions come from the station builder, so a board is
  * attached by construction and can't float or wander. Drag lifts get a small arch.
@@ -131,6 +127,9 @@ export function createLiftSigns(lines: LiftLine[], mounts: SignMount[][][]): Gro
     }
   });
 
+  // No lifts (or no drag-lift arches): an instanced mesh with room for nothing is a
+  // zero-size GPU buffer, which WebGPU rejects.
+  if (!boards.length) return group;
   const cells = new InstancedBufferAttribute(new Float32Array(boards.map((b) => b.cell)), 1);
   const material = new MeshBasicNodeMaterial();
   const cell = instancedBufferAttribute<'float'>(cells, 'float');
@@ -155,6 +154,7 @@ export function createLiftSigns(lines: LiftLine[], mounts: SignMount[][][]): Gro
   postMesh.castShadow = true;
   postMesh.computeBoundingSphere();
 
-  group.add(boardMesh, postMesh);
+  group.add(boardMesh);
+  if (posts.length) group.add(postMesh);
   return group;
 }

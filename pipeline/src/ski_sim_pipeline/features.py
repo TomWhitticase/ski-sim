@@ -178,7 +178,7 @@ def extract_lifts(
         lifts.append(
             {
                 "id": el["id"],
-                "name": tags.get("name"),
+                "name": display_name(tags),
                 "type": kind,
                 "gauge": profile.gauge,
                 "length": round(length, 1),
@@ -397,6 +397,18 @@ PEAK_SNAP_RADIUS = 30.0  # OSM summit nodes are often a few metres off the true 
 FAR_PEAK_MIN_ELE = 3500.0  # outside the near extent, only label major summits
 
 
+_NON_LATIN = re.compile(r"[^\W\d_A-Za-z\u00C0-\u024F\u1E00-\u1EFF]")
+
+
+def display_name(tags: dict) -> str | None:
+    """The name to show: OSM `name`, or `name:en` when `name` isn't in Latin script
+    (Everest's `name` is Chinese, Tibetan and Nepali in one string)."""
+    name = tags.get("name")
+    if name and _NON_LATIN.search(name) and tags.get("name:en"):
+        return tags["name:en"]
+    return name
+
+
 def extract_peaks(
     elements: list[dict],
     frame: LocalFrame,
@@ -410,7 +422,7 @@ def extract_peaks(
     peaks = []
     for el in elements:
         tags = el.get("tags", {})
-        name = tags.get("name")
+        name = display_name(tags)
         if el["type"] != "node" or not name:
             continue
         ele = _parse_metres(tags.get("ele"))

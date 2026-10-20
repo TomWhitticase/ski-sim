@@ -89,6 +89,7 @@ Current resorts:
 - `les-3-vallees`: Val Thorens, Orelle, Les Menuires, Saint-Martin, Méribel incl. Mont Vallon, Courchevel.
 - `arlberg`: St. Anton, St. Christoph, Stuben, Zürs, Lech, Warth, Schröcken, plus Sonnenkopf. Copernicus terrain until an Austrian lidar source exists.
 - `paradiski`: La Plagne (incl. Montalbert, Champagny, Montchavin–Les Coches) and Les Arcs (incl. Peisey-Vallandry, Villaroger), linked by the Vanoise Express. Tignes and La Rosière next door are excluded.
+- `everest`: Mount Everest, Lhotse, Nuptse and the Khumbu valley to Kala Patthar (the spawn, looking at the summit). Copernicus terrain and WorldCover glaciers; OSM has no lifts or pistes there, so it's a fly / glide / ski-anywhere map with no start villages. The 30 m DSM rounds off the sharpest summits (Everest is ~115 m low).
 
 ### Main menu
 
@@ -336,6 +337,7 @@ Both come from OSM through Overpass (`sources/osm.py`). The response is cached u
 - **Buildings:** gable roofs are computed in the pipeline (`gable_roof`): the ridge runs along the long axis of the footprint's oriented bounding box, and the footprint is split along the ridge into planar faces. Large industrial buildings keep flat roofs. Facades (windows, floors, balconies, stone plinth; timber, render, stone or metal) are procedural in `createBuildingMaterial` from a per-vertex `facade` attribute, so it stays one mesh and one draw call, fading to an average colour beyond ~150 m to avoid aliasing. Near-duplicate OSM footprints are merged (`dedupe_buildings`) because coincident walls z-fight. OSM height tags are used when present; otherwise height is estimated from footprint area (`heightSource: "estimate"`, about 98% of Val Thorens). Ruins and roofs are skipped. Lift-station footprints replace the sim's placeholder station boxes.
 - Lifts that leave the near terrain extent are skipped (logged), e.g. links into neighbouring valleys, and so are ways under 40 m (a station's turn mapped as its own lift).
 - **Peaks:** named `natural=peak` nodes, snapped to the highest DEM sample within 30 m. Every peak in the near extent is kept. Beyond it, only peaks of at least 3500 m (`FAR_PEAK_MIN_ELE`), so the horizon shows the big names.
+- **Names** (`features.display_name`): OSM `name`, or `name:en` when `name` isn't in Latin script (Himalayan peaks carry Chinese, Tibetan and Nepali in one `name`).
 
 ### Mountain restaurants
 

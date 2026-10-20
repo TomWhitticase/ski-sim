@@ -227,3 +227,18 @@ def test_duplicate_footprints_are_merged():
     assert len(out) == 2
     merged = next(x for x in out if x["footprint"] == square)
     assert merged["top"] == 14 and merged["type"] == "lift_station"
+
+
+def test_display_name_prefers_english_only_for_non_latin_names():
+    from ski_sim_pipeline.features import display_name
+
+    everest = {"name": "珠穆朗玛峰 ཇོ་མོ་གླང་མ། सगरमाथा", "name:en": "Mount Everest"}
+    assert display_name(everest) == "Mount Everest"
+    # Latin-script local names stay local, accents and all.
+    assert display_name({"name": "Aiguille de Péclet", "name:en": "Peclet Needle"}) == (
+        "Aiguille de Péclet"
+    )
+    assert display_name({"name": "Mont Blanc / Monte Bianco"}) == "Mont Blanc / Monte Bianco"
+    # No English name: keep what there is.
+    assert display_name({"name": "नुप्त्से २"}) == "नुप्त्से २"
+    assert display_name({}) is None

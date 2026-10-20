@@ -14,6 +14,7 @@ from shapely.geometry import Point, Polygon
 from shapely.strtree import STRtree
 
 from .config import Area
+from .features import display_name
 from .frame import LocalFrame
 
 VILLAGE_RADIUS = 700.0  # lifts this close to a place make it a ski village (m)
@@ -52,7 +53,7 @@ def find_bases(
     ]
     bases = []
     for place in places:
-        name = place.get("tags", {}).get("name")
+        name = display_name(place.get("tags", {}))
         kind = place.get("tags", {}).get("place")
         if not name or place.get("type") != "node":
             continue

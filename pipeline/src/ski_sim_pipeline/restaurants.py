@@ -24,7 +24,7 @@ from shapely.strtree import STRtree
 
 from . import terminals as terminal_pads
 from .config import Area
-from .features import GroundSampler, _project, gable_roof
+from .features import GroundSampler, _project, display_name, gable_roof
 from .frame import LocalFrame
 from .grid import Grid, sample_bilinear
 
@@ -124,7 +124,7 @@ def extract(
     found: list[dict] = []
     for el in elements:
         tags = el.get("tags", {})
-        name = tags.get("name")
+        name = display_name(tags)
         if not name or not is_food(tags):
             continue
         at = _position(el, frame)
