@@ -51,7 +51,7 @@ Accuracy checks belong in automated tests, not eyeballing. The pipeline compares
 ### Station audit
 
 `pnpm station-audit` (needs `pnpm dev` running; `--port` or `SIM_PORT` if it's not on 5173) renders every lift terminal from four angles (front, side, behind, top-down) into `sim/test-results/station-audit/index.html`, a contact sheet with failing stations first, plus `report.json`.
-- **Failing** means a static check in `sim/scripts/station-checks.mjs` failed (a tower inside the hall, or an exit rope steeper than 18° to the next support), or a `LiftSystem.check()` problem or console error names the lift. Add new checks to `CHECKS` in that module.
+- **Failing** means a static check in `sim/scripts/station-checks.mjs` failed (a tower inside the hall, or an exit rope to the next support steeper than the pipeline allows: 18° chairs/gondolas, 25° drags, 35° cable cars, or more where the ground outside is steeper and the next tower is already at minimum height), or a `LiftSystem.check()` problem or console error names the lift. Add new checks to `CHECKS` in that module.
 - **Selection:** by default it renders every failing terminal plus `--sample N` (8) passing ones. `--lift "<regex>"` renders all matching terminals; `--all`, `--failing-only` and `--limit N` are also available. Other options: `--resort <id>`, `--out <dir>`.
 - **Speed:** ~0.8 s a shot. One page loads the sim once, then teleports the camera by hooking the dev-exposed camera, and falls back to a reload if the hook stops working. `--reload` forces a reload for every shot.
 - **Occlusion:** side and behind views try mirrored, further-out and higher candidates and keep the one buildings hide least. Captions show how much of each view is still hidden.
@@ -77,19 +77,20 @@ GitHub Pages, all free. `ci.yml` runs lint/typecheck/unit tests (sim) and ruff/p
 The whole pipeline is driven by `data/resorts/<id>/resort.json`, and only `id`, `name`, `country` and `bounds` (a lat/lon box) are required. `ski-sim init` writes that file from a bbox, or from an OSM ski-area name (matches are clustered around the largest one, because names repeat worldwide). Everything else is derived in `config.load_resort`:
 - origin (bbox centre) and near extent, snapped to whole kilometres;
 - far extent (55 km margin);
-- terrain sources by country (FR: IGN LiDAR HD then RGE ALTI; elsewhere: Copernicus, so any resort builds);
+- terrain sources by country (FR: IGN LiDAR HD, then RGE ALTI, then Copernicus beyond the border; elsewhere: Copernicus, so any resort builds). Each source only fills the previous ones' holes, shifted to meet them and blended over a band, so there's no step at the join (`grid.fill_holes`);
 - cell size, coarsened automatically to keep the grid within 8000 px for GPU texture limits;
 - spawn height (150 m above the DEM);
 - summit validation against every OSM peak with an `ele` tag.
 
 Lifts, stations, signs, buildings, mountain restaurants, pistes, peaks and sounds all come from OSM, and forests, rock, glaciers and lakes from ESA WorldCover, with no per-resort code.
-- **Neighbours are left out** (`territory.py`): the near terrain reaches past `bounds`, and a padded box often clips the next resort along. OSM `landuse=winter_sports` outlines centred inside our bounds are ours, the rest are neighbours. Lifts need a station on our ground, pistes need most of their points on it, and start villages and restaurants must be on it. Optional overrides: `origin`, `spawn` (lat/lon/heading/altitude), `terrain.near/far`, `minimap`, `landmarks`. Then open `?resort=<id>`, or set `DEFAULT_RESORT` in `sim/src/config.ts`.
+- **Neighbours are left out** (`territory.py`): the near terrain reaches past `bounds`, and a padded box often clips the next resort along. OSM `landuse=winter_sports` outlines centred inside our bounds are ours, the rest are neighbours. Lifts need a station on our ground and none on a neighbour's (Courmayeur's Skyway reaches Chamonix's Pointe Helbronner but is Courmayeur's), pistes need most of their points on it, and start villages and restaurants must be on it. Optional overrides: `origin`, `spawn` (lat/lon/heading/altitude), `terrain.near/far`, `minimap`, `landmarks`. Then open `?resort=<id>`, or set `DEFAULT_RESORT` in `sim/src/config.ts`.
 
 Current resorts:
 - `les-3-vallees`: Val Thorens, Orelle, Les Menuires, Saint-Martin, Méribel incl. Mont Vallon, Courchevel.
 - `arlberg`: St. Anton, St. Christoph, Stuben, Zürs, Lech, Warth, Schröcken, plus Sonnenkopf. Copernicus terrain until an Austrian lidar source exists.
 - `paradiski`: La Plagne (incl. Montalbert, Champagny, Montchavin–Les Coches) and Les Arcs (incl. Peisey-Vallandry, Villaroger), linked by the Vanoise Express. Tignes and La Rosière next door are excluded.
 - `everest`: Mount Everest, Lhotse, Nuptse and the Khumbu valley to Kala Patthar (the spawn, looking at the summit). Copernicus terrain and WorldCover glaciers; OSM has no lifts or pistes there, so it's a fly / glide / ski-anywhere map with no start villages. The 30 m DSM rounds off the sharpest summits (Everest is ~115 m low).
+- `chamonix`: Le Tour / Balme and Vallorcine, Grands Montets, Brévent–Flégère (and the Liaison), Les Houches (Prarion / Bellevue), the valley areas (Savoy, Planards, La Vormaine, Le Tourchet, La Poya), the Aiguille du Midi and the Panoramic Mont-Blanc to Pointe Helbronner. Saint-Gervais / Megève, Courmayeur's Skyway and the Swiss side are excluded. The near terrain reaches Mont Blanc's summit (lidar, 0.4 m low); Switzerland and Italy are Copernicus, so the sharp Italian spires (Brenva, Grand Pilier d'Angle) are 200–250 m low.
 
 ### Main menu
 
@@ -109,7 +110,7 @@ Use the best available source for the region; fall back to global datasets.
 
 | Layer | High-res regional | Global fallback |
 |---|---|---|
-| Elevation (DEM) | **In use (FR):** IGN LiDAR HD MNT (0.5 m), with IGN RGE ALTI (1 m) as gap fill. Others: USGS 3DEP lidar (US, ~1 m), swisstopo swissALTI3D (CH, 0.5 m), Austrian state ALS DGMs (AT, 1 m), Kartverket (NO), LINZ (NZ), GSI (JP) | **In use:** Copernicus GLO-30 DEM (30 m, a DSM that includes trees and buildings) |
+| Elevation (DEM) | **In use (FR):** IGN LiDAR HD MNT (0.5 m), with IGN RGE ALTI (1 m) as gap fill and Copernicus beyond the border. Others: USGS 3DEP lidar (US, ~1 m), swisstopo swissALTI3D (CH, 0.5 m), Austrian state ALS DGMs (AT, 1 m), Kartverket (NO), LINZ (NZ), GSI (JP) | **In use:** Copernicus GLO-30 DEM (30 m, a DSM that includes trees and buildings) |
 | Imagery | USGS NAIP, swisstopo SWISSIMAGE, IGN BD ORTHO | Sentinel-2 (10 m) |
 | Pistes, lifts, resort boundary | OpenStreetMap (`piste:type`, `piste:difficulty`, `aerialway=*`, `aerialway:*`, `landuse=winter_sports`) | OpenSkiMap (processed OSM ski data, GeoJSON exports) |
 | Buildings | swissBUILDINGS3D (CH), national 3D building datasets | OSM buildings |
@@ -118,6 +119,9 @@ Use the best available source for the region; fall back to global datasets.
 | Weather / snow | Open-Meteo, national weather services | — |
 
 **IGN gotcha:** fetch from the WMS-R service (`data.geopf.fr/wms-r`) using the native Lambert-93 layers in `pipeline/src/ski_sim_pipeline/sources/ign.py`. The generic `ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES` layer is nearest-neighbour resampled from a ~1.5" geographic grid. It returns runs of duplicated heights and produces visible stair-step artefacts.
+- Off its coverage the lidar layer returns -9999 (not a declared nodata), blended into the next pixel or two (-8000 m beside 4000 m). `grid.mask_nodata` treats anything below -500 m as nodata, plus a 2 px fringe.
+- RGE ALTI never has holes: beyond France it carries on with a coarse foreign fill, hundreds of metres low on sharp summits. Its source mask (`RGEALTI-SRC`, a styled RGB image) paints that fill magenta, and `ign.foreign_mask` turns it into nodata.
+- The service sometimes drops a connection mid-tile; `http.download` checks Content-Length so a truncated GeoTIFF is retried, never cached.
 
 Licensing matters. OSM is ODbL and needs attribution plus share-alike on derived databases. Check each dataset's terms before using it and record them in the provenance metadata. Never commit data whose license forbids redistribution.
 
@@ -296,7 +300,7 @@ B gets on a snowmobile from fly or ski mode, keeping your momentum (mid-air, it 
 - **Kind and size:** chair (detachable or fixed), gondola, cable car or drag, sized from gauge and type. Detachable means published speed over 3.2 m/s, any gondola, or 6+ seats.
 - **Pads:** a flat pad under each terminal, with nearby terminals sharing one height. Chair and drag tops also get a ski-off ramp that drops 2.4 m from the unload point, so the chair passes overhead. Ramps never carve another terminal's pad.
 - **Ordering:** pads are flattened *before* buildings and lifts are placed, so everything sits on the final ground.
-- **Approach (`approach.py`):** OSM towers know nothing about our stations. Towers inside a station or within `MIN_GAP` of its exit are dropped. Walking outward from each exit, tower tops are adjusted so the rope leaves at most `MAX_EXIT_ANGLE` from level (18° chairs/gondolas, 35° cable cars) and bends at most 14° per tower, within buildable tower heights. Clearance towers are then re-inserted. Changed towers get `adjusted: true`, and the build logs any steep exits left (the terrain can force one).
+- **Approach (`approach.py`):** OSM towers know nothing about our stations. Towers inside a station or within `MIN_GAP` of its exit are dropped. Walking outward from each exit, tower tops are adjusted so the rope leaves at most `MAX_EXIT_ANGLE` from level (18° chairs/gondolas, 35° cable cars) and bends at most 14° per tower, within buildable tower heights. Only the approach is walked (`APPROACH`, 500–800 m from the exit): further out a ridge tower can bend the rope far more, and pinning it to the station's angles buried long cable car spans. Clearance towers are then re-inserted. Changed towers get `adjusted: true`, and the build logs any steep exits left (the terrain can force one).
 - **Entrances:** `choose_entrances` picks each bottom station's way in (and top's way out): a side door at the (un)loading point, or the back wall beside the uphill track, whichever is less built-up. Chair and drag tops use the ramp. A walkway (6 m wide, 4.5 m headroom, 5–25 m long until it reaches open snow) is guaranteed in front of it.
 - **Building cuts are 3D volumes** (`cut_volumes`, `cut_buildings`): the hall up to its roof, the walkway up to its headroom, and the rope corridor between the carriers' lowest point and the rope. The rope corridor is cut in 4 m pieces that follow the rope's height, so a climbing rope doesn't slice a wedge out of everything it passes over. What's above a cut stays as a `raised` piece (rendered with an underside), so a station sits in a building's ground floor roofed by the rest of it. A small building mostly inside a hall *is* the station and is replaced. Corners are mitred (10 cm margin), holes are split, and collinear vertices dropped.
 - **Check:** `conflicts()` must report nothing (logged as an ERROR otherwise, and recorded in `manifest.validation.liftClearance`).
