@@ -163,3 +163,17 @@ def draw_pistes(
         for line in r.get("tunnels", []):
             dashed(px(line), (90, 90, 90, 200), 2)
     image.paste(Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB"))
+
+
+#: The menu's preview of a resort (resort cards, the start-point map): the minimap scaled
+#: to fit this many pixels on its long side, as a small JPEG.
+PREVIEW_SIZE = 1024
+
+
+def preview(image: Image.Image, size: int = PREVIEW_SIZE) -> Image.Image:
+    """The minimap scaled down for the menu (same extent, so pins line up)."""
+    scale = size / max(image.size)
+    if scale >= 1:
+        return image.convert("RGB")
+    w, h = (max(1, round(d * scale)) for d in image.size)
+    return image.convert("RGB").resize((w, h), Image.LANCZOS)

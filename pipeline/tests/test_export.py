@@ -1,8 +1,9 @@
 import numpy as np
 import pytest
+from PIL import Image
 
 from ski_sim_pipeline.export import encode_heights
-from ski_sim_pipeline.minimap import downsample
+from ski_sim_pipeline.minimap import downsample, preview
 
 
 def test_encode_round_trip_within_half_quantum():
@@ -43,3 +44,9 @@ def test_dashes_are_even_whatever_the_vertex_spacing():
     # Each dash starts 12 px (7 on + 5 off) along the line after the one before.
     assert out[1][0] == (12, 0)
     assert len(out) == math.ceil(71 / 12)
+
+
+def test_preview_fits_the_long_side_and_keeps_the_shape():
+    small = preview(Image.new("RGB", (2000, 3750)), size=1024)
+    assert small.size == (546, 1024)
+    assert preview(Image.new("RGB", (300, 200)), size=1024).size == (300, 200)

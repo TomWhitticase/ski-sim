@@ -55,13 +55,17 @@ export class Multiplayer {
 
   constructor(
     private readonly sim: MultiplayerSim,
-    panel: HTMLElement,
+    /** The Multiplayer screen, made before any map loads; this takes over its buttons. */
+    menu: MultiplayerMenu,
     private readonly transport: TransportKind,
     autoJoin: string | null,
+    /** Chose "Host" before picking a resort: open a game as soon as the map's ready. */
+    autoHost = false,
   ) {
     this.name = loadName(localStorage);
     this.remote = new RemotePlayers(sim.scene, sim.tags, sim.groundHeight);
-    this.menu = new MultiplayerMenu(panel, this.name, {
+    this.menu = menu;
+    menu.actions = {
       host: () => void this.start('host', makeRoomCode()),
       join: (code) => void this.start('guest', code),
       leave: () => this.leave(),
@@ -77,16 +81,15 @@ export class Multiplayer {
         this.session?.rename();
         this.render();
       },
-    });
+    };
     window.addEventListener('pagehide', () => this.session?.leave());
     // The frame loop stops while the map is open or the tab is in the background; keep
     // sending and pinging anyway, or the host drops you after a few seconds.
     setInterval(() => this.session?.update(), 1000 / SEND_HZ);
     this.render();
-    if (autoJoin) {
-      void this.start('guest', autoJoin);
-      this.menu.open();
-    }
+    // An invite link: join straight away (progress shows on the Multiplayer screen).
+    if (autoJoin) void this.start('guest', autoJoin);
+    else if (autoHost) void this.start('host', makeRoomCode());
   }
 
   /** In a game (hosting, or joined/joining one). */

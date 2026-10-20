@@ -33,16 +33,18 @@ test('O opens settings: field of view and camera options apply live and persist'
   await page.keyboard.press('Escape');
   await expect(modal).toBeHidden();
   await page.screenshot({ path: 'test-results/views/settings-wide-fov.png' });
-  // Third person has its own (narrower) field of view.
+  // Third person has its own (narrower) field of view (on skis: flying has no views).
+  await page.keyboard.press('KeyF');
   await page.keyboard.press('KeyV');
   await expect.poll(() => fov(page)).toBeCloseTo(70, 0);
   await page.keyboard.press('KeyV');
+  await page.keyboard.press('KeyF'); // flying again (no speed widening when it reloads)
   await expect.poll(() => fov(page)).toBeCloseTo(95, 0);
 
   await page.reload();
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 30, null, { timeout: 90_000 });
   expect(await fov(page)).toBeCloseTo(95, 0);
-  await page.locator('#open-settings').click();
+  await page.keyboard.press('KeyO');
   await expect(modal.locator('[data-invert="true"]')).toHaveAttribute('aria-checked', 'true');
   await modal.locator('.setup-reset').click();
   await expect.poll(() => fov(page)).toBeCloseTo(85, 0);

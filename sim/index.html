@@ -78,79 +78,137 @@
       </aside>
     </div>
 
-    <!-- Menus: light glass. The main menu doubles as the pause menu. -->
-    <div id="overlay" class="glass-light">
-      <header class="menu-bar glass">
-        <span class="brand"><i></i>ski-sim</span>
-        <div class="menu-tools">
-          <button id="open-ski-setup" class="tool" type="button">Ski setup <kbd>G</kbd></button>
-          <button id="open-time" class="tool" type="button" data-needs-map disabled>
-            Time <kbd>T</kbd>
-          </button>
-          <button id="open-multiplayer" class="tool" type="button" data-needs-map disabled>
-            Multiplayer <kbd>N</kbd>
-          </button>
-          <button id="open-settings" class="tool" type="button">Options <kbd>O</kbd></button>
-          <button id="open-controls" class="tool" type="button">Controls</button>
-        </div>
-      </header>
+    <!-- Menus: light glass, one screen at a time (ui/main-menu.ts, ui/screens.ts). Esc or
+         the ← in the corner goes back one screen. -->
+    <div id="overlay" class="glass-light" data-screen="title">
+      <button id="menu-back" class="crumb glass" type="button" hidden>
+        <span aria-hidden="true">←</span> <span class="crumb-to"></span>
+      </button>
 
-      <section class="menu-card glass">
-        <button id="menu-area" class="menu-area" type="button" title="Change ski area">
-          <span class="lab" id="menu-kicker"></span>
-          <span class="menu-area-row"
-            ><h1 id="menu-title"></h1>
-            <span class="menu-area-change">Change <span aria-hidden="true">▾</span></span></span
-          >
-        </button>
-        <div class="tiles" id="menu-stats"></div>
-        <div class="lab menu-starts-head">
-          <span>Start at</span><span id="menu-starts-count"></span>
+      <section class="screen screen-title" data-screen="title">
+        <div class="title-card glass">
+          <div class="brand brand-big"><i></i>ski-sim</div>
+          <p class="lab title-tag">Real mountains, real data</p>
+          <button id="continue-card" class="continue-card" type="button" hidden>
+            <span class="continue-map"><img alt="" /></span>
+            <span class="continue-text"
+              ><span class="lab">Continue</span><b></b><small></small
+            ></span>
+          </button>
+          <div class="title-actions">
+            <button id="title-continue" class="btn btn-primary" type="button" hidden>
+              Continue
+            </button>
+            <button id="title-play" class="btn btn-primary" type="button">Play</button>
+            <button id="open-multiplayer" class="btn" type="button">Multiplayer</button>
+            <button id="open-ski-setup" class="btn" type="button">Ski setup</button>
+            <button id="open-settings" class="btn" type="button">Options</button>
+          </div>
         </div>
-        <div id="menu-starts" class="menu-list"></div>
-        <div class="menu-go">
-          <p id="status">Finding ski areas…</p>
-          <div id="load-progress" hidden><i></i></div>
-          <button id="start" class="btn btn-primary" disabled>Choose a ski area</button>
+        <button id="open-controls" class="title-foot" type="button">Controls</button>
+      </section>
+
+      <section class="screen screen-resorts" data-screen="resorts" hidden>
+        <div class="resorts-card glass">
+          <div class="resorts-browse">
+            <div class="resorts-tools">
+              <input
+                id="menu-search"
+                class="browser-search"
+                type="search"
+                placeholder="Search resorts or countries…"
+                autocomplete="off"
+              />
+              <select id="menu-country" class="menu-select" aria-label="Country"></select>
+            </div>
+            <div class="lab"><span id="menu-resort-count"></span></div>
+            <div id="menu-resorts" class="resort-grid"></div>
+          </div>
+          <aside class="resort-preview">
+            <div class="lab" id="menu-kicker"></div>
+            <h1 id="menu-title"></h1>
+            <div class="preview-map"><img id="menu-preview" alt="" /></div>
+            <div class="tiles" id="menu-stats"></div>
+            <p id="menu-villages" class="preview-villages"></p>
+            <button id="choose-start" class="btn btn-primary" type="button">
+              Choose start point →
+            </button>
+          </aside>
         </div>
       </section>
 
-      <!-- Every ski area: searchable, so it scales to hundreds. -->
-      <section id="menu-browser" class="browser-card glass" hidden>
-        <div class="browser-head">
-          <span class="lab">Ski areas <span id="menu-resort-count"></span></span>
-          <button id="menu-browser-close" class="map-close" type="button" aria-label="Close">
-            ✕
-          </button>
+      <section class="screen screen-resort" data-screen="resort" hidden>
+        <div class="starts-card glass">
+          <div class="lab" id="resort-kicker"></div>
+          <h2 id="resort-title"></h2>
+          <div class="lab menu-starts-head">
+            <span>Start at</span><span id="menu-starts-count"></span>
+          </div>
+          <div id="menu-starts" class="menu-list"></div>
+          <button id="ski-from" class="btn btn-primary" type="button">Ski</button>
         </div>
-        <input
-          id="menu-search"
-          class="browser-search"
-          type="search"
-          placeholder="Search ski areas or countries…"
-          autocomplete="off"
-        />
-        <div id="menu-resorts" class="menu-list"></div>
+        <div class="starts-map glass">
+          <div class="starts-view">
+            <img id="starts-map-img" alt="" />
+            <div id="starts-pins"></div>
+          </div>
+        </div>
       </section>
 
-      <section class="pause-card glass">
-        <div class="lab" id="pause-kicker">Paused</div>
-        <h2 id="pause-title"></h2>
-        <div class="pause-items">
-          <button id="resume" class="pause-item on" type="button">Resume <kbd>↵</kbd></button>
-          <button id="pause-map" class="pause-item" type="button">Map <kbd>M</kbd></button>
-          <button id="pause-options" class="pause-item" type="button">Options <kbd>O</kbd></button>
-          <button id="pause-multiplayer" class="pause-item" type="button">
-            Multiplayer <kbd>N</kbd>
-          </button>
-          <button id="pause-browse" class="pause-item muted" type="button">
-            Change ski area or start
-          </button>
+      <section class="screen screen-loading" data-screen="loading" hidden>
+        <div class="loading-card glass">
+          <div class="lab" id="loading-where"></div>
+          <h2 id="status">Finding ski areas…</h2>
+          <div id="load-progress"><i></i></div>
+          <p class="loading-tip"></p>
+          <button id="start" class="btn btn-primary" type="button" hidden>Start skiing</button>
         </div>
       </section>
+
+      <section class="screen screen-pause" data-screen="pause" hidden>
+        <div class="pause-card glass">
+          <div class="lab">Paused</div>
+          <h2 id="pause-title"></h2>
+          <p id="pause-host" class="pause-host" hidden></p>
+          <div class="pause-items">
+            <button id="resume" class="pause-item on" type="button">Resume <kbd>↵</kbd></button>
+            <button id="pause-map" class="pause-item" type="button">Map <kbd>M</kbd></button>
+            <button id="pause-start" class="pause-item" type="button">Change start point</button>
+            <button id="pause-resort" class="pause-item" type="button">Change resort</button>
+            <button id="pause-multiplayer" class="pause-item" type="button">
+              Multiplayer <kbd>N</kbd>
+            </button>
+            <button id="pause-options" class="pause-item" type="button">
+              Options <kbd>O</kbd>
+            </button>
+            <button id="pause-quit" class="pause-item muted" type="button">Main menu</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen screen-multiplayer" data-screen="multiplayer" hidden>
+        <div id="mp-panel" class="mp-card glass">
+          <header class="hub-head">
+            <h2>Multiplayer</h2>
+            <p>Peer to peer; share a code with friends</p>
+          </header>
+          <div class="modal-body multiplayer"></div>
+        </div>
+      </section>
+
+      <dialog id="confirm" class="confirm glass-light">
+        <form method="dialog" class="confirm-card glass">
+          <h2></h2>
+          <p></p>
+          <div class="confirm-actions">
+            <button class="btn" value="stay">Stay</button>
+            <button class="btn btn-primary" value="leave" autofocus>Leave</button>
+          </div>
+        </form>
+      </dialog>
     </div>
 
-    <!-- Options: one light-glass dialog, a tab per menu. G / T / O / N open their tab. -->
+    <!-- Options: one light-glass dialog, a tab per menu. G / T / O open their tab. -->
     <dialog id="options" class="hub glass-light" aria-label="Options">
       <div class="hub-card glass">
         <nav class="hub-tabs">
@@ -161,9 +219,6 @@
           <button type="button" data-tab="opt-ski">Ski setup <kbd>G</kbd></button>
           <button type="button" data-tab="opt-time" data-needs-map disabled>
             Time of day <kbd>T</kbd>
-          </button>
-          <button type="button" data-tab="opt-online" data-needs-map disabled>
-            Multiplayer <kbd>N</kbd>
           </button>
           <button type="button" data-tab="opt-credits">Data &amp; credits</button>
           <button class="hub-close" type="button" title="Close (Esc)">Close <kbd>Esc</kbd></button>
@@ -336,14 +391,6 @@
             <span></span>
             <button class="modal-close btn btn-primary" type="button">Done</button>
           </footer>
-        </section>
-
-        <section id="opt-online" class="hub-panel" hidden>
-          <header class="hub-head">
-            <h2>Multiplayer</h2>
-            <p>Peer to peer; share a code with friends</p>
-          </header>
-          <div class="modal-body multiplayer"></div>
         </section>
 
         <section id="opt-credits" class="hub-panel" hidden>

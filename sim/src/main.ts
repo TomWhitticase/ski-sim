@@ -87,7 +87,8 @@ import { WorldMap } from './ui/world-map';
 import { SkyTransition } from './nav/sky-transition';
 import { addSpirit, sampleAvatar } from './net/local-avatar';
 import { Multiplayer } from './net/multiplayer';
-import { parseRoomCode } from './net/room';
+import { cleanName, loadName, NAME_KEY, parseRoomCode } from './net/room';
+import { MultiplayerMenu } from './ui/multiplayer-menu';
 
 declare global {
   interface Window {
@@ -172,6 +173,8 @@ async function main(): Promise<void> {
   let load: (id: string) => void = () => {};
   const chosen = new Promise<string>((resolve) => (load = resolve));
   let loaded = false;
+  // Chose "Host a game" before choosing where: open one once the map's ready.
+  let hostAfterLoad = params.get('host') === '1';
   const menu: MainMenu = new MainMenu($('#overlay'), {
     onSelect: (id) => {
       manifestOf(id).then(
@@ -180,23 +183,63 @@ async function main(): Promise<void> {
             id,
             m.bases ?? [],
             (id === suggested && params.has('at')) || loadPose(localStorage, id) !== null,
+            m.minimap.extent,
             id === suggested ? params.get('start') : null,
           ),
         (e: unknown) => menu.setStartsMessage(id, e instanceof Error ? e.message : String(e)),
       );
     },
-    onLoad: (id, choice) => {
-      if (!loaded) return load(id);
+    onLoad: (id, _choice, { host }) => {
+      if (!loaded) {
+        hostAfterLoad ||= host;
+        return load(id);
+      }
       // Another area: a fresh page that loads it straight away, at the chosen start.
-      const url = new URL(location.href);
-      url.search = `?resort=${encodeURIComponent(id)}`;
-      if (choice) url.searchParams.set('start', choice.name);
-      location.href = url.toString();
+      location.href = resortLink(id, _choice?.name ?? null, host);
     },
     onPlay: (choice) => play(choice),
   });
   failLoad = (message) => menu.failed(message);
   menu.setResorts(resorts, suggested);
+  // Returning players: Continue (where they left off) leads the title screen.
+  const lastPlayed = localStorage.getItem(LAST_RESORT_KEY);
+  if (known(lastPlayed)) {
+    const pose = loadPose(localStorage, lastPlayed!);
+    menu.setContinue(
+      lastPlayed,
+      pose
+        ? `Where you left off · ${Math.round(pose.altitude).toLocaleString('en-GB')} m`
+        : 'From the resort start',
+    );
+  }
+  /** A page that loads `id` straight away (at `start`), keeping test/network switches. */
+  const resortLink = (id: string, start: string | null, host: boolean) => {
+    const url = new URL(location.href);
+    url.search = `?resort=${encodeURIComponent(id)}`;
+    if (start) url.searchParams.set('start', start);
+    if (host) url.searchParams.set('host', '1');
+    if (params.get('net')) url.searchParams.set('net', params.get('net')!);
+    return url.toString();
+  };
+  // The Multiplayer screen exists from the start. Until a map's loaded, Host means "choose
+  // where first" and Join loads the game's resort; then `Multiplayer` takes it over.
+  const multiplayerMenu = new MultiplayerMenu(
+    $('#mp-panel'),
+    menu.multiplayer,
+    loadName(localStorage),
+    {
+      host: () => menu.hostFromResort(),
+      join: (code) => {
+        const url = new URL(resortLink(menu.selectedResort ?? suggested, null, false));
+        url.searchParams.set('join', code);
+        location.href = url.toString();
+      },
+      leave: () => {},
+      goTo: () => {},
+      rename: (name) => localStorage.setItem(NAME_KEY, cleanName(name)),
+    },
+  );
+  $('#open-multiplayer').addEventListener('click', () => multiplayerMenu.open());
   let changeSkis: (setup: SkiSetup) => void = () => {};
   const skiSetup = new SkiSetupMenu($('#opt-ski'), loadSetup(localStorage), (setup) => {
     saveSetup(localStorage, setup);
@@ -221,8 +264,11 @@ async function main(): Promise<void> {
   const resortId = await chosen;
   loaded = true;
   localStorage.setItem(LAST_RESORT_KEY, resortId);
-  menu.loading(resortId);
   const manifest = await manifestOf(resortId);
+  // A link's start point (switching areas from the menu carries the choice over).
+  const linkStart = params.get('start');
+  if (linkStart) menu.setLoadChoice(manifest.bases?.find((b) => b.name === linkStart) ?? null);
+  menu.loading(resortId);
   document.title = `${manifest.resort.name} · ski-sim`;
   // The data credits live in Options → Data & credits.
   showCredits($('#opt-credits .modal-body'), manifest.provenance);
@@ -311,7 +357,6 @@ async function main(): Promise<void> {
       multiplayer.clockChanged();
     },
   );
-  $('#open-time').addEventListener('click', () => timeMenu.open());
   // The time above the minimap (with the clock speed unless it's real time).
   const clockTime = $('#clock [data-time]');
   const clockRate = $('#clock [data-rate]');
@@ -636,11 +681,11 @@ async function main(): Promise<void> {
         ride.fastForward = !multiplayer.active; // the lift clock is shared
       },
     },
-    $('#opt-online'),
+    multiplayerMenu,
     params.get('net') === 'loopback' ? 'loopback' : 'webrtc',
     parseRoomCode(params.get('join') ?? ''),
+    hostAfterLoad,
   );
-  $('#open-multiplayer').addEventListener('click', () => multiplayer.menu.open());
 
   // Teleports reset the speed readout so the jump doesn't register as motion.
   let speedReset = true;
@@ -906,6 +951,16 @@ async function main(): Promise<void> {
   $('#pause-map').addEventListener('click', openMap);
   $('#pause-options').addEventListener('click', () => settingsMenu.open());
   $('#pause-multiplayer').addEventListener('click', () => multiplayer.menu.open());
+  // On the pause menu: the game you're in, if any.
+  document.addEventListener('pointerlockchange', () => {
+    if (input.locked) return;
+    const d = multiplayer.debug;
+    menu.setPauseNote(
+      d.code
+        ? `${d.role === 'host' ? 'Hosting' : 'In'} game ${d.code} · ${d.players.length} ${d.players.length === 1 ? 'player' : 'players'}`
+        : null,
+    );
+  });
   // Ctrl tucks, but Ctrl+W closes the tab on Windows/Linux and can't be intercepted.
   // Ask before leaving instead. (On macOS Ctrl+W does nothing, so skip the prompt.)
   if (!/Mac|iPhone|iPad/.test(navigator.userAgent)) {

@@ -512,6 +512,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     minimap.draw_pistes(image, piste_records, ext.west - half, ext.north + half, mm_cell)
     minimap.draw_features(image, feature_data, ext.west - half, ext.north + half, mm_cell)
     image.save(out_dir / "minimap.png", optimize=True)
+    minimap.preview(image).save(out_dir / "preview.jpg", quality=82, optimize=True)
     minimap_meta = {
         "file": "minimap.png",
         "extent": {

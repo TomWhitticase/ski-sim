@@ -36,7 +36,7 @@ async function open(context: BrowserContext, query: string, errors: string[]) {
 }
 
 async function setName(page: Page, name: string) {
-  const input = page.locator('#opt-online [name="player-name"]');
+  const input = page.locator('#mp-panel [name="player-name"]');
   await input.fill(name);
   await input.press('Tab'); // change event
 }
@@ -51,10 +51,10 @@ test('host and guest see each other skiing, on the host clock', async ({ context
     localStorage.setItem('ski-sim.mode', 'ski');
   });
 
-  // Host: open the Multiplayer dialog (N), name yourself, host.
+  // Host: open the Multiplayer screen (N), name yourself, host.
   const host = await open(context, HOST_AT, errors);
   await host.keyboard.press('KeyN');
-  const modal = host.locator('#opt-online');
+  const modal = host.locator('#mp-panel');
   await expect(modal).toBeVisible();
   await setName(host, 'Alice');
   await modal.locator('.mp-host').click();
@@ -65,9 +65,10 @@ test('host and guest see each other skiing, on the host clock', async ({ context
   );
   await expect(modal.locator('.mp-player')).toHaveText(['Alice · host (you)']);
 
-  // Guest: the invite link joins on load.
+  // Guest: the invite link joins on load (N shows how it's going).
   const guest = await open(context, `${GUEST_AT}&join=${code}`, errors);
-  const guestModal = guest.locator('#opt-online');
+  await guest.keyboard.press('KeyN');
+  const guestModal = guest.locator('#mp-panel');
   await expect(guestModal).toBeVisible();
   await expect(guestModal.locator('.mp-status')).toHaveText('Connected');
   await setName(guest, 'Bob');
@@ -142,7 +143,7 @@ test('host and guest see each other skiing, on the host clock', async ({ context
   expect(await sim(guest, (s) => s.multiplayer.debug.connected)).toBe(true);
 
   // Shared world: the guest follows the host's time of day and lift clock.
-  await host.locator('#open-time').evaluate((b: HTMLElement) => b.click());
+  await host.keyboard.press('KeyT');
   await host.locator('#opt-time .setup-preset', { hasText: 'Night' }).click();
   await host.keyboard.press('Escape');
   await expect
@@ -153,13 +154,13 @@ test('host and guest see each other skiing, on the host clock', async ({ context
     sim(guest, (s) => s.lifts.time),
   ]);
   expect(Math.abs(liftGap[0] - liftGap[1])).toBeLessThan(0.5);
-  await guest.locator('#open-time').evaluate((b: HTMLElement) => b.click());
+  await guest.keyboard.press('KeyT');
   await expect(guest.locator('#opt-time .time-locked')).toContainText('host sets the time');
   await expect(guest.locator('#opt-time input[name="time"]')).toBeDisabled();
   await guest.keyboard.press('Escape');
 
   // The host leaves: the game ends for the guest, with a message.
-  await host.locator('#open-multiplayer').evaluate((b: HTMLElement) => b.click());
+  await host.keyboard.press('KeyN');
   await modal.locator('.mp-leave').click();
   await expect(guestModal).toBeVisible();
   await expect(guestModal.locator('.mp-status')).toHaveText('The host ended the game');
@@ -167,7 +168,7 @@ test('host and guest see each other skiing, on the host clock', async ({ context
   expect(await sim(guest, (s) => s.multiplayer.debug.dots.length)).toBe(0);
   // Back on their own clock: the time menu works again.
   await guest.keyboard.press('Escape');
-  await guest.locator('#open-time').evaluate((b: HTMLElement) => b.click());
+  await guest.keyboard.press('KeyT');
   await expect(guest.locator('#opt-time input[name="time"]')).toBeEnabled();
 
   expect(errors).toEqual([]);
@@ -178,14 +179,14 @@ test('a double-clicked Join joins once', async ({ context }) => {
   const errors: string[] = [];
   const host = await open(context, HOST_AT, errors);
   await host.keyboard.press('KeyN');
-  const modal = host.locator('#opt-online');
+  const modal = host.locator('#mp-panel');
   await modal.locator('.mp-host').click();
   await expect(modal.locator('.mp-code')).toHaveText(/^[A-Z2-9]{6}$/);
   const code = (await modal.locator('.mp-code').textContent())!;
 
   const guest = await open(context, GUEST_AT, errors);
   await guest.keyboard.press('KeyN');
-  const guestModal = guest.locator('#opt-online');
+  const guestModal = guest.locator('#mp-panel');
   await guestModal.locator('.mp-code-input').fill(code);
   // Both clicks land before the first connection is open.
   await guestModal.locator('.mp-join').evaluate((b: HTMLElement) => {

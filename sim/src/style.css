@@ -760,7 +760,7 @@ body.sky-transition #crosshair {
   }
 }
 
-/* ---------- Main and pause menu (light glass) ---------- */
+/* ---------- Menus (light glass): one screen at a time (ui/main-menu.ts) ---------- */
 
 #overlay {
   position: fixed;
@@ -789,21 +789,41 @@ body.map-open #overlay {
   display: none;
 }
 
-#overlay > * {
-  zoom: var(--ui-scale);
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
 }
 
-.menu-bar {
+/* Cards scale with the interface size; the screens themselves fill the window. */
+.screen > *,
+.crumb {
+  zoom: var(--ui-scale);
+  animation: rise 0.22s var(--ease);
+}
+
+/* ← back, top left, naming where it goes. */
+.crumb {
   position: absolute;
   top: 24px;
   left: 24px;
-  right: 24px;
+  z-index: 1;
   display: flex;
   align-items: center;
-  gap: 18px;
-  height: 52px;
-  padding: 0 8px 0 14px;
-  animation: rise 0.22s var(--ease);
+  gap: 8px;
+  padding: 8px 14px 8px 11px;
+  border: none;
+  color: var(--fg);
+  font: 600 13.5px var(--font-ui);
+  cursor: pointer;
+}
+
+.crumb:hover {
+  background: var(--hover);
 }
 
 .brand {
@@ -831,162 +851,258 @@ body.map-open #overlay {
   clip-path: polygon(0 100%, 38% 18%, 56% 52%, 72% 32%, 100% 100%);
 }
 
-.menu-tools {
-  display: flex;
-  gap: 2px;
-  margin-left: auto;
-  flex: none;
-}
-
-.tool {
-  display: flex;
-  align-items: center;
-  padding: 7px 10px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--fg);
-  font: 500 13px var(--font-ui);
-  cursor: pointer;
-}
-
-.tool:hover {
-  background: var(--hover);
-}
-
-.tool:disabled {
-  opacity: 0.4;
-  cursor: default;
-  background: none;
-}
-
-.tool kbd {
-  min-width: 17px;
-  height: 17px;
-  font-size: 10px;
-}
-
-.menu-card {
-  position: absolute;
-  left: 24px;
-  top: 92px;
-  bottom: 24px;
+/* Title: centred, nothing else on screen. */
+.title-card {
   display: flex;
   flex-direction: column;
-  width: 440px;
-  padding: 22px;
-  animation: rise 0.22s var(--ease);
+  align-items: stretch;
+  width: 380px;
+  padding: 30px 28px 26px;
+  text-align: center;
 }
 
-#overlay.paused .menu-card,
-#overlay.paused .browser-card {
-  display: none;
-}
-
-.menu-area {
-  display: block;
-  width: calc(100% + 20px);
-  margin: -10px -10px 0;
-  padding: 10px;
-  border: none;
-  border-radius: var(--r-control);
-  background: transparent;
-  color: var(--fg);
-  text-align: left;
-  cursor: pointer;
-}
-
-.menu-area:hover,
-.menu-area[aria-expanded='true'] {
-  background: rgba(255, 255, 255, 0.45);
-}
-
-.menu-area-row {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
+.brand-big {
+  justify-content: center;
   gap: 12px;
-  margin-top: 6px;
-}
-
-#menu-title {
-  margin: 0;
-  font: 700 40px/1 var(--font-ui);
+  font-size: 34px;
   letter-spacing: -0.045em;
 }
 
-.menu-area-change {
-  flex: none;
-  padding: 5px 9px;
-  border-radius: var(--r-chip);
-  background: var(--sub);
-  box-shadow: inset 0 0 0 1px var(--hair);
-  font: 500 12px var(--font-ui);
-  color: var(--muted);
+.brand-big i {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
 }
 
-.browser-card {
-  position: absolute;
-  left: 476px;
-  top: 92px;
-  bottom: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  width: 360px;
-  padding: 18px;
-  animation: rise 0.18s var(--ease);
+.brand-big i::after {
+  inset: 10px 7px 8px;
 }
 
-.browser-head {
+.title-tag {
+  margin: 8px 0 22px;
+}
+
+.continue-card {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-}
-
-#menu-resorts {
-  flex: 1;
-  min-height: 0;
-  margin: 0 -8px;
-  overflow-y: auto;
-}
-
-#menu-resorts .menu-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  width: 100%;
-  padding: 9px 10px;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 8px;
   border: none;
-  border-radius: 5px;
-  background: transparent;
+  border-radius: var(--r-control);
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: inset 0 0 0 1px var(--hair);
   color: var(--fg);
   text-align: left;
   cursor: pointer;
 }
 
-#menu-resorts .menu-item:hover {
-  background: rgba(255, 255, 255, 0.5);
-}
-
-#menu-resorts .menu-item.selected {
+.continue-card:hover {
   background: rgba(255, 255, 255, 0.85);
-  box-shadow:
-    0 1px 4px rgba(13, 23, 38, 0.1),
-    inset 2px 0 0 var(--accent);
 }
 
-#menu-resorts .menu-item-name {
-  font: 600 14.5px var(--font-ui);
+.continue-map {
+  flex: none;
+  width: 72px;
+  height: 52px;
+  border-radius: var(--r-chip);
+  overflow: hidden;
+  background: var(--sub-2);
 }
 
-#menu-resorts .menu-item-detail {
-  font: 400 11.5px var(--font-mono);
+.continue-map img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.continue-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.continue-text b {
+  font: 700 17px var(--font-ui);
+  letter-spacing: -0.02em;
+}
+
+.continue-text small {
+  font: 500 11.5px var(--font-mono);
   color: var(--muted);
 }
 
+.title-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.title-actions .btn {
+  padding: 12px 16px;
+  font-size: 15px;
+}
+
+.title-actions .btn-primary {
+  padding: 14px 16px;
+  font-size: 16px;
+}
+
+.title-foot {
+  position: absolute;
+  right: 24px;
+  bottom: 20px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: var(--r-control);
+  background: rgba(250, 252, 255, 0.55);
+  color: var(--fg);
+  font: 500 12.5px var(--font-ui);
+  cursor: pointer;
+}
+
+/* Resorts: a searchable grid of every ski area, and the highlighted one beside it. */
+.screen-resorts,
+.screen-resort {
+  padding: 76px 24px 24px;
+  align-items: stretch;
+}
+
+.resorts-card {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  width: min(1280px, calc((100vw - 48px) / var(--ui-scale)));
+  height: min(820px, calc((100vh - 100px) / var(--ui-scale)));
+  overflow: hidden;
+}
+
+.resorts-browse {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 20px;
+}
+
+.resorts-tools {
+  display: flex;
+  gap: 8px;
+}
+
+.resorts-tools .browser-search {
+  flex: 1;
+}
+
+.menu-select {
+  padding: 0 30px 0 12px;
+  border: none;
+  border-radius: var(--r-control);
+  background: rgba(255, 255, 255, 0.7)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%230d1726' stroke-width='1.5'/%3E%3C/svg%3E")
+    right 10px center / 12px no-repeat;
+  box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--fg);
+  font: 500 13.5px var(--font-ui);
+  appearance: none;
+  cursor: pointer;
+}
+
+.resort-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  align-content: start;
+  gap: 10px;
+  min-height: 0;
+  margin: 0 -6px;
+  padding: 2px 6px 6px;
+  overflow-y: auto;
+}
+
+.resort-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 6px 10px;
+  border: none;
+  border-radius: var(--r-panel);
+  background: rgba(255, 255, 255, 0.45);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.resort-card:hover {
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.resort-card.selected {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow:
+    inset 0 0 0 2px var(--accent),
+    0 6px 16px -8px rgba(13, 23, 38, 0.3);
+}
+
+.resort-thumb {
+  display: block;
+  height: 104px;
+  margin-bottom: 6px;
+  border-radius: var(--r-chip);
+  overflow: hidden;
+  background: var(--sub-2);
+}
+
+.resort-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.resort-card .menu-item-name {
+  padding: 0 4px;
+  font: 600 14.5px var(--font-ui);
+  letter-spacing: -0.01em;
+}
+
+.resort-card .menu-item-detail {
+  padding: 0 4px;
+  font: 400 11px var(--font-mono);
+  color: var(--muted);
+}
+
+.resort-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 22px;
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: inset 1px 0 0 var(--hair);
+}
+
+.resort-preview h1,
+.starts-card h2 {
+  margin: -6px 0 0;
+  font: 700 32px/1.05 var(--font-ui);
+  letter-spacing: -0.04em;
+}
+
+.preview-map {
+  flex: 1;
+  min-height: 140px;
+  border-radius: var(--r-control);
+  overflow: hidden;
+  background: var(--sub-2);
+}
+
+.preview-map img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 #menu-stats {
-  margin: 16px -22px 0;
+  margin: 0 -22px;
   box-shadow:
     inset 0 1px 0 var(--hair),
     inset 0 -1px 0 var(--hair);
@@ -994,6 +1110,29 @@ body.map-open #overlay {
 
 #menu-stats > div:first-child {
   padding-left: 22px;
+}
+
+#menu-stats b {
+  font-size: 22px;
+}
+
+.preview-villages {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* Resort: the start points beside a map with a pin for each. */
+.starts-card {
+  display: flex;
+  flex-direction: column;
+  width: 400px;
+  padding: 22px;
+}
+
+.starts-card h2 {
+  margin: 4px 0 0;
 }
 
 .menu-starts-head {
@@ -1005,14 +1144,14 @@ body.map-open #overlay {
 #menu-starts {
   flex: 1;
   min-height: 0;
-  margin: 0 -10px;
+  margin: 0 -10px 14px;
   padding: 0 10px;
   overflow-y: auto;
 }
 
 #menu-starts .menu-item {
   display: grid;
-  grid-template-columns: 26px auto 1fr 64px;
+  grid-template-columns: auto 1fr auto;
   align-items: baseline;
   gap: 8px;
   width: 100%;
@@ -1036,11 +1175,6 @@ body.map-open #overlay {
     inset 2px 0 0 var(--accent);
 }
 
-.menu-item-index {
-  font: 400 11px var(--font-mono);
-  color: var(--muted);
-}
-
 #menu-starts .menu-item-name {
   font: 600 14.5px var(--font-ui);
   white-space: nowrap;
@@ -1060,35 +1194,119 @@ body.map-open #overlay {
   white-space: nowrap;
 }
 
-#menu-starts .selected .menu-item-index,
 #menu-starts .selected .menu-item-alt {
   color: var(--accent);
 }
 
-.menu-note {
-  margin: 8px 10px;
-  font-size: 13px;
-  color: var(--muted);
+#ski-from {
+  padding: 15px 18px;
+  font-size: 16px;
 }
 
-.menu-go {
-  padding-top: 14px;
+.starts-map {
+  flex: 0 1 auto;
+  height: 100%;
+  max-width: calc(100vw / var(--ui-scale) - 480px);
+  padding: 6px;
+}
+
+.starts-view {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--r-control);
+  overflow: hidden;
+  background: #e6ecf2;
+}
+
+#starts-map-img {
+  position: absolute;
+  max-width: none;
+}
+
+.start-pin {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  translate: -7px -50%;
+  cursor: pointer;
+}
+
+.start-pin i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    0 0 0 2.5px var(--fg),
+    0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.start-pin span {
+  padding: 2px 7px;
+  border-radius: var(--r-chip);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 1px 4px rgba(13, 23, 38, 0.15);
+  color: var(--fg);
+  font: 600 12px var(--font-ui);
+  white-space: nowrap;
+}
+
+.start-pin.flip {
+  flex-direction: row-reverse;
+  translate: calc(-100% + 7px) -50%;
+}
+
+.start-pin:hover {
+  z-index: 2;
+}
+
+.start-pin.selected {
+  z-index: 3;
+}
+
+.start-pin.selected i {
+  background: var(--accent);
+  box-shadow:
+    0 0 0 3px #fff,
+    0 0 0 9px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.start-pin.selected span {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* Loading: full screen, one card at the bottom. */
+.screen-loading {
+  align-items: flex-end;
+  padding-bottom: 48px;
+}
+
+.loading-card {
+  width: 560px;
+  padding: 22px 24px;
 }
 
 #status {
-  margin: 0 0 10px;
-  font: 500 12px var(--font-mono);
-  color: var(--muted);
+  margin: 6px 0 0;
+  font: 700 26px var(--font-ui);
+  letter-spacing: -0.035em;
 }
 
 #status.error {
+  font-size: 15px;
   color: var(--danger);
   white-space: pre-wrap;
 }
 
 #load-progress {
   height: 4px;
-  margin: -2px 0 12px;
+  margin-top: 16px;
   border-radius: 2px;
   background: var(--sub-2);
   overflow: hidden;
@@ -1102,36 +1320,35 @@ body.map-open #overlay {
   transition: width 0.2s;
 }
 
+.loading-tip {
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 #start {
   width: 100%;
+  margin-top: 16px;
   padding: 15px 18px;
   font-size: 16px;
 }
 
-#start:disabled {
-  opacity: 0.6;
-  cursor: progress;
-}
-
+/* Pause: one centred card over the frozen scene. */
 .pause-card {
-  display: none;
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 420px;
-  translate: -50% -50%;
+  width: 400px;
   padding: 22px;
-  animation: rise 0.22s var(--ease);
-}
-
-#overlay.paused .pause-card {
-  display: block;
 }
 
 #pause-title {
-  margin: 4px 0 16px;
+  margin: 4px 0 14px;
   font: 700 28px var(--font-ui);
   letter-spacing: -0.04em;
+}
+
+.pause-host {
+  margin: -6px 0 12px;
+  font: 500 12px var(--font-mono);
+  color: var(--accent);
 }
 
 .pause-items {
@@ -1144,12 +1361,12 @@ body.map-open #overlay {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 14px;
+  padding: 11px 14px;
   border: none;
   border-radius: var(--r-control);
   background: transparent;
   color: var(--fg);
-  font: 600 16px var(--font-ui);
+  font: 600 15.5px var(--font-ui);
   text-align: left;
   cursor: pointer;
 }
@@ -1168,13 +1385,54 @@ body.map-open #overlay {
 }
 
 .pause-item.muted {
+  margin-top: 6px;
   color: var(--muted);
   font-weight: 500;
 }
 
-.pause-item:disabled {
-  opacity: 0.45;
-  cursor: default;
+/* Multiplayer: its own screen. */
+.mp-card {
+  display: flex;
+  flex-direction: column;
+  width: 620px;
+  max-height: calc((100vh - 120px) / var(--ui-scale));
+}
+
+/* Confirm before leaving the resort you're in. */
+.confirm {
+  padding: 0;
+  border: none;
+  background: transparent;
+  overflow: visible;
+}
+
+.confirm::backdrop {
+  background: rgba(13, 23, 38, 0.25);
+}
+
+.confirm-card {
+  width: 380px;
+  padding: 22px;
+  zoom: var(--ui-scale);
+  animation: rise 0.18s var(--ease);
+}
+
+.confirm-card h2 {
+  margin: 0;
+  font: 700 22px var(--font-ui);
+  letter-spacing: -0.03em;
+}
+
+.confirm-card p {
+  margin: 8px 0 18px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
 /* ---------- Options hub (light glass dialog) ---------- */
