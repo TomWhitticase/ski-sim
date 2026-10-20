@@ -1,0 +1,18 @@
+{
+  "id": "grand-domaine",
+  "name": "Le Grand Domaine",
+  "country": "FR",
+  "bounds": {
+    "south": 45.3585,
+    "west": 6.2928,
+    "north": 45.5115,
+    "east": 6.4972
+  },
+  "places": [
+    {
+      "name": "Valmorel",
+      "lat": 45.4615,
+      "lon": 6.4425
+    }
+  ]
+}

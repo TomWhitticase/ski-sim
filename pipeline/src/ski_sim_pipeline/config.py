@@ -93,6 +93,10 @@ class ResortConfig:
     # The resort's own `bounds` in local metres (None without bounds). The near terrain
     # is snapped outward from it, so it can reach into a neighbouring resort.
     area: Extent | None = None
+    # Ski villages OSM has no place node for (a purpose-built resort village often has
+    # none): treated like OSM villages when finding start points.
+    places: tuple[GeoPoint, ...] = ()
+    place_names: tuple[str, ...] = ()
 
 
 # Defaults that make a resort config just id + name + country + lat/lon bounds.
@@ -224,6 +228,8 @@ def load_resort(path: Path) -> ResortConfig:
             for lm in raw.get("landmarks", [])
         ),
         area=_area(b, origin) if b else None,
+        places=tuple(GeoPoint(p["lat"], p["lon"]) for p in raw.get("places", [])),
+        place_names=tuple(p["name"] for p in raw.get("places", [])),
     )
 
 

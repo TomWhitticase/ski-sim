@@ -101,6 +101,16 @@ const VIEWS = [
     name: 'val-disere-village',
     query: 'resort=tignes-val-disere&at=45.4560,6.9900,2150&heading=240&pitch=-14',
   },
+  // Le Grand Domaine: Valmorel's village and Saint-François-Longchamp under the Col de la
+  // Madeleine.
+  {
+    name: 'grand-domaine-valmorel',
+    query: 'resort=grand-domaine&at=45.4560,6.4380,1700&heading=40&pitch=-12',
+  },
+  {
+    name: 'grand-domaine-st-francois',
+    query: 'resort=grand-domaine&at=45.4050,6.3700,1900&heading=80&pitch=-12',
+  },
   // Off-piste on the snow: the Pylônes freeride itineraries at Grands Montets, dashed.
   {
     name: 'chamonix-freeride-dashes',

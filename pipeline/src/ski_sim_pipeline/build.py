@@ -441,6 +441,10 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     feature_data = build_features(cfg, frame, raw_root, near, near_grid, far, far_grid, ours)
     clearance = feature_data.pop("_clearance")
     places = osm.fetch_places(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root)
+    places += [
+        {"type": "node", "lat": p.lat, "lon": p.lon, "tags": {"name": n, "place": "village"}}
+        for p, n in zip(cfg.places, cfg.place_names, strict=True)
+    ]
     start_bases = base_finder.find_bases(
         places,
         feature_data["lifts"],

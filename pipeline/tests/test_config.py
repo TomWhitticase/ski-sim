@@ -32,6 +32,25 @@ def test_minimal_config_derives_everything(tmp_path):
     assert cfg.far.extent.west == pytest.approx(e.west - 55_000)
     assert cfg.spawn.altitude is None
     assert cfg.landmarks == ()
+    assert cfg.places == ()
+
+
+def test_extra_start_villages(tmp_path):
+    path = tmp_path / "resort.json"
+    path.write_text(
+        json.dumps(
+            {
+                "id": "x",
+                "name": "X",
+                "country": "FR",
+                "bounds": {"south": 45.2, "west": 6.5, "north": 45.3, "east": 6.6},
+                "places": [{"name": "Resort 1800", "lat": 45.25, "lon": 6.55}],
+            }
+        )
+    )
+    cfg = load_resort(path)
+    assert cfg.place_names == ("Resort 1800",)
+    assert cfg.places[0].lat == pytest.approx(45.25)
 
 
 def test_unknown_countries_fall_back_to_global_terrain(tmp_path):
