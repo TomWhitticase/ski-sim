@@ -1,0 +1,363 @@
+/*
+ * Glacier: the sim's design system. One set of components, two glass modes:
+ *   .glass-dark  — in the world (HUD, prompts, toasts): readable over bright snow.
+ *   .glass-light — menus (main/pause menu, options, map): bright frost over the scene.
+ * Every component reads the custom properties below, so a container's mode class is the
+ * only difference. Radii 8 (panels) / 6 (controls) / 4 (chips); Geist for words, Geist
+ * Mono for every number. Orange (--best) is reserved for best times.
+ */
+
+@font-face {
+  font-family: 'Geist';
+  src: url('../fonts/Geist-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('../fonts/GeistMono-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  --font-ui: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --r-panel: 8px;
+  --r-control: 6px;
+  --r-chip: 4px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* Set by display-settings.ts from the window height and the player's choice. */
+  --ui-scale: 1;
+  --blur: 30px;
+  --best: #fc5200;
+  --ahead: #2bd576;
+  --behind: #ff5c5c;
+  font-family: var(--font-ui);
+}
+
+:root[data-glass='light'] {
+  --blur: 12px;
+}
+
+.glass-dark {
+  --fg: #ffffff;
+  --muted: rgba(255, 255, 255, 0.64);
+  --accent: #4cc2ff;
+  --on-accent: #04111c;
+  --glass-bg: rgba(16, 21, 31, 0.46);
+  --glass-solid: rgba(16, 21, 31, 0.78);
+  --saturate: 1.8;
+  --edge: rgba(255, 255, 255, 0.15);
+  --highlight: rgba(255, 255, 255, 0.2);
+  --outer: transparent;
+  --drop: rgba(0, 0, 0, 0.45);
+  --hair: rgba(255, 255, 255, 0.14);
+  --sub: rgba(255, 255, 255, 0.08);
+  --sub-2: rgba(255, 255, 255, 0.2);
+  --hover: rgba(255, 255, 255, 0.12);
+  --sel-bg: rgba(255, 255, 255, 0.92);
+  --sel-fg: #0d1726;
+  --key-bg: rgba(255, 255, 255, 0.92);
+  --key-fg: #0d1726;
+  --danger: #ff8a7a;
+  color: var(--fg);
+}
+
+.glass-light {
+  --fg: #0d1726;
+  --muted: rgba(13, 23, 38, 0.58);
+  --accent: #0a84ff;
+  --on-accent: #ffffff;
+  --glass-bg: rgba(250, 252, 255, 0.6);
+  --glass-solid: rgba(250, 252, 255, 0.94);
+  --saturate: 1.7;
+  --edge: rgba(255, 255, 255, 0.75);
+  --highlight: rgba(255, 255, 255, 0.9);
+  --outer: rgba(13, 23, 38, 0.07);
+  --drop: rgba(20, 60, 120, 0.35);
+  --hair: rgba(13, 23, 38, 0.1);
+  --sub: rgba(255, 255, 255, 0.55);
+  --sub-2: rgba(13, 23, 38, 0.13);
+  --hover: rgba(255, 255, 255, 0.8);
+  --sel-bg: #0d1726;
+  --sel-fg: #ffffff;
+  --key-bg: #0d1726;
+  --key-fg: #ffffff;
+  --danger: #c4321f;
+  color: var(--fg);
+}
+
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--blur)) saturate(var(--saturate));
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--saturate));
+  border-radius: var(--r-panel);
+  box-shadow:
+    inset 0 0 0 1px var(--edge),
+    inset 0 1px 0 var(--highlight),
+    0 0 0 1px var(--outer),
+    0 18px 50px -22px var(--drop);
+}
+
+/* Tint only: no blur at all (cheapest on slow GPUs), so panels are more opaque. */
+:root[data-glass='tint'] .glass {
+  background: var(--glass-solid);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Small uppercase mono label above a value or a section. */
+.lab {
+  font: 600 10.5px/1.3 var(--font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.num,
+.tiles b {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+}
+
+/* Unit after a number: smaller, muted. */
+.unit {
+  margin-left: 0.2em;
+  font: 400 0.45em var(--font-mono);
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+/* A row of stats separated by hairlines. */
+.tiles {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
+
+.tiles > div {
+  min-width: 0;
+  padding: 10px 14px;
+  box-shadow: inset -1px 0 0 var(--hair);
+}
+
+.tiles > div:last-child {
+  box-shadow: none;
+}
+
+.tiles b {
+  display: block;
+  margin-top: 3px;
+  font-size: 24px;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
+kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  margin-left: 6px;
+  border-radius: var(--r-chip);
+  background: var(--sub-2);
+  color: inherit;
+  font: 600 11px var(--font-mono);
+  vertical-align: 1px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: none;
+  border-radius: var(--r-control);
+  background: var(--sub);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--fg);
+  font: 500 14px var(--font-ui);
+  cursor: pointer;
+  transition: background 0.14s var(--ease);
+}
+
+.btn:hover {
+  background: var(--hover);
+}
+
+.btn-primary {
+  background: var(--accent);
+  box-shadow: 0 10px 24px -12px var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.btn-primary:hover {
+  background: color-mix(in srgb, var(--accent) 88%, black);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Segmented choice: setup options, presets, view. */
+.setup-options,
+.setup-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  width: fit-content;
+  max-width: 100%;
+  border-radius: var(--r-control);
+  background: var(--sub);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+
+.setup-preset,
+.setup-option {
+  padding: 6px 12px;
+  border: none;
+  border-radius: var(--r-chip);
+  background: transparent;
+  color: var(--muted);
+  font: 500 12.5px var(--font-ui);
+  cursor: pointer;
+}
+
+.setup-preset:hover,
+.setup-option:hover {
+  color: var(--fg);
+  background: var(--hover);
+}
+
+.setup-preset.selected,
+.setup-option.selected {
+  background: var(--sel-bg);
+  color: var(--sel-fg);
+}
+
+/* Sliders: a thin track with a rectangular thumb. */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 16px;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background:
+    linear-gradient(var(--accent), var(--accent)) 0 / var(--fill, 50%) 100% no-repeat,
+    var(--sub-2);
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 8px;
+  height: 18px;
+  margin-top: -7px;
+  border-radius: 2px;
+  background: var(--fg);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+input[type='range']::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--sub-2);
+}
+
+input[type='range']::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 8px;
+  height: 18px;
+  border: none;
+  border-radius: 2px;
+  background: var(--fg);
+}
+
+input[type='range']:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* On/off switch (a button with aria-checked). */
+.switch {
+  position: relative;
+  width: 36px;
+  height: 21px;
+  flex: none;
+  border: none;
+  border-radius: 5px;
+  background: var(--sub-2);
+  cursor: pointer;
+  transition: background 0.14s var(--ease);
+}
+
+.switch::after {
+  content: '';
+  position: absolute;
+  left: 2.5px;
+  top: 2.5px;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: left 0.14s var(--ease);
+}
+
+.switch[aria-checked='true'] {
+  background: var(--accent);
+}
+
+.switch[aria-checked='true']::after {
+  left: 17.5px;
+}
+
+.switch:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-name: fade !important;
+    transition: none !important;
+  }
+}

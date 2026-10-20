@@ -11,7 +11,7 @@ import {
   type SkiWax,
   skiHandling,
 } from '../controls/ski-setup';
-import { Modal } from './modal';
+import { fillRange, OptionsTab } from './options-hub';
 
 type NumberField = keyof typeof SETUP_RANGES;
 type ChoiceField = 'profile' | 'wax' | 'tune';
@@ -110,7 +110,7 @@ export function handlingScores(h: SkiHandling): { label: string; value: number }
  * Ski setup: presets plus real ski properties (length, waist, sidecut, flex, profile,
  * wax, tune, mount). Changes apply straight away through `onChange`.
  */
-export class SkiSetupMenu extends Modal {
+export class SkiSetupMenu extends OptionsTab {
   private setup: SkiSetup;
   private readonly presetsEl: HTMLElement;
   private readonly barsEl: HTMLElement;
@@ -121,7 +121,7 @@ export class SkiSetupMenu extends Modal {
   private readonly choices = new Map<ChoiceField, HTMLElement>();
 
   constructor(
-    el: HTMLDialogElement,
+    el: HTMLElement,
     initial: SkiSetup,
     private readonly onChange: (setup: SkiSetup) => void,
   ) {
@@ -206,6 +206,7 @@ export class SkiSetupMenu extends Modal {
     for (const s of SLIDERS) {
       const { input, value } = this.sliders.get(s.key)!;
       input.value = String(this.setup[s.key]);
+      fillRange(input);
       value.textContent = s.format(this.setup[s.key]);
     }
     for (const [key, options] of this.choices) {

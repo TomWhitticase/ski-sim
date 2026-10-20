@@ -20,7 +20,7 @@ test('main menu: nothing loads until you pick a ski area and load it, then ski f
   );
   await page.goto('/');
   const menu = page.locator('#overlay');
-  await expect(menu.locator('h1')).toHaveText('ski-sim');
+  await expect(menu.locator('.brand')).toHaveText('ski-sim');
   // The last area played (here the default) is highlighted, with its start points.
   await expect(menu.locator('#menu-resorts .menu-item.selected')).toContainText('Les 3 Vallées');
   const starts = menu.locator('#menu-starts .menu-item-name');
@@ -59,13 +59,26 @@ test('main menu: nothing loads until you pick a ski area and load it, then ski f
 
   // Defaults: third person (V switches, shown under the minimap) and no markers.
   await expect(page.locator('body')).toHaveClass(/chase/);
-  const toggle = (name: string) => page.locator(`#toggles [data-toggle="${name}"] b`);
-  await expect(page.locator('#toggles [data-toggle="view"]')).toContainText('V First person');
+  const toggle = (name: string) => page.locator(`#opt-display [data-toggle="${name}"]`);
+  const viewRow = page.locator('#opt-display .option-row', {
+    has: page.locator('[data-toggle="view"]'),
+  });
+  await expect(viewRow).toContainText('First person');
+  await expect(viewRow.locator('kbd')).toHaveText('V');
   for (const name of ['view', 'lift', 'peak', 'pistes', 'restaurant'])
-    await expect(toggle(name)).toHaveText('OFF');
+    await expect(toggle(name)).toHaveAttribute('aria-checked', 'false');
   await expect(page.locator('#labels .label:not([hidden])')).toHaveCount(0);
   await page.keyboard.press('KeyV');
-  await expect(toggle('view')).toHaveText('ON');
+  await expect(toggle('view')).toHaveAttribute('aria-checked', 'true');
+  // The quick toggles stay on screen, small; the one just pressed is lit.
+  await expect(page.locator('#toggles [data-toggle="view"]')).toHaveClass(/on/);
+  await expect(page.locator('#toggles [data-toggle="lift"]')).not.toHaveClass(/on/);
+  // H hides the whole HUD, and shows it again.
+  await page.keyboard.press('KeyH');
+  await expect(page.locator('#hud')).toHaveClass(/hud-off/);
+  await expect(page.locator('#minimap')).not.toBeVisible();
+  await page.keyboard.press('KeyH');
+  await expect(page.locator('#minimap')).toBeVisible();
   await expect(page.locator('body')).not.toHaveClass(/chase/);
 });
 
@@ -76,7 +89,12 @@ test('pause menu: picking another ski area asks before leaving, then loads it at
   const menu = page.locator('#overlay');
   const start = menu.locator('#start');
   await expect(start).toHaveText('Start skiing', { timeout: 90_000 });
+  // The ski areas are a searchable list behind the area's name.
+  await menu.locator('#menu-area').click();
+  await menu.locator('#menu-search').fill('arl');
+  await expect(menu.locator('#menu-resorts .menu-item:visible')).toHaveCount(1);
   await menu.locator('#menu-resorts .menu-item', { hasText: 'Arlberg' }).click();
+  await expect(menu.locator('#menu-browser')).toBeHidden();
   await expect(start).toHaveText('Switch to Ski Arlberg');
   await expect(menu.locator('#status')).toHaveText('Switching leaves Les 3 Vallées');
   const lech = menu.locator('#menu-starts .menu-item', { hasText: 'Lech' }).first();

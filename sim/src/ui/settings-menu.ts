@@ -4,7 +4,7 @@ import {
   cameraSettings,
   DEFAULT_CAMERA,
 } from '../controls/camera-settings';
-import { Modal } from './modal';
+import { fillRange, OptionsTab } from './options-hub';
 
 type NumericKey = keyof typeof CAMERA_RANGES;
 
@@ -42,11 +42,11 @@ const SLIDERS: { key: NumericKey; label: string; hint: string; format: (v: numbe
 ];
 
 /** Settings (O): camera and mouse preferences, applied live through `onChange`. */
-export class SettingsMenu extends Modal {
+export class SettingsMenu extends OptionsTab {
   private readonly sliders = new Map<NumericKey, { input: HTMLInputElement; value: HTMLElement }>();
 
   constructor(
-    el: HTMLDialogElement,
+    el: HTMLElement,
     private readonly onChange: () => void,
   ) {
     super(el);
@@ -103,6 +103,7 @@ export class SettingsMenu extends Modal {
     for (const s of SLIDERS) {
       const { input, value } = this.sliders.get(s.key)!;
       input.value = String(cameraSettings[s.key]);
+      fillRange(input);
       value.textContent = s.format(cameraSettings[s.key]);
     }
     for (const b of this.el.querySelectorAll<HTMLElement>('[data-invert]')) {

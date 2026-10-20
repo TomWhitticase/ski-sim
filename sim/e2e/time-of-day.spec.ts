@@ -21,7 +21,7 @@ test('time of day modal: preset, slider and speed move the sun, and persist afte
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   await load(page, 'at=45.3005,6.5765,2420&heading=150&pitch=-18');
-  const modal = page.locator('#time-modal');
+  const modal = page.locator('#opt-time');
   await expect(modal).toBeHidden();
   await page.locator('#open-time').click();
   await expect(modal).toBeVisible();
@@ -90,7 +90,7 @@ test('T opens the time of day from the game and F3 shows the sun', async ({ page
   await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
   await page.keyboard.press('F3');
   await page.keyboard.press('KeyT');
-  const modal = page.locator('#time-modal');
+  const modal = page.locator('#opt-time');
   await expect(modal).toBeVisible();
   await modal.locator('.setup-preset', { hasText: 'Night' }).click();
   await page.keyboard.press('KeyT');

@@ -13,7 +13,7 @@ test('O opens settings: field of view and camera options apply live and persist'
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 30, null, { timeout: 90_000 });
   expect(await fov(page)).toBeCloseTo(85, 0); // first person by default
 
-  const modal = page.locator('#settings-modal');
+  const modal = page.locator('#opt-camera');
   await page.keyboard.press('KeyO');
   await expect(modal).toBeVisible();
   await modal.locator('input[name="fovFirst"]').fill('95');

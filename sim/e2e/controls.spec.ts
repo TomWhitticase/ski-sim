@@ -107,18 +107,18 @@ test('mouse turns the view', async ({ page }) => {
 test('1 and 2 toggle lift and peak names, and the choice persists', async ({ page }) => {
   await startFlying(page, 'at=45.2981,6.5803,2700&heading=200&pitch=-8');
   const shown = (kind: string) => page.locator(`#labels .label-${kind}:not([hidden])`).count();
-  const toggle = (kind: string) => page.locator(`#toggles [data-toggle="${kind}"] b`);
+  const toggle = (kind: string) => page.locator(`#opt-display [data-toggle="${kind}"]`);
 
   await page.waitForTimeout(500);
   expect(await shown('lift')).toBeGreaterThan(3);
   expect(await shown('peak')).toBeGreaterThan(3);
-  await expect(toggle('lift')).toHaveText('ON');
+  await expect(toggle('lift')).toHaveAttribute('aria-checked', 'true');
 
   await page.keyboard.press('Digit1');
   await page.waitForTimeout(200);
   expect(await shown('lift')).toBe(0);
   expect(await shown('peak')).toBeGreaterThan(3);
-  await expect(toggle('lift')).toHaveText('OFF');
+  await expect(toggle('lift')).toHaveAttribute('aria-checked', 'false');
 
   await page.keyboard.press('Digit2');
   await page.waitForTimeout(200);
@@ -126,8 +126,8 @@ test('1 and 2 toggle lift and peak names, and the choice persists', async ({ pag
 
   await page.reload();
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10);
-  await expect(toggle('lift')).toHaveText('OFF');
-  await expect(toggle('peak')).toHaveText('OFF');
+  await expect(toggle('lift')).toHaveAttribute('aria-checked', 'false');
+  await expect(toggle('peak')).toHaveAttribute('aria-checked', 'false');
   expect(await shown('lift')).toBe(0);
 });
 
@@ -135,18 +135,18 @@ test('4 toggles mountain restaurant names, and the choice persists', async ({ pa
   // Looking at Krazy Kanguruh and Mooserwirt above St. Anton.
   await startFlying(page, 'resort=arlberg&at=47.129080,10.256784,1467&heading=328&pitch=-10');
   const shown = () => page.locator('#labels .label-restaurant:not([hidden])');
-  const toggle = page.locator('#toggles [data-toggle="restaurant"] b');
+  const toggle = page.locator('#opt-display [data-toggle="restaurant"]');
   await page.waitForTimeout(500);
-  await expect(toggle).toHaveText('ON');
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
   await expect(shown().filter({ hasText: 'Krazy Kanguruh' })).toHaveCount(1);
   await page.keyboard.press('Digit4');
   await page.waitForTimeout(200);
-  await expect(toggle).toHaveText('OFF');
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
   expect(await shown().count()).toBe(0);
   expect(await page.locator('#labels .label-lift:not([hidden])').count()).toBeGreaterThan(0);
   await page.reload();
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10);
-  await expect(toggle).toHaveText('OFF');
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
   expect(await shown().count()).toBe(0);
 });
 

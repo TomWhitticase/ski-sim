@@ -66,6 +66,9 @@ import {
   runLabel,
 } from './pistes/pistes';
 import { loadPose, type Pose, savePose } from './nav/pose';
+import { showCredits } from './ui/credits';
+import { DisplayMenu, type WorldToggle } from './ui/display-menu';
+import { applyDisplay, loadDisplay, saveDisplay } from './ui/display-settings';
 import { Hud } from './ui/hud';
 import {
   type LabelKind,
@@ -195,14 +198,24 @@ async function main(): Promise<void> {
   failLoad = (message) => menu.failed(message);
   menu.setResorts(resorts, suggested);
   let changeSkis: (setup: SkiSetup) => void = () => {};
-  const skiSetup = new SkiSetupMenu($('#ski-setup-modal'), loadSetup(localStorage), (setup) => {
+  const skiSetup = new SkiSetupMenu($('#opt-ski'), loadSetup(localStorage), (setup) => {
     saveSetup(localStorage, setup);
     changeSkis(setup);
   });
   $('#open-ski-setup').addEventListener('click', () => skiSetup.open());
   loadCamera(localStorage);
-  const settingsMenu = new SettingsMenu($('#settings-modal'), () => saveCamera(localStorage));
+  const settingsMenu = new SettingsMenu($('#opt-camera'), () => saveCamera(localStorage));
   $('#open-settings').addEventListener('click', () => settingsMenu.open());
+  loadDisplay(localStorage);
+  applyDisplay();
+  window.addEventListener('resize', () => applyDisplay());
+  // World switches (1–4, V, K) do nothing until a map is loaded (they're disabled till then).
+  let onWorldToggle: (name: WorldToggle) => void = () => {};
+  const displayMenu = new DisplayMenu(
+    $('#opt-display'),
+    (name) => onWorldToggle(name),
+    () => saveDisplay(localStorage),
+  );
 
   if (auto) load(suggested);
   const resortId = await chosen;
@@ -211,9 +224,8 @@ async function main(): Promise<void> {
   menu.loading(resortId);
   const manifest = await manifestOf(resortId);
   document.title = `${manifest.resort.name} · ski-sim`;
-  $('#attribution').textContent =
-    // A dataset used for several layers (Copernicus near and far) is credited once.
-    'Terrain: ' + [...new Set(manifest.provenance.map((p) => p.attribution))].join(' · ');
+  // The data credits live in Options → Data & credits.
+  showCredits($('#opt-credits .modal-body'), manifest.provenance);
   // Downloads are the first 80% of the bar; building the world is the rest.
   const downloads = new Downloads((fraction, bytes) =>
     menu.progress(`Downloading map data · ${formatBytes(bytes)}`, fraction * 0.8),
@@ -288,7 +300,7 @@ async function main(): Promise<void> {
   const { lat: originLat, lon: originLon } = manifest.origin;
   const environment = new Environment(scene, simDate(clock.seconds), originLat, originLon);
   const timeMenu = new TimeMenu(
-    $('#time-modal'),
+    $('#opt-time'),
     clock,
     dayPresets((t) => sunPosition(simDate(t), originLat, originLon).elevation),
     () => environment.sun.elevation,
@@ -511,7 +523,7 @@ async function main(): Promise<void> {
   farTerrain.update(camera.position, Infinity);
   forest?.update(camera);
 
-  const hud = new Hud($('#hud'), $('#run'), $('#toggles'), $('#fly-speed'));
+  const hud = new Hud($('#hud'));
   const minimap = await Minimap.load(
     $<HTMLCanvasElement>('#minimap canvas'),
     resortUrl(resortId, manifest.minimap.file),
@@ -545,26 +557,41 @@ async function main(): Promise<void> {
         restaurant: labels.isVisible('restaurant'),
         pistes: pisteTint.value > 0,
         sound: !sound.isMuted,
+        hud: hudShown,
       }),
     );
+  /** A display toggle changed: the Display tab's switch, and a short message in game. */
+  const showToggle = (name: WorldToggle, on: boolean, announce: boolean) => {
+    displayMenu.set(name, on);
+    hud.setToggle(name, on, announce && input.locked);
+  };
   const toggleLabels = (kind: LabelKind) => {
     labels.setVisible(kind, !labels.isVisible(kind));
-    hud.setToggle(kind, labels.isVisible(kind));
+    showToggle(kind, labels.isVisible(kind), true);
     savePrefs();
   };
   const togglePisteColours = () => {
     pisteTint.value = pisteTint.value > 0 ? 0 : 1;
-    hud.setToggle('pistes', pisteTint.value > 0);
+    showToggle('pistes', pisteTint.value > 0, true);
+    savePrefs();
+  };
+  let hudShown = prefs.hud;
+  const toggleHud = () => {
+    hudShown = !hudShown;
+    showToggle('hud', hudShown, true);
     savePrefs();
   };
   const toggleSound = () => {
     sound.setMuted(!sound.isMuted);
+    showToggle('sound', !sound.isMuted, true);
     savePrefs();
   };
-  hud.setToggle('lift', labels.isVisible('lift'));
-  hud.setToggle('peak', labels.isVisible('peak'));
-  hud.setToggle('restaurant', labels.isVisible('restaurant'));
-  hud.setToggle('pistes', pisteTint.value > 0);
+  showToggle('lift', labels.isVisible('lift'), false);
+  showToggle('peak', labels.isVisible('peak'), false);
+  showToggle('restaurant', labels.isVisible('restaurant'), false);
+  showToggle('pistes', pisteTint.value > 0, false);
+  showToggle('sound', !sound.isMuted, false);
+  showToggle('hud', hudShown, false);
   const debug = $('#debug');
   const multiplayer = new Multiplayer(
     {
@@ -600,7 +627,7 @@ async function main(): Promise<void> {
         ride.fastForward = !multiplayer.active; // the lift clock is shared
       },
     },
-    $('#multiplayer-modal'),
+    $('#opt-online'),
     params.get('net') === 'loopback' ? 'loopback' : 'webrtc',
     parseRoomCode(params.get('join') ?? ''),
   );
@@ -687,17 +714,24 @@ async function main(): Promise<void> {
   // Third person unless you've chosen first (V).
   let view: 'first-person' | 'chase' =
     localStorage.getItem(VIEW_KEY) === 'first-person' ? 'first-person' : 'chase';
-  const setView = (next: typeof view) => {
+  const setView = (next: typeof view, announce = false) => {
     view = next;
     fly.view = view;
     ski.setView(view);
     glider.setView(view);
     sled.setView(view);
     document.body.classList.toggle('chase', view === 'chase');
-    hud.setToggle('view', view === 'first-person');
+    showToggle('view', view === 'first-person', announce);
     localStorage.setItem(VIEW_KEY, view);
   };
   setView(view);
+  onWorldToggle = (name) => {
+    if (name === 'view') setView(view === 'first-person' ? 'chase' : 'first-person');
+    else if (name === 'pistes') togglePisteColours();
+    else if (name === 'sound') toggleSound();
+    else if (name === 'hud') toggleHud();
+    else toggleLabels(name);
+  };
   const setMode = (next: Mode) => {
     const pose = currentPose();
     // Ski and glide poses track the feet; fly mode's is the eye.
@@ -803,7 +837,11 @@ async function main(): Promise<void> {
   });
   document.addEventListener('pointerlockchange', () => {
     document.body.classList.toggle('flying', input.locked);
+    if (input.locked) menu.resumed();
   });
+  $('#pause-map').addEventListener('click', openMap);
+  $('#pause-options').addEventListener('click', () => settingsMenu.open());
+  $('#pause-multiplayer').addEventListener('click', () => multiplayer.menu.open());
   // Ctrl sprints, but Ctrl+W closes the tab on Windows/Linux and can't be intercepted.
   // Ask before leaving instead. (On macOS Ctrl+W does nothing, so skip the prompt.)
   if (!/Mac|iPhone|iPad/.test(navigator.userAgent)) {
@@ -813,52 +851,19 @@ async function main(): Promise<void> {
   }
   window.addEventListener('pagehide', persistPose);
   document.addEventListener('visibilitychange', persistPose);
+  const hubKeys: Record<string, { toggle(): void }> = {
+    KeyG: skiSetup,
+    KeyT: timeMenu,
+    KeyO: settingsMenu,
+    KeyN: multiplayer.menu,
+  };
   document.addEventListener('keydown', (e) => {
     if (e.target instanceof HTMLInputElement) return; // typing in the map search box
-    if (
-      e.code === 'KeyN' &&
-      !e.repeat &&
-      !worldMap.isOpen &&
-      !skiSetup.isOpen &&
-      !timeMenu.isOpen &&
-      !settingsMenu.isOpen
-    ) {
+    // G / T / O / N open their Options tab (or close the hub if it's already on it).
+    const tab = !e.repeat && !worldMap.isOpen ? hubKeys[e.code] : undefined;
+    if (tab) {
       if (document.pointerLockElement) document.exitPointerLock();
-      multiplayer.menu.toggle();
-      return;
-    }
-    if (document.querySelector('#multiplayer-modal[open]')) return;
-    if (
-      e.code === 'KeyG' &&
-      !e.repeat &&
-      !worldMap.isOpen &&
-      !timeMenu.isOpen &&
-      !settingsMenu.isOpen
-    ) {
-      if (document.pointerLockElement) document.exitPointerLock();
-      skiSetup.toggle();
-      return;
-    }
-    if (
-      e.code === 'KeyT' &&
-      !e.repeat &&
-      !worldMap.isOpen &&
-      !skiSetup.isOpen &&
-      !settingsMenu.isOpen
-    ) {
-      if (document.pointerLockElement) document.exitPointerLock();
-      timeMenu.toggle();
-      return;
-    }
-    if (
-      e.code === 'KeyO' &&
-      !e.repeat &&
-      !worldMap.isOpen &&
-      !skiSetup.isOpen &&
-      !timeMenu.isOpen
-    ) {
-      if (document.pointerLockElement) document.exitPointerLock();
-      settingsMenu.toggle();
+      tab.toggle();
       return;
     }
     if (document.querySelector('dialog[open]')) return; // a menu dialog has the keyboard
@@ -892,7 +897,7 @@ async function main(): Promise<void> {
       // Get on a snowmobile (keeping your momentum), or step off it onto your skis.
       setMode(mode === 'sled' ? 'ski' : 'sled');
     } else if (e.code === 'KeyV' && !e.repeat) {
-      setView(view === 'first-person' ? 'chase' : 'first-person');
+      setView(view === 'first-person' ? 'chase' : 'first-person', true);
     } else if (e.code === 'F3') {
       e.preventDefault();
       debug.hidden = !debug.hidden;
@@ -904,6 +909,8 @@ async function main(): Promise<void> {
       togglePisteColours();
     } else if ((e.code === 'Digit4' || e.code === 'Numpad4') && !e.repeat) {
       toggleLabels('restaurant');
+    } else if (e.code === 'KeyH' && !e.repeat) {
+      toggleHud();
     } else if (e.code === 'KeyK' && !e.repeat) {
       toggleSound();
     }
@@ -1006,7 +1013,15 @@ async function main(): Promise<void> {
     }
     if (text !== promptText) {
       promptText = text;
-      prompt.textContent = text;
+      // "E — ride …" shows its key as a keycap.
+      const key = /^([A-Z]) — (.*)$/.exec(text);
+      if (key) {
+        const kbd = document.createElement('kbd');
+        kbd.textContent = key[1]!;
+        prompt.replaceChildren(kbd, key[2]!);
+      } else {
+        prompt.textContent = text;
+      }
       prompt.hidden = !text;
     }
   };
@@ -1165,9 +1180,25 @@ async function main(): Promise<void> {
               ? sled.speed
               : speed;
     updateSnowFx(dt, ownSpeed);
-    hud.update({ altitude: here.y, lat, lon, speed: ownSpeed });
+    const heading = controls().heading;
+    const ground = groundHeight(here.x, here.z);
+    // Slope underfoot from the ground either side (2 m), only near the snow.
+    const slope =
+      here.y - ground < 60
+        ? (Math.atan(
+            Math.hypot(
+              groundHeight(here.x + 2, here.z) - groundHeight(here.x - 2, here.z),
+              groundHeight(here.x, here.z + 2) - groundHeight(here.x, here.z - 2),
+            ) / 4,
+          ) *
+            180) /
+          Math.PI
+        : null;
+    const w = waypoint.current;
+    hud.setMarker(w ? (Math.atan2(w.east - east, w.north - north) * 180) / Math.PI : null);
+    hud.update({ altitude: here.y, lat, lon, speed: ownSpeed, heading, slope });
     // Which run is underfoot (only meaningful near the snow).
-    const nearSnow = here.y - groundHeight(here.x, here.z) < 60;
+    const nearSnow = here.y - ground < 60;
     const piste = nearSnow ? pisteLookup.at(east, north) : null;
     hud.setPiste(
       mode === 'ride'
@@ -1253,11 +1284,19 @@ interface Prefs {
   restaurant: boolean;
   pistes: boolean;
   sound: boolean;
+  hud: boolean;
 }
 
 function loadPrefs(): Prefs {
   // Markers start off: a clean view until you turn them on (1-4).
-  const defaults = { lift: false, peak: false, restaurant: false, pistes: false, sound: true };
+  const defaults = {
+    lift: false,
+    peak: false,
+    restaurant: false,
+    pistes: false,
+    sound: true,
+    hud: true,
+  };
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') };
   } catch {

@@ -1,5 +1,5 @@
 import type { StartBase } from '../resort/manifest';
-import { Modal } from './modal';
+import { OptionsTab } from './options-hub';
 
 export interface ResortEntry {
   id: string;
@@ -22,10 +22,15 @@ export interface MenuHandlers {
   onPlay: (choice: StartChoice) => void;
 }
 
+const regions = new Intl.DisplayNames(['en'], { type: 'region' });
+const countryName = (code: string) => (code ? (regions.of(code) ?? code) : '');
+
 /**
- * The ski-sim main menu: pick a ski area, then where to start, then load it and play.
- * Nothing heavy downloads until you press Load. Shown at load and whenever the mouse is
- * released (Esc), where it doubles as the pause menu.
+ * The ski-sim main menu (light glass): a top bar with the ski areas and tools, and a card
+ * with the highlighted area, its start points and the one button. Nothing heavy downloads
+ * until you press Load. Shown at load and whenever the mouse is released (Esc), where it
+ * becomes the pause menu: a small card (Resume, Map, Options…) until you ask to change the
+ * area or start.
  *
  * The big button always says what it will do: choose an area, load it (with progress),
  * start skiing, or carry on.
@@ -37,7 +42,6 @@ export class MainMenu {
   private readonly button: HTMLButtonElement;
   private readonly status: HTMLElement;
   private readonly bar: HTMLElement;
-  private readonly needsMap: HTMLButtonElement[];
   private resorts: ResortEntry[] = [];
   /** The highlighted ski area. */
   private selected: string | null = null;
@@ -45,11 +49,15 @@ export class MainMenu {
   private current: string | null = null;
   private phase: 'idle' | 'loading' | 'ready' | 'error' = 'idle';
   private started = false;
+  /** Paused, but looking through the areas and start points rather than the pause card. */
+  private browsing = false;
   private bases: StartBase[] = [];
-  readonly controls = new Modal(document.querySelector<HTMLDialogElement>('#controls-modal')!);
+  private browser!: HTMLElement;
+  private search!: HTMLInputElement;
+  readonly controls = new OptionsTab(document.querySelector<HTMLElement>('#opt-controls')!);
 
   constructor(
-    root: HTMLElement,
+    private readonly root: HTMLElement,
     private readonly handlers: MenuHandlers,
   ) {
     this.resortsEl = root.querySelector('#menu-resorts')!;
@@ -57,9 +65,38 @@ export class MainMenu {
     this.button = root.querySelector('#start')!;
     this.status = root.querySelector('#status')!;
     this.bar = root.querySelector('#load-progress')!;
-    this.needsMap = [...root.querySelectorAll<HTMLButtonElement>('[data-needs-map]')];
     root.querySelector('#open-controls')!.addEventListener('click', () => this.controls.open());
     this.button.addEventListener('click', () => this.press());
+    root.querySelector('#resume')!.addEventListener('click', () => this.handlers.onPlay(null));
+    root.querySelector('#pause-browse')!.addEventListener('click', () => {
+      this.browsing = true;
+      this.render();
+    });
+    this.browser = root.querySelector('#menu-browser')!;
+    this.search = root.querySelector('#menu-search')!;
+    root
+      .querySelector('#menu-area')!
+      .addEventListener('click', () => this.showBrowser(this.browser.hasAttribute('hidden')));
+    root
+      .querySelector('#menu-browser-close')!
+      .addEventListener('click', () => this.showBrowser(false));
+    this.search.addEventListener('input', () => this.filter());
+    this.search.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this.showBrowser(false);
+      if (e.key !== 'Enter') return;
+      // Enter picks the first match.
+      const first = [...this.resortsEl.children].find((c) => !(c as HTMLElement).hidden);
+      (first as HTMLElement | undefined)?.click();
+    });
+    // Enter does what the big button (or Resume) says, unless a control has focus.
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || document.body.classList.contains('flying')) return;
+      if (document.querySelector('dialog[open]') || document.body.classList.contains('map-open'))
+        return;
+      if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLInputElement) return;
+      if (this.isPaused) this.handlers.onPlay(null);
+      else if (!this.button.disabled) this.press();
+    });
     this.render();
   }
 
@@ -67,25 +104,34 @@ export class MainMenu {
   setResorts(resorts: ResortEntry[], selected: string | null): void {
     this.resorts = resorts;
     this.resortsEl.replaceChildren(
-      ...resorts.map((r) => {
-        const b = document.createElement('button');
-        b.className = 'menu-item';
-        b.dataset.resort = r.id;
-        const detail = [
-          r.country ? (new Intl.DisplayNames(['en'], { type: 'region' }).of(r.country) ?? '') : '',
-          r.lifts ? `${r.lifts} lifts` : '',
-          r.pistes ? `${r.pistes} pistes` : '',
-        ]
-          .filter(Boolean)
-          .join(' · ');
-        b.innerHTML = '<span class="menu-item-name"></span><span class="menu-item-detail"></span>';
-        b.querySelector('.menu-item-name')!.textContent = r.name;
-        b.querySelector('.menu-item-detail')!.textContent = detail;
-        b.addEventListener('click', () => this.selectResort(r.id));
-        b.addEventListener('dblclick', () => this.button.click());
-        return b;
-      }),
+      ...[...resorts]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((r) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'menu-item';
+          b.dataset.resort = r.id;
+          const detail = [
+            countryName(r.country),
+            r.lifts ? `${r.lifts} lifts` : '',
+            r.pistes ? `${r.pistes} pistes` : '',
+          ]
+            .filter(Boolean)
+            .join(' · ');
+          b.innerHTML =
+            '<span class="menu-item-name"></span><span class="menu-item-detail"></span>';
+          b.querySelector('.menu-item-name')!.textContent = r.name;
+          b.querySelector('.menu-item-detail')!.textContent = detail;
+          b.dataset.search = `${r.name} ${detail}`.toLowerCase();
+          b.addEventListener('click', () => {
+            this.selectResort(r.id);
+            this.showBrowser(false);
+          });
+          b.addEventListener('dblclick', () => this.button.click());
+          return b;
+        }),
     );
+    this.root.querySelector('#menu-resort-count')!.textContent = `· ${resorts.length}`;
     if (selected) this.selectResort(selected);
     else this.render();
   }
@@ -105,28 +151,43 @@ export class MainMenu {
     if (resortId !== this.selected) return;
     this.bases = bases;
     const here = this.started && resortId === this.current;
-    const items: { label: string; detail: string; choice: StartChoice }[] = [];
+    const items: { label: string; detail: string; altitude: number | null; choice: StartChoice }[] =
+      [];
     if (here || hasSavedPosition) {
       items.push({
         label: here ? 'Continue where you are' : 'Where you left off',
         detail: '',
+        altitude: null,
         choice: null,
       });
     }
     for (const base of bases) {
-      items.push({ label: base.name, detail: `by the ${base.lift} lift`, choice: base });
+      items.push({ label: base.name, detail: base.lift, altitude: base.ground, choice: base });
     }
+    let number = 0;
     const buttons = items.map((item) => {
       const b = document.createElement('button');
+      b.type = 'button';
       b.className = 'menu-item';
-      b.innerHTML = '<span class="menu-item-name"></span><span class="menu-item-detail"></span>';
+      b.innerHTML =
+        '<span class="menu-item-index"></span><span class="menu-item-name"></span>' +
+        '<span class="menu-item-detail"></span><span class="menu-item-alt"></span>';
+      b.querySelector('.menu-item-index')!.textContent = item.choice
+        ? String(++number).padStart(2, '0')
+        : '↺';
       b.querySelector('.menu-item-name')!.textContent = item.label;
       b.querySelector('.menu-item-detail')!.textContent = item.detail;
+      b.querySelector('.menu-item-alt')!.textContent =
+        item.altitude === null ? '' : `${Math.round(item.altitude).toLocaleString('en-GB')} m`;
       b.addEventListener('click', () => this.select(item.choice, b));
       b.addEventListener('dblclick', () => this.button.click());
       return b;
     });
     this.startsEl.replaceChildren(...buttons);
+    this.root.querySelector('#menu-starts-count')!.textContent = bases.length
+      ? `${bases.length} · lifts within 700 m`
+      : '';
+    this.renderStats();
     // Default: a start asked for by name, else carry on if there's somewhere to carry on
     // from, else the first village.
     const wanted = preferred ? items.findIndex((i) => i.choice?.name === preferred) : -1;
@@ -162,6 +223,7 @@ export class MainMenu {
   /** The loaded area is drawn and you can play. */
   ready(): void {
     this.phase = 'ready';
+    document.body.classList.add('world');
     this.render();
   }
 
@@ -171,6 +233,17 @@ export class MainMenu {
     this.render();
     this.status.textContent = message;
     this.status.classList.add('error');
+  }
+
+  /** Playing: next time the menu opens, it's the pause card again. */
+  resumed(): void {
+    this.browsing = false;
+    this.render();
+  }
+
+  /** Showing the small pause card (playing, paused, not browsing areas). */
+  get isPaused(): boolean {
+    return this.started && this.phase === 'ready' && !this.browsing;
   }
 
   private name(id: string | null): string {
@@ -184,9 +257,52 @@ export class MainMenu {
     }
     this.bases = [];
     this.choice = null;
+    this.root.querySelector('#menu-starts-count')!.textContent = '';
     this.setStartsMessage(id, 'Finding start points…');
+    this.renderStats();
     this.render();
     this.handlers.onSelect(id);
+  }
+
+  /** The highlighted area's name, country and numbers. */
+  /** The ski area list: a searchable panel beside the card (it scales to many areas). */
+  private showBrowser(open: boolean): void {
+    this.browser.hidden = !open;
+    this.root.querySelector('#menu-area')!.setAttribute('aria-expanded', String(open));
+    if (!open) return;
+    this.search.value = '';
+    this.filter();
+    this.search.focus();
+    this.resortsEl.querySelector('.selected')?.scrollIntoView({ block: 'nearest' });
+  }
+
+  private filter(): void {
+    const words = this.search.value.toLowerCase().split(/\s+/).filter(Boolean);
+    for (const child of this.resortsEl.children) {
+      const text = (child as HTMLElement).dataset.search ?? '';
+      (child as HTMLElement).hidden = !words.every((w) => text.includes(w));
+    }
+  }
+
+  private renderStats(): void {
+    const r = this.resorts.find((x) => x.id === this.selected);
+    this.root.querySelector('#menu-title')!.textContent = r?.name ?? 'ski-sim';
+    this.root.querySelector('#menu-kicker')!.textContent = r ? countryName(r.country) : '';
+    const tiles: [string, string][] = [
+      ['Lifts', r?.lifts ? String(r.lifts) : '–'],
+      ['Runs', r?.pistes ? String(r.pistes) : '–'],
+      ['Starts', this.bases.length ? String(this.bases.length) : '–'],
+    ];
+    if (this.bases.length) {
+      const top = Math.max(...this.bases.map((b) => b.ground));
+      tiles.push([
+        'Top start',
+        `${Math.round(top).toLocaleString('en-GB')}<span class="unit">m</span>`,
+      ]);
+    }
+    this.root.querySelector('#menu-stats')!.innerHTML = tiles
+      .map(([k, v]) => `<div><span class="lab">${k}</span><b>${v}</b></div>`)
+      .join('');
   }
 
   private press(): void {
@@ -206,7 +322,7 @@ export class MainMenu {
     this.render();
   }
 
-  /** The button, progress bar and status always agree with the state. */
+  /** The button, progress bar, status and layout always agree with the state. */
   private render(): void {
     const b = this.button;
     const id = this.selected;
@@ -247,8 +363,10 @@ export class MainMenu {
               ? 'Pick where to start, then load the map'
               : 'Pick a ski area';
     }
+    this.root.classList.toggle('paused', this.isPaused);
+    this.root.querySelector('#pause-title')!.textContent = this.name(this.current);
     // Menus that need a world (time of day, multiplayer) wait for one.
-    for (const el of this.needsMap) {
+    for (const el of document.querySelectorAll<HTMLButtonElement>('[data-needs-map]')) {
       el.disabled = this.phase !== 'ready';
       el.title = el.disabled ? 'Load a ski area first' : '';
     }

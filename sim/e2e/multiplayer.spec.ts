@@ -36,7 +36,7 @@ async function open(context: BrowserContext, query: string, errors: string[]) {
 }
 
 async function setName(page: Page, name: string) {
-  const input = page.locator('#multiplayer-modal [name="player-name"]');
+  const input = page.locator('#opt-online [name="player-name"]');
   await input.fill(name);
   await input.press('Tab'); // change event
 }
@@ -54,7 +54,7 @@ test('host and guest see each other skiing, on the host clock', async ({ context
   // Host: open the Multiplayer dialog (N), name yourself, host.
   const host = await open(context, HOST_AT, errors);
   await host.keyboard.press('KeyN');
-  const modal = host.locator('#multiplayer-modal');
+  const modal = host.locator('#opt-online');
   await expect(modal).toBeVisible();
   await setName(host, 'Alice');
   await modal.locator('.mp-host').click();
@@ -67,7 +67,7 @@ test('host and guest see each other skiing, on the host clock', async ({ context
 
   // Guest: the invite link joins on load.
   const guest = await open(context, `${GUEST_AT}&join=${code}`, errors);
-  const guestModal = guest.locator('#multiplayer-modal');
+  const guestModal = guest.locator('#opt-online');
   await expect(guestModal).toBeVisible();
   await expect(guestModal.locator('.mp-status')).toHaveText('Connected');
   await setName(guest, 'Bob');
@@ -123,7 +123,7 @@ test('host and guest see each other skiing, on the host clock', async ({ context
 
   // Shared world: the guest follows the host's time of day and lift clock.
   await host.locator('#open-time').evaluate((b: HTMLElement) => b.click());
-  await host.locator('#time-modal .setup-preset', { hasText: 'Night' }).click();
+  await host.locator('#opt-time .setup-preset', { hasText: 'Night' }).click();
   await host.keyboard.press('Escape');
   await expect
     .poll(() => sim(guest, (s) => Math.round(s.clock.seconds / 60)))
@@ -134,8 +134,8 @@ test('host and guest see each other skiing, on the host clock', async ({ context
   ]);
   expect(Math.abs(liftGap[0] - liftGap[1])).toBeLessThan(0.5);
   await guest.locator('#open-time').evaluate((b: HTMLElement) => b.click());
-  await expect(guest.locator('#time-modal .time-locked')).toContainText('host sets the time');
-  await expect(guest.locator('#time-modal input[name="time"]')).toBeDisabled();
+  await expect(guest.locator('#opt-time .time-locked')).toContainText('host sets the time');
+  await expect(guest.locator('#opt-time input[name="time"]')).toBeDisabled();
   await guest.keyboard.press('Escape');
 
   // The host leaves: the game ends for the guest, with a message.
@@ -148,7 +148,7 @@ test('host and guest see each other skiing, on the host clock', async ({ context
   // Back on their own clock: the time menu works again.
   await guest.keyboard.press('Escape');
   await guest.locator('#open-time').evaluate((b: HTMLElement) => b.click());
-  await expect(guest.locator('#time-modal input[name="time"]')).toBeEnabled();
+  await expect(guest.locator('#opt-time input[name="time"]')).toBeEnabled();
 
   expect(errors).toEqual([]);
 });

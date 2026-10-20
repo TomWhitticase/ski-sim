@@ -38,7 +38,7 @@ export interface MultiplayerSim {
 }
 
 /**
- * Hosting and joining games: owns the session, the Multiplayer dialog and the remote
+ * Hosting and joining games: owns the session, the Multiplayer tab and the remote
  * players. Nothing touches the network until you host or join.
  */
 export class Multiplayer {
@@ -53,13 +53,13 @@ export class Multiplayer {
 
   constructor(
     private readonly sim: MultiplayerSim,
-    dialog: HTMLDialogElement,
+    panel: HTMLElement,
     private readonly transport: TransportKind,
     autoJoin: string | null,
   ) {
     this.name = loadName(localStorage);
     this.remote = new RemotePlayers(sim.scene, sim.tags, sim.groundHeight);
-    this.menu = new MultiplayerMenu(dialog, this.name, {
+    this.menu = new MultiplayerMenu(panel, this.name, {
       host: () => void this.start('host', makeRoomCode()),
       join: (code) => void this.start('guest', code),
       leave: () => this.leave(),

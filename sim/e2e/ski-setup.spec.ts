@@ -9,7 +9,7 @@ test('ski setup modal: choose a preset, tweak a ski, and it persists after reloa
   page,
 }) => {
   await openMenu(page);
-  const modal = page.locator('#ski-setup-modal');
+  const modal = page.locator('#opt-ski');
   await expect(modal).toBeHidden();
   await page.locator('#open-ski-setup').click();
   await expect(modal).toBeVisible();
@@ -72,7 +72,7 @@ test('G opens the ski setup from the game and the skis change on the model', asy
   expect(await skiLength()).toBeCloseTo(1.78, 2);
 
   await page.keyboard.press('KeyG');
-  const modal = page.locator('#ski-setup-modal');
+  const modal = page.locator('#opt-ski');
   await expect(modal).toBeVisible();
   await modal.locator('.setup-preset', { hasText: 'Park' }).click();
   expect(await skiLength()).toBeCloseTo(1.56, 2);

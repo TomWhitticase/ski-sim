@@ -4,7 +4,7 @@ test('controls modal opens from the main menu, in sections, and closes with ✕ 
   page,
 }) => {
   await page.goto('/');
-  const modal = page.locator('#controls-modal');
+  const modal = page.locator('#opt-controls');
   await expect(modal).toBeHidden();
   await page.locator('#open-controls').click();
   await expect(modal).toBeVisible();
