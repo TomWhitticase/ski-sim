@@ -10,7 +10,7 @@
   },
   "terrain": {
     "near": {
-      "extent": { "west": -10000, "east": 10000, "south": -12000, "north": 13000 }
+      "extent": { "west": -12500, "east": 10000, "south": -12000, "north": 13000 }
     }
   },
   "spawn": {
