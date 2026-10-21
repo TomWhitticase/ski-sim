@@ -58,16 +58,14 @@ test('first visit: title → resorts → start point → loading → skiing; not
   await page.waitForTimeout(500);
   expect(heavy).toEqual([]); // no map data yet
 
-  // Loading, then one button to start.
+  // Loading, then straight into the world (the fake pointer lock is already held).
   await menu.locator('#ski-from').click();
   await expect(menu).toHaveAttribute('data-screen', 'loading');
   await expect(menu.locator('#loading-where')).toHaveText('Les 3 Vallées · Courchevel');
   await expect(menu.locator('#status')).toContainText(/Downloading|Building|Growing|Preparing/);
-  const start = menu.locator('#start');
-  await expect(start).toHaveText('Start skiing', { timeout: 90_000 });
-  await expect(start).toBeVisible();
-  await start.click();
+  await page.waitForFunction(() => window.__sim?.ready, null, { timeout: 90_000 });
   await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
+  await expect(menu).toBeHidden();
   await page.waitForTimeout(500);
   await expect(page.locator('#hud [data-mode]')).toHaveText('SKI');
   // Courchevel 1850 is around 45.41 N, 6.63 E, standing beside its main lift.
@@ -124,11 +122,40 @@ test('returning: Continue leads the title and goes straight to loading', async (
 test('pause menu: change start point without reloading, and change resort after confirming', async ({
   page,
 }) => {
+  // A fake pointer lock that's taken on request and released like the real one.
+  await page.addInitScript(() => {
+    const w = window as unknown as { locked?: boolean };
+    Object.defineProperty(Document.prototype, 'pointerLockElement', {
+      get: () => (w.locked ? document.querySelector('#scene') : null),
+    });
+    Element.prototype.requestPointerLock = function () {
+      return Promise.reject(new Error('needs a click')); // replaced on the first click
+    };
+    Document.prototype.exitPointerLock = function () {
+      w.locked = false;
+      document.dispatchEvent(new Event('pointerlockchange'));
+    };
+  });
   await page.goto('/?resort=les-3-vallees');
   const menu = page.locator('#overlay');
-  const start = menu.locator('#start');
-  await expect(start).toHaveText('Start skiing', { timeout: 90_000 });
-  await start.click();
+  // Loaded: straight into the world, with one click to capture the mouse.
+  const clickToPlay = page.locator('#click-to-play');
+  await expect(clickToPlay).toBeVisible({ timeout: 90_000 });
+  await expect(menu).toBeHidden();
+  await expect(page.locator('#hud .hud-stats')).toBeVisible();
+  await page.screenshot({ path: 'test-results/views/click-to-play.png' });
+  await page.evaluate(() => {
+    Element.prototype.requestPointerLock = function () {
+      (window as unknown as { locked?: boolean }).locked = true;
+      document.dispatchEvent(new Event('pointerlockchange'));
+      return Promise.resolve();
+    };
+  });
+  await clickToPlay.click();
+  await expect(clickToPlay).toBeHidden();
+  await expect(page.locator('body')).toHaveClass(/flying/);
+  // Esc (the browser releases the mouse): the pause menu.
+  await page.evaluate(() => document.exitPointerLock());
   await expect(menu).toHaveAttribute('data-screen', 'pause');
   await page.screenshot({ path: 'test-results/views/menu-pause.png' });
 
@@ -157,5 +184,5 @@ test('pause menu: change start point without reloading, and change resort after 
   await page.waitForURL(/resort=arlberg/);
   expect(new URL(page.url()).searchParams.get('start')).toMatch(/Lech/);
   await expect(menu.locator('#loading-where')).toContainText('Lech');
-  await expect(start).toHaveText('Start skiing', { timeout: 90_000 });
+  await expect(page.locator('#click-to-play')).toBeVisible({ timeout: 90_000 });
 });

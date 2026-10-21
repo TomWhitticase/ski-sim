@@ -27,24 +27,7 @@ const sim = <T>(page: Page, fn: (s: Sim) => T) =>
 
 async function open(context: BrowserContext, query: string, errors: string[]) {
   const page = await context.newPage();
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  await page.goto(`/?${NET}&${query}`);
-  await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10, null, { timeout: 90_000 });
-  await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
-  return page;
-}
-
-async function setName(page: Page, name: string) {
-  const input = page.locator('#mp-panel [name="player-name"]');
-  await input.fill(name);
-  await input.press('Tab'); // change event
-}
-
-test('host and guest see each other skiing, on the host clock', async ({ context }) => {
-  test.setTimeout(240_000);
-  const errors: string[] = [];
-  await context.addInitScript(() => {
+  await page.addInitScript(() => {
     // A fake pointer lock that releases like the real one (N opens the Multiplayer
     // screen, which needs the mouse back).
     const w = window as unknown as { unlocked?: boolean };
@@ -62,6 +45,23 @@ test('host and guest see each other skiing, on the host clock', async ({ context
     };
     localStorage.setItem('ski-sim.mode', 'ski');
   });
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  await page.goto(`/?${NET}&${query}`);
+  await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10, null, { timeout: 90_000 });
+  await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
+  return page;
+}
+
+async function setName(page: Page, name: string) {
+  const input = page.locator('#mp-panel [name="player-name"]');
+  await input.fill(name);
+  await input.press('Tab'); // change event
+}
+
+test('host and guest see each other skiing, on the host clock', async ({ context }) => {
+  test.setTimeout(240_000);
+  const errors: string[] = [];
 
   // Host: open the Multiplayer screen (N), name yourself, host.
   const host = await open(context, HOST_AT, errors);

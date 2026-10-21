@@ -786,8 +786,50 @@ body.world #overlay::before {
 }
 
 body.flying #overlay,
-body.map-open #overlay {
+body.map-open #overlay,
+body.entering #overlay {
   display: none;
+}
+
+/* Just loaded: the world with its HUD, and a chip; a click anywhere starts. */
+#click-to-play {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+body.entering:not(.flying):not(.map-open) #click-to-play {
+  display: flex;
+}
+
+body.entering #hud {
+  opacity: 1;
+}
+
+#click-to-play span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px 9px 9px;
+  zoom: var(--ui-scale);
+  font: 600 15px var(--font-ui);
+  animation: rise 0.22s var(--ease);
+}
+
+#click-to-play kbd {
+  margin: 0;
+  padding: 0 8px;
+  height: 24px;
+  background: var(--key-bg);
+  color: var(--key-fg);
+  font-size: 12px;
 }
 
 .screen {

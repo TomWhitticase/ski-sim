@@ -947,6 +947,7 @@ async function main(): Promise<void> {
   });
   document.addEventListener('pointerlockchange', () => {
     document.body.classList.toggle('flying', input.locked);
+    if (input.locked) document.body.classList.remove('entering');
     if (input.locked) menu.resumed();
   });
   $('#pause-map').addEventListener('click', openMap);
@@ -1068,8 +1069,22 @@ async function main(): Promise<void> {
   play = (choice) => {
     sound.start(); // audio may only start from a user gesture
     if (choice) startAt(choice);
+    // Straight from loading there's no click to capture the mouse with: the world shows,
+    // with "Click to play" until the first click (or Enter).
+    if (!input.locked) document.body.classList.add('entering');
     void input.lock();
   };
+  const enter = () => {
+    sound.start();
+    void input.lock();
+  };
+  $('#click-to-play').addEventListener('click', enter);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && document.body.classList.contains('entering') && !input.locked) {
+      if (document.querySelector('dialog[open]') || worldMap.isOpen) return;
+      enter();
+    }
+  });
   // Ready once the first frames are on screen: the first ones compile the shaders.
   menu.progress('Preparing graphics…', 0.97);
 

@@ -238,13 +238,11 @@ export class MainMenu {
     this.$('#load-progress i').style.width = `${Math.round(fraction * 100)}%`;
   }
 
-  /** The loaded area is drawn: one button to start. */
+  /** The loaded area is drawn: straight into it (the first click captures the mouse). */
   ready(): void {
     this.phase = 'ready';
     document.body.classList.add('world');
-    this.$('#status').textContent = `${this.name(this.current)} is ready`;
-    this.$('#load-progress i').style.width = '100%';
-    this.render();
+    this.start();
   }
 
   /** Loading failed: say why; the button tries again. */
@@ -278,9 +276,7 @@ export class MainMenu {
   }
 
   private get visible(): boolean {
-    return (
-      !document.body.classList.contains('flying') && !document.body.classList.contains('map-open')
-    );
+    return !['flying', 'map-open', 'entering'].some((c) => document.body.classList.contains(c));
   }
 
   /** "Where you left off" makes sense only when you aren't already skiing there. */
@@ -499,7 +495,7 @@ export class MainMenu {
     this.handlers.onLoad(id, this.choice, { host: this.hosting });
   }
 
-  /** Loading screen's button once ready (or after an error, try again). */
+  /** Into the world once it's ready (or, after an error, the button tries again). */
   private start(): void {
     if (this.phase === 'error') {
       location.reload();
@@ -589,8 +585,8 @@ export class MainMenu {
     this.$<HTMLButtonElement>('#choose-start').disabled = !this.selected;
 
     const start = this.$<HTMLButtonElement>('#start');
-    start.hidden = this.phase !== 'ready' && this.phase !== 'error';
-    start.textContent = this.phase === 'error' ? 'Try again' : 'Start skiing';
+    start.hidden = this.phase !== 'error';
+    start.textContent = 'Try again';
     this.$('#load-progress').hidden = this.phase === 'error';
     this.$('#pause-title').textContent = this.name(this.current);
 

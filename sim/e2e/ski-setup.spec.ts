@@ -2,7 +2,7 @@ import { expect, type Page, test } from '@playwright/test';
 
 async function openMenu(page: Page) {
   await page.goto('/');
-  await expect(page.locator('#start')).toBeEnabled({ timeout: 90_000 });
+  await expect(page.locator('#title-play')).toBeVisible({ timeout: 90_000 });
 }
 
 test('ski setup modal: choose a preset, tweak a ski, and it persists after reload', async ({
@@ -27,7 +27,7 @@ test('ski setup modal: choose a preset, tweak a ski, and it persists after reloa
   await expect(modal).toBeHidden();
 
   await page.reload();
-  await expect(page.locator('#start')).toBeEnabled({ timeout: 90_000 });
+  await expect(page.locator('#title-play')).toBeVisible({ timeout: 90_000 });
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('ski-sim.ski-setup')!));
   expect(saved).toMatchObject({ length: 188, waist: 68, profile: 'camber', wax: 'race' });
   await page.locator('#open-ski-setup').click();
