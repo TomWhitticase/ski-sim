@@ -121,6 +121,34 @@ def test_buildings_are_cut_only_where_and_as_high_as_lifts_need():
     assert stats["removedAsStation"] == 1
 
 
+def test_a_small_building_mostly_cut_away_goes_altogether():
+    from ski_sim_pipeline.terminals import cut_volumes, station_halls
+
+    terms = plan([lift(duration=200)])
+    for t in terms:
+        t["pad"] = 2000 if t["end"] == "bottom" else 2300
+    hall = hall_polygon(terms[0])
+    minx, miny, maxx, maxy = hall.bounds
+    # A 9 x 9 m chalet overlapping the hall's side by 7 m: 2 m of it would be left.
+    chalet = {
+        "id": 5,
+        "type": "house",
+        "footprint": [
+            [maxx - 7, miny + 2],
+            [maxx + 2, miny + 2],
+            [maxx + 2, miny + 11],
+            [maxx - 7, miny + 11],
+        ],
+        "top": 2012,
+        "base": 2000,
+    }
+    out, stats = cut_buildings(
+        [chalet], cut_volumes([lift(duration=200)], terms), station_halls(terms)
+    )
+    assert not [b for b in out if b["id"] // 100 == 5 or b["id"] == 5]
+    assert stats["removedAsSliver"] == 1
+
+
 def test_a_ramp_never_carves_another_terminals_pad():
     grid = Grid(Extent(-100, 100, -100, 1100), 2)
     heights = np.full((grid.height, grid.width), 2300.0)

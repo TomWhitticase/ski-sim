@@ -369,8 +369,11 @@ NO_FLOOR = -1e9
 # Halls and the rope corridor clear a building's full height: a station or a line roofed
 # over by the storeys above it read as an archway or tunnel through the block.
 NO_CEILING = 1e9
-# Leftover building pieces narrower than this are dropped (slivers beside a cut).
-MIN_PIECE_WIDTH = 2.5
+# Leftover building pieces narrower than this are dropped (slices beside a cut), and a
+# cut building keeping less than MIN_KEPT of its footprint goes altogether: what's left of
+# a small building beside a station reads as a stray wall, not a building.
+MIN_PIECE_WIDTH = 5.0
+MIN_KEPT = 0.35
 
 
 def cut_volumes(
@@ -497,7 +500,8 @@ def cut_buildings(
     floor stays (flat-topped) and anything above its ceiling stays as a raised piece
     (keeping its original roof), unless it would be a sliver thinner than MIN_SLAB. Halls
     and the rope corridor have no ceiling, so they leave a notch, never an archway; only
-    a walkway can pass under a building. Pieces narrower than MIN_PIECE_WIDTH go.
+    a walkway can pass under a building. Pieces narrower than MIN_PIECE_WIDTH go, and so
+    does a cut building left with under MIN_KEPT of its footprint.
     """
     from shapely.strtree import STRtree
 
@@ -561,6 +565,10 @@ def cut_buildings(
                 if p["polygon"].area >= 4
                 and not p["polygon"].buffer(-MIN_PIECE_WIDTH / 2, join_style=2).is_empty
             ]
+            ground = [p for p in kept if not p["raised"]]
+            if sum(p["polygon"].area for p in ground) < MIN_KEPT * polygon.area:
+                stats["removedAsSliver"] = stats.get("removedAsSliver", 0) + 1
+                continue
             for k, p in enumerate(kept):
                 stats["raisedPieces"] += p["raised"]
                 out.append(

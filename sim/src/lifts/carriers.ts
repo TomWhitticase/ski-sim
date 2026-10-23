@@ -86,9 +86,13 @@ function bar(
   return out;
 }
 
-/** Height of the safety bar and footrest above / below the seat (lowered, riding). */
+/**
+ * Height of the safety bar and footrest above / below the seat (lowered, riding). The
+ * footrest stays well clear of the platform (the seat is `CHAIR_SEAT_HEIGHT` above it)
+ * and of snow that rises at a station's edge.
+ */
 const BAR_UP = 0.62;
-const FOOTREST_DOWN = 0.36;
+const FOOTREST_DOWN = 0.2;
 
 /**
  * Detachable chair for `seats` people, seat `hang` m below the cable: the grip, a hanger
@@ -161,12 +165,12 @@ export function chairGeometry(seats: number, hang: number): BufferGeometry {
   parts.push(...bar([-x1, front[0], front[1]], [x1, front[0], front[1]], 0.028, BAR));
   const foot = W * 0.32;
   for (const x of [-foot, foot]) {
-    parts.push(...bar([x, front[0], front[1]], [x, y - FOOTREST_DOWN, -0.5], 0.025, BAR, true));
+    parts.push(...bar([x, front[0], front[1]], [x, y - FOOTREST_DOWN, -0.58], 0.025, BAR, true));
   }
   parts.push(
     ...bar(
-      [-foot - 0.06, y - FOOTREST_DOWN, -0.5],
-      [foot + 0.06, y - FOOTREST_DOWN, -0.5],
+      [-foot - 0.06, y - FOOTREST_DOWN, -0.58],
+      [foot + 0.06, y - FOOTREST_DOWN, -0.58],
       0.03,
       BAR,
     ),
@@ -190,7 +194,7 @@ export function chairFarGeometry(seats: number, hang: number): BufferGeometry {
     part(new BoxGeometry(W, 0.1, 0.52), SEAT, [0, y, -0.02]),
     part(new BoxGeometry(W, 0.56, 0.08), SEAT, [0, y + 0.38, 0.36], [-0.1, 0, 0]),
     part(new BoxGeometry(2 * x1, 0.05, 0.05), BAR, [0, y + BAR_UP, -0.44]),
-    part(new BoxGeometry(W * 0.7, 0.05, 0.05), BAR, [0, y - FOOTREST_DOWN, -0.5]),
+    part(new BoxGeometry(W * 0.7, 0.05, 0.05), BAR, [0, y - FOOTREST_DOWN, -0.58]),
   ];
   for (const x of [-x1, x1]) {
     parts.push(part(new BoxGeometry(0.06, 1.1, 0.06), STEEL, [x, y + 0.5, 0.37]));
