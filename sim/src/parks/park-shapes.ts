@@ -9,8 +9,13 @@ import type { Vector3 } from 'three/webgpu';
  *
  * - Line features (kicker, ramp, box, roller): a profile along `heading` of heights
  *   above `y` at the origin, level across `width`, with sides falling at `side` (tan).
- * - Berms: a banked wall outside an arc (centre, radius, compass `start` + `sweep`),
- *   above a plane through `y` with gradient `grad`; it tapers in and out along the arc.
+ * - Berms and wall rides: a banked wall outside an arc (centre, radius, compass `start` +
+ *   `sweep`), above a plane through `y` with gradient `grad`; it tapers in and out along
+ *   the arc.
+ * - Halfpipes: a floor following `profile` along `heading` (level across), a flat bottom,
+ *   circular transitions steepening to `vert` degrees at the coping, and level decks with
+ *   outer walls falling at `side`. The walls grow out of the floor over the first `dropIn`
+ *   m and sink back into it over the last `exit` m of `length`.
  */
 export interface LineFeature {
   kind: 'kicker' | 'ramp' | 'box' | 'roller';
@@ -42,7 +47,36 @@ export interface BermFeature {
   side: number;
 }
 
-export type ParkFeature = LineFeature | BermFeature;
+/** A wall ride: shaped like a berm (a steep bank along a gentle arc), drawn in wood. */
+export interface WallFeature extends Omit<BermFeature, 'kind'> {
+  kind: 'wall';
+}
+
+export interface HalfpipeFeature {
+  kind: 'halfpipe';
+  /** Where the walls start (u = 0) on the centreline. */
+  east: number;
+  north: number;
+  y: number;
+  /** Compass bearing down the pipe (deg). */
+  heading: number;
+  /** [u along heading (m), floor height above y (m)], u ascending; reaches past the walls. */
+  profile: [number, number][];
+  /** Length of the walls (m). */
+  length: number;
+  /** Flat bottom width, transition radius (m), steepest wall angle (deg), wall height (m). */
+  flat: number;
+  radius: number;
+  vert: number;
+  height: number;
+  /** Deck width (m), and how far the walls take to grow in / sink out (m). */
+  deck: number;
+  dropIn: number;
+  exit: number;
+  side: number;
+}
+
+export type ParkFeature = LineFeature | BermFeature | WallFeature | HalfpipeFeature;
 
 /** Standing on a rail: its direction (world x, z; unit) and your offset across it (m). */
 export interface RailContact {
@@ -104,8 +138,12 @@ const smoothstep = (a: number, b: number, x: number) => {
   return t * t * (3 - 2 * t);
 };
 
-/** Local (u along, v across to the left) coordinates of a line feature. */
-export function lineCoords(f: LineFeature, east: number, north: number): [number, number] {
+/** Local (u along, v across to the left) coordinates of a line feature or halfpipe. */
+export function lineCoords(
+  f: LineFeature | HalfpipeFeature,
+  east: number,
+  north: number,
+): [number, number] {
   const de = east - f.east;
   const dn = north - f.north;
   const s = Math.sin(f.heading * RAD);
@@ -126,7 +164,11 @@ export function lineHeight(f: LineFeature, u: number, v: number): number {
 }
 
 /** Berm: arc fraction (0..1, NaN off the arc) and distance out from the riding line. */
-export function bermCoords(f: BermFeature, east: number, north: number): [number, number] {
+export function bermCoords(
+  f: BermFeature | WallFeature,
+  east: number,
+  north: number,
+): [number, number] {
   const de = east - f.east;
   const dn = north - f.north;
   const bearing = Math.atan2(de, dn) / RAD;
@@ -137,7 +179,7 @@ export function bermCoords(f: BermFeature, east: number, north: number): [number
 }
 
 /** Absolute berm height at arc fraction `along` and distance `out`; -Infinity off it. */
-export function bermHeight(f: BermFeature, east: number, north: number): number {
+export function bermHeight(f: BermFeature | WallFeature, east: number, north: number): number {
   const [along, out] = bermCoords(f, east, north);
   if (Number.isNaN(along) || out < -1) return -Infinity;
   const plane = f.y + f.grad[0] * (east - f.east) + f.grad[1] * (north - f.north);
@@ -147,21 +189,75 @@ export function bermHeight(f: BermFeature, east: number, north: number): number 
   return plane - BERM_SINK + Math.max(lift * taper, -2);
 }
 
+/** Where a halfpipe's cross-section changes, measured out from its centreline (m). */
+export function halfpipeEdges(f: HalfpipeFeature): {
+  /** Transition start, transition end (where the vert begins), coping, deck's outer edge. */
+  flat: number;
+  arc: number;
+  coping: number;
+  deck: number;
+  /** Height where the vert begins. */
+  arcTop: number;
+} {
+  const a = f.vert * RAD;
+  const flat = f.flat / 2;
+  const arc = flat + f.radius * Math.sin(a);
+  const arcTop = f.radius * (1 - Math.cos(a));
+  const coping = arc + Math.max(0, f.height - arcTop) / Math.tan(a);
+  return { flat, arc, coping, deck: coping + f.deck, arcTop };
+}
+
+/** Height of a halfpipe's full-size cross-section above its floor, `s` m from the centre. */
+export function halfpipeSection(f: HalfpipeFeature, s: number): number {
+  const e = halfpipeEdges(f);
+  if (s <= e.flat) return 0;
+  if (s <= e.arc) {
+    const x = s - e.flat;
+    return f.radius - Math.sqrt(f.radius * f.radius - x * x);
+  }
+  if (s <= e.coping) return Math.min(f.height, e.arcTop + (s - e.arc) * Math.tan(f.vert * RAD));
+  if (s <= e.deck) return f.height;
+  return f.height - (s - e.deck) * f.side;
+}
+
+/** How much of the walls stand at u: rising over the drop-in, sinking over the exit. */
+export function halfpipeGrowth(f: HalfpipeFeature, u: number): number {
+  return smoothstep(0, f.dropIn, u) * smoothstep(0, f.exit, f.length - u);
+}
+
+/** Absolute height of a halfpipe at (u along, v across); -Infinity off its ends. */
+export function halfpipeHeight(f: HalfpipeFeature, u: number, v: number): number {
+  const p = f.profile;
+  const end = Math.min(u - p[0]![0], p[p.length - 1]![0] - u);
+  if (end < 0) return -Infinity;
+  const floor = f.y + profileAt(p, u) - DIVE * (1 - smoothstep(0, END_DIVE, end));
+  const s = Math.abs(v);
+  const grow = halfpipeGrowth(f, u);
+  const deck = halfpipeEdges(f).deck;
+  // Outside the decks the walls fall at `side` whatever their height, so the pipe's
+  // ends are banks, not cliffs.
+  if (s > deck) return floor + grow * f.height - (s - deck) * f.side;
+  return floor + grow * halfpipeSection(f, s);
+}
+
 export function featureHeight(f: ParkFeature, east: number, north: number): number {
-  if (f.kind === 'berm') return bermHeight(f, east, north);
+  if (f.kind === 'berm' || f.kind === 'wall') return bermHeight(f, east, north);
   const [u, v] = lineCoords(f, east, north);
-  return lineHeight(f, u, v);
+  return f.kind === 'halfpipe' ? halfpipeHeight(f, u, v) : lineHeight(f, u, v);
 }
 
 /** Ground-plane bounding box of a feature (with its sides). */
 export function featureBounds(f: ParkFeature): [number, number, number, number] {
-  if (f.kind === 'berm') {
+  if (f.kind === 'berm' || f.kind === 'wall') {
     const r = f.radius + f.width + f.height / f.side + 1;
     return [f.east - r, f.north - r, f.east + r, f.north + r];
   }
   const p = f.profile;
   const top = Math.max(...p.map(([, h]) => Math.abs(h)));
-  const half = f.width / 2 + top / f.side + 1;
+  const half =
+    f.kind === 'halfpipe'
+      ? halfpipeEdges(f).deck + (f.height + top) / f.side + 1
+      : f.width / 2 + top / f.side + 1;
   const s = Math.sin(f.heading * RAD);
   const c = Math.cos(f.heading * RAD);
   const corners = [p[0]![0], p[p.length - 1]![0]].flatMap((u) =>

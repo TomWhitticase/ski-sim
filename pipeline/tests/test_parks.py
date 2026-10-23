@@ -4,7 +4,17 @@ import numpy as np
 import pytest
 from shapely.geometry import LineString, Point, Polygon
 
-from ski_sim_pipeline.parks import SIZES, blocked, build, kicker_profile, layout, roller_profile
+from ski_sim_pipeline.parks import (
+    HALFPIPE,
+    SIZES,
+    blocked,
+    build,
+    footprint,
+    halfpipe_section,
+    kicker_profile,
+    layout,
+    roller_profile,
+)
 
 
 def hill(grade_deg: float):
@@ -116,3 +126,108 @@ def test_parks_on_flat_ground_or_too_small_get_nothing():
     line_park = park(lines=[LineString([(0, 0), (0, 300)])])
     out = build([line_park, {"type": "downhill"}], hill(12))
     assert len(out) == 1 and out[0]["index"] == 7 and out[0]["synthetic"]
+
+
+def _overlaps(features):
+    """Pairs of features whose footprints overlap (a rail and its own ramp may)."""
+    shapes = [footprint(f) for f in features]
+    pairs = []
+    for i, a in enumerate(features):
+        for j in range(i + 1, len(features)):
+            b = features[j]
+            pair = {a["kind"], b["kind"]} == {"ramp", "box"}
+            if pair and (a["east"], a["north"]) == (b["east"], b["north"]):
+                continue
+            if shapes[i].intersection(shapes[j]).area > 0.5:
+                pairs.append((a["kind"], b["kind"]))
+    return pairs
+
+
+def test_halfpipe_cross_section_is_a_superpipe():
+    radius, half = halfpipe_section()
+    a = math.radians(HALFPIPE["vert"])
+    # Transitions round to near-vertical over the top of 5-6 m walls, a 14-18 m floor.
+    assert 5.0 <= HALFPIPE["height"] <= 6.0 and 14 <= HALFPIPE["flat"] <= 18
+    assert radius * (1 - math.cos(a)) + HALFPIPE["vertHeight"] == pytest.approx(HALFPIPE["height"])
+    assert 80 <= HALFPIPE["vert"] < 90
+    assert half == pytest.approx(
+        HALFPIPE["flat"] / 2 + radius * math.sin(a) + 0.4 / math.tan(a) + HALFPIPE["deck"]
+    )
+
+
+def test_a_big_park_on_a_pipe_grade_gets_a_halfpipe_down_the_fall_line():
+    area = Polygon([(-40, 0), (40, 0), (40, 400), (-40, 400)])
+    features = layout(park(area=area), hill(17))
+    pipes = [f for f in features if f["kind"] == "halfpipe"]
+    assert len(pipes) == 1
+    pipe = pipes[0]
+    assert pipe["heading"] == pytest.approx(0, abs=1)  # down the fall line
+    assert 100 <= pipe["length"] <= 170
+    # The floor lies on the 17° hill under the walls, blending into it at the ends.
+    u = np.array([q[0] for q in pipe["profile"]])
+    y = pipe["y"] + np.array([q[1] for q in pipe["profile"]])
+    walls = (u >= 0) & (u <= pipe["length"])
+    slope = -np.polyfit(u[walls], y[walls], 1)[0]
+    assert math.degrees(math.atan(slope)) == pytest.approx(17, abs=0.3)
+    hill_y = hill(17)(pipe["east"], pipe["north"] + u)
+    assert np.all(y[walls] >= hill_y[walls] - 0.01)
+    assert y[0] == pytest.approx(hill_y[0], abs=0.01) and y[-1] == pytest.approx(
+        hill_y[-1], abs=0.01
+    )
+    # Inside the park, and nothing else built on it.
+    assert area.buffer(-1).contains(footprint(pipe))
+    assert _overlaps(features) == []
+    assert any(f["kind"] == "kicker" for f in features)  # the park still has its lines
+
+
+@pytest.mark.parametrize(
+    "name,grade,width",
+    [("Family Park", 17, 80), ("Park", 8, 80), ("Park", 30, 80), ("Park", 17, 50)],
+)
+def test_no_halfpipe_in_small_parks_or_on_the_wrong_grade(name, grade, width):
+    area = Polygon([(-width / 2, 0), (width / 2, 0), (width / 2, 400), (-width / 2, 400)])
+    assert not any(f["kind"] == "halfpipe" for f in layout(park(name, area=area), hill(grade)))
+
+
+def test_a_halfpipe_keeps_clear_of_lift_lines():
+    area = Polygon([(-40, 0), (40, 0), (40, 500), (-40, 500)])
+    lift = {"supports": [{"east": -80, "north": 120}, {"east": 80, "north": 120}]}
+    no_go = blocked({"lifts": [lift]})
+    pipe = next(f for f in layout(park(area=area), hill(17), no_go) if f["kind"] == "halfpipe")
+    assert not footprint(pipe).intersects(no_go)
+
+
+def curved_hill(e, n):
+    """Falls north at ~12°, with the fall line swinging east-west across the park."""
+    e = np.asarray(e, dtype=float)
+    n = np.asarray(n, dtype=float)
+    return 2000 - 0.21 * n - 0.06 * 30 * np.sin(n / 60) * np.sin(e / 30)
+
+
+def test_lines_meander_and_mix_feature_kinds_without_overlapping():
+    area = Polygon([(-50, 0), (50, 0), (50, 600), (-50, 600)])
+    features = layout(park(difficulty=4, area=area), curved_hill)
+    kinds = {f["kind"] for f in features}
+    assert {"kicker", "ramp", "box", "wall"} <= kinds
+    # Several kinds of jib: rails of two lengths, a down rail (kinked) and a flat box.
+    boxes = [f for f in features if f["kind"] == "box"]
+    shapes = {(f["width"], round(f["profile"][-1][0]), len(f["profile"])) for f in boxes}
+    assert len(shapes) >= 3
+    assert any(len(f["profile"]) == 3 for f in boxes)  # a down rail
+    assert any(f["width"] > 0.8 for f in boxes)  # a flat box
+    # Mixed kicker sizes.
+    assert len({f["width"] for f in features if f["kind"] == "kicker"}) >= 2
+    # Not in a ruler-straight line: the kickers spread across the park and turn with it.
+    kickers = [f for f in features if f["kind"] == "kicker"]
+    assert np.std([f["east"] for f in kickers]) > 3
+    assert len({round(f["heading"]) for f in kickers}) >= 3
+    # Every feature inside the park, clear of the others, and facing downhill.
+    for f in features:
+        assert area.buffer(-1.0).contains(footprint(f))
+        if "heading" in f:
+            h = math.radians(f["heading"])
+            ahead = curved_hill(f["east"] + 8 * math.sin(h), f["north"] + 8 * math.cos(h))
+            assert ahead < curved_hill(f["east"], f["north"])
+    assert _overlaps(features) == []
+    # Seeded from the park, so the same park always gets the same layout.
+    assert layout(park(difficulty=4, area=area), curved_hill) == features

@@ -154,6 +154,10 @@ const VIEWS = [
     name: 'portes-du-soleil-avoriaz',
     query: 'resort=portes-du-soleil&at=46.1650,6.7450,2200&heading=40&pitch=-12',
   },
+  // Snow parks: VT Park's halfpipe from below and the side, and Open Park's meandering lines.
+  { name: 'park-halfpipe', query: 'at=45.27925,6.57367,2511&heading=136&pitch=-4' },
+  { name: 'park-halfpipe-side', query: 'at=45.27908,6.57497,2544&heading=226&pitch=-18' },
+  { name: 'park-lines', query: 'at=45.35213,6.57983,2301&heading=170&pitch=-22' },
 ];
 
 for (const view of VIEWS) {

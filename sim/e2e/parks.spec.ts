@@ -148,6 +148,104 @@ test('a rail boardslides: skis across it, it barely slows you and keeps you on i
   expect(samples.at(-1)!.along).toBeGreaterThan(end - 1.5);
 });
 
+interface Pipe extends Feature {
+  y: number;
+  length: number;
+  height: number;
+  profile: [number, number][];
+}
+
+test('carving up a halfpipe wall gets you air above the coping and back in', async ({ page }) => {
+  await start(page, 'at=45.27692,6.57690,2600&heading=315&pitch=-10');
+  const pipe = await page.evaluate(async () => {
+    const data = await (await fetch('/les-3-vallees/pistes.json')).json();
+    for (const park of data.parks) {
+      const f = park.features.find((f: { kind: string }) => f.kind === 'halfpipe');
+      if (f) return f as Pipe;
+    }
+    return null;
+  });
+  expect(pipe).not.toBeNull();
+  await page.keyboard.press('KeyF'); // ski mode
+  await page.keyboard.press('KeyV'); // chase camera
+  // On the floor 40% of the way down, heading 55° across toward the right-hand wall. The
+  // ride is measured in-page every frame (into window.pipeRide); Playwright round trips
+  // are too slow to catch the top of the air.
+  await page.evaluate((pipe) => {
+    const ski = (window.__sim as unknown as { ski: SkiHandle }).ski;
+    const rad = Math.PI / 180;
+    const [s, c] = [Math.sin(pipe.heading * rad), Math.cos(pipe.heading * rad)];
+    const u = pipe.length * 0.4;
+    const bearing = (pipe.heading + 55) * rad;
+    const pose = {
+      east: pipe.east + u * s,
+      north: pipe.north + u * c,
+      altitude: 0,
+      heading: pipe.heading + 55,
+      pitch: -10,
+    };
+    ski.place(pose, ski.velocity.clone().set(15 * Math.sin(bearing), 0, -15 * Math.cos(bearing)));
+    // The floor between the walls is the profile's fitted plane.
+    const p = pipe.profile;
+    const floorAt = (u: number) => {
+      let i = 0;
+      while (i < p.length - 2 && p[i + 1]![0] < u) i++;
+      const [u0, h0] = p[i]!;
+      const [u1, h1] = p[i + 1]!;
+      return pipe.y + h0 + ((h1 - h0) * (u - u0)) / (u1 - u0);
+    };
+    const local = () => {
+      const f = ski.feet;
+      const [de, dn] = [f.x - pipe.east, -f.z - pipe.north];
+      const along = de * s + dn * c;
+      // Across to the right (the wall we're heading for), and height above its coping.
+      return { along, across: de * c - dn * s, above: f.y - floorAt(along) - pipe.height };
+    };
+    type At = ReturnType<typeof local>;
+    const ride = {
+      takeoff: null as At | null,
+      air: -Infinity,
+      landed: null as (At & { outcome: string }) | null,
+    };
+    (window as unknown as { pipeRide: typeof ride }).pipeRide = ride;
+    let wasAirborne = false;
+    const tick = () => {
+      const at = local();
+      if (ski.airborne && !wasAirborne && !ride.takeoff) ride.takeoff = at;
+      if (ski.airborne) ride.air = Math.max(ride.air, at.above);
+      if (!ski.airborne && wasAirborne && ride.takeoff) {
+        ride.landed = { ...at, outcome: ski.lastLanding?.outcome ?? '' };
+      }
+      wasAirborne = ski.airborne;
+      if (!ride.landed) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, pipe!);
+  type Ride = {
+    takeoff: { above: number } | null;
+    air: number;
+    landed: { across: number; outcome: string } | null;
+  };
+  const ride = () => page.evaluate(() => (window as unknown as { pipeRide: Ride }).pipeRide);
+  await page.waitForFunction(
+    () => (window as unknown as { pipeRide: Ride }).pipeRide.air > 1,
+    null,
+    { timeout: 8000 },
+  );
+  await page.screenshot({ path: 'test-results/views/park-halfpipe-air.png' });
+  await page.waitForFunction(
+    () => (window as unknown as { pipeRide: Ride }).pipeRide.landed !== null,
+    null,
+    { timeout: 8000 },
+  );
+  const result = await ride();
+  expect(result.takeoff!.above).toBeGreaterThan(-0.5); // left at the coping, not below it
+  expect(result.air).toBeGreaterThan(1.5); // real air above the lip
+  expect(result.landed!.across).toBeGreaterThan(7.5); // back on the transition...
+  expect(result.landed!.across).toBeLessThan(13.1); // ...inside the coping
+  expect(result.landed!.outcome).not.toBe('crash');
+});
+
 test('park features render from the side', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));

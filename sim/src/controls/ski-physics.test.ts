@@ -6,6 +6,7 @@ import {
   SKI,
   type SkiIntent,
   type SkiState,
+  skiDirection,
   type SkiTerrain,
   stepSki,
 } from './ski-physics';
@@ -540,5 +541,17 @@ describe('rails', () => {
       expect(worst).toBeLessThan(1); // m/s in one frame
       expect(Math.abs(state.velocity.x)).toBeLessThan(1);
     }
+  });
+});
+
+describe('ski direction', () => {
+  it('points the skis where the yaw points, seen from above, even on a near-vertical wall', () => {
+    // A wall rising to the east at 84° (its normal points west, out of it).
+    const wall = new Vector3(-Math.sin((84 * Math.PI) / 180), Math.cos((84 * Math.PI) / 180), 0);
+    const yaw = (-45 * Math.PI) / 180; // north-east: diagonally up the wall
+    const d = skiDirection(yaw, wall, new Vector3());
+    expect(d.dot(wall)).toBeCloseTo(0); // in the surface
+    expect(Math.atan2(d.x, -d.z)).toBeCloseTo(Math.PI / 4); // still north-east from above
+    expect(d.y).toBeGreaterThan(0.9); // so mostly up the wall, not along it
   });
 });

@@ -9,9 +9,14 @@ import {
   BERM_SINK,
   type BermFeature,
   bermHeight,
+  type HalfpipeFeature,
+  halfpipeEdges,
+  halfpipeGrowth,
+  halfpipeHeight,
   type LineFeature,
   lineHeight,
   type ParkFeature,
+  type WallFeature,
 } from './park-shapes';
 
 const SNOW: [number, number, number] = [1, 1, 1];
@@ -19,6 +24,13 @@ const SNOW: [number, number, number] = [1, 1, 1];
 const DYE: [number, number, number] = [0.18, 0.4, 0.85];
 const RAIL_TOP: [number, number, number] = [0.82, 0.83, 0.85];
 const RAIL_SIDE: [number, number, number] = [0.85, 0.27, 0.17];
+/** Flat boxes: a dark slick top on yellow sides. */
+const BOX_TOP: [number, number, number] = [0.16, 0.17, 0.19];
+const BOX_SIDE: [number, number, number] = [0.95, 0.72, 0.12];
+/** Wider than this is a box, not a rail (m). */
+const BOX_WIDTH = 0.8;
+/** Wall rides: a plywood face on the snow bank. */
+const WOOD: [number, number, number] = [0.66, 0.5, 0.32];
 const LEG: [number, number, number] = [0.2, 0.21, 0.23];
 /** Rail slab thickness, leg size and spacing (m). */
 const RAIL_DEPTH = 0.14;
@@ -125,27 +137,36 @@ function box(b: Builder, f: LineFeature, ground: (east: number, north: number) =
   const half = f.width / 2;
   const [u0, u1] = [f.profile[0]![0], f.profile[f.profile.length - 1]![0]];
   const topY = (u: number) => lineHeight(f, u, 0);
-  block(u0, u1, -half, half, topY, (u) => topY(u) - RAIL_DEPTH, RAIL_TOP, RAIL_SIDE);
+  const wide = f.width > BOX_WIDTH;
+  // A slab per profile segment, so a down rail kinks where its profile does.
+  for (let i = 0; i + 1 < f.profile.length; i++) {
+    const [a, z] = [f.profile[i]![0], f.profile[i + 1]![0]];
+    const depth = wide ? RAIL_DEPTH * 2 : RAIL_DEPTH;
+    const [top, side] = wide ? [BOX_TOP, BOX_SIDE] : [RAIL_TOP, RAIL_SIDE];
+    block(a, z, -half, half, topY, (u) => topY(u) - depth, top, side);
+  }
   // Legs: at each end and every LEG_SPACING between, down to under the snow.
   const legs = Math.max(1, Math.round((u1 - u0) / LEG_SPACING));
   const l = LEG_SIZE / 2;
   for (let k = 0; k <= legs; k++) {
     const u = Math.min(Math.max(u0 + ((u1 - u0) * k) / legs, u0 + l), u1 - l);
-    block(
-      u - l,
-      u + l,
-      -l,
-      l,
-      (uu) => topY(uu) - RAIL_DEPTH,
-      (_u, e, n) => ground(e, n) - 0.3,
-      LEG,
-      LEG,
-    );
+    for (const v of wide ? [-half + l, half - l] : [0]) {
+      block(
+        u - l,
+        u + l,
+        v - l,
+        v + l,
+        (uu) => topY(uu) - RAIL_DEPTH,
+        (_u, e, n) => ground(e, n) - 0.3,
+        LEG,
+        LEG,
+      );
+    }
   }
 }
 
-function berm(b: Builder, f: BermFeature): void {
-  const arcSteps = Math.max(12, Math.round(Math.abs(f.sweep) / 5));
+function berm(b: Builder, f: BermFeature | WallFeature): void {
+  const arcSteps = Math.max(12, Math.round(Math.abs(f.sweep) / (f.kind === 'wall' ? 1 : 5)));
   const outs: number[] = [];
   for (let i = 0; i <= 10; i++) outs.push(-0.8 + ((f.width + 0.8) * i) / 10);
   outs.push(f.width + (f.height + 1) / f.side);
@@ -159,15 +180,57 @@ function berm(b: Builder, f: BermFeature): void {
       const east = f.east + r * Math.sin(bearing);
       const north = f.north + r * Math.cos(bearing);
       const y = bermHeight(f, east, north);
-      b.vertex(east, (Number.isFinite(y) ? y : f.y - BERM_SINK - 1) - SINK, north, SNOW);
+      const wood = f.kind === 'wall' && out > f.width * 0.3 && out <= f.width;
+      b.vertex(
+        east,
+        (Number.isFinite(y) ? y : f.y - BERM_SINK - 1) - SINK,
+        north,
+        wood ? WOOD : SNOW,
+      );
     }
   }
   b.grid(first, arcSteps + 1, outs.length, f.sweep < 0);
 }
 
 /**
+ * A halfpipe: rows down the pipe (every metre, finer where the walls grow), each across
+ * from one outer bank to the other, densely round the transitions. The coping is dyed.
+ */
+function halfpipe(b: Builder, f: HalfpipeFeature): void {
+  const s = Math.sin((f.heading * Math.PI) / 180);
+  const c = Math.cos((f.heading * Math.PI) / 180);
+  const e = halfpipeEdges(f);
+  const half: number[] = [0, e.flat / 2, e.flat];
+  const a = (f.vert * Math.PI) / 180;
+  for (let i = 1; i <= 24; i++) half.push(e.flat + f.radius * Math.sin((a * i) / 24));
+  half.push(e.coping, e.coping + 0.3, e.coping + f.deck / 2, e.deck);
+  half.push(e.deck + (f.height + 1) / f.side);
+  const vs = [
+    ...half
+      .slice(1)
+      .map((v) => -v)
+      .reverse(),
+    ...half,
+  ];
+  const dyed = (v: number) => Math.abs(v) >= e.arc - 0.01 && Math.abs(v) <= e.coping + 0.31;
+  const p = f.profile;
+  const us = new Set<number>(p.map(([u]) => u));
+  for (let u = 0; u <= f.length; u += 1) us.add(u);
+  const rows = [...us].sort((x, y) => x - y);
+  const first = b.positions.length / 3;
+  for (const u of rows) {
+    const walls = halfpipeGrowth(f, u) > 0.05;
+    for (const v of vs) {
+      const y = halfpipeHeight(f, u, v) - SINK;
+      b.vertex(f.east + u * s - v * c, y, f.north + u * c + v * s, walls && dyed(v) ? DYE : SNOW);
+    }
+  }
+  b.grid(first, rows.length, vs.length);
+}
+
+/**
  * Every park feature in one vertex-coloured mesh (one draw call): snow kickers, ramps,
- * rollers and berms, plus the boxes.
+ * rollers, berms and halfpipes, wooden wall rides, plus the rails and boxes.
  */
 export function createParkMeshes(
   features: ParkFeature[],
@@ -175,7 +238,8 @@ export function createParkMeshes(
 ): Mesh {
   const b = new Builder();
   for (const f of features) {
-    if (f.kind === 'berm') berm(b, f);
+    if (f.kind === 'berm' || f.kind === 'wall') berm(b, f);
+    else if (f.kind === 'halfpipe') halfpipe(b, f);
     else if (f.kind === 'box') box(b, f, ground);
     else lineSurface(b, f);
   }

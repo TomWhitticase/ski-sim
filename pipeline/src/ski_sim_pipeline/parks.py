@@ -3,26 +3,34 @@
 OSM maps where a park is, not what's in it, so the features are designed here,
 deterministically from the park's geometry, name and difficulty and the terrain:
 
-- A jump line: kickers down the park's spine. Each is a run-in transition curving up to
-  the lip (take-off ANGLE above horizontal), a level table, a rounded knuckle and a
-  landing steeper than the hill that runs back into it (`kicker_profile`). Sizes
-  (small, medium, large) come from the difficulty; family/kids parks are small.
-- Rails (a snow ramp onto a long rail) in a second, jib line where the park is wide
-  enough, or between kickers in a narrow one.
+- A superpipe in big parks with a long, even 13-20° stretch (`_halfpipe`): flat bottom,
+  circular transitions steepening to near-vertical at the coping, level decks; the walls
+  grow out of the hill at the top (the drop-in) and sink back into it at the bottom.
+- Lines of features down the park, each following its own gentle meander (`_Line`):
+  kickers of mixed sizes and step-downs on the jump line; rails, down rails, flat boxes and
+  wall rides on the jib line; small mixed features on a third line in wide parks. Each
+  feature is nudged off the line, faces the local fall line (within `MAX_TURN` of the
+  line's direction) and is spaced by a varying gap. Kickers are a run-in transition
+  curving up to the lip (take-off ANGLE above horizontal), a level table, a rounded
+  knuckle and a landing steeper than the hill that runs back into it (`kicker_profile`).
+  Sizes (small, medium, large) come from the difficulty; family/kids parks are small.
 - A boardercross ("cross" in the name), or a snake/bumpy run: the course weaves down
   the park round banked turns (berms) with rollers on the straights.
 
+The variation is seeded from the park's name and outline, so a build is reproducible.
 Features are absolute surfaces: the sim takes max(terrain, feature), so a feature that
 dips below the snow simply vanishes there. Line features are a profile along their
 heading (heights above the origin, level across) with sides falling at `side` (tan);
-berms are a banked wall on the outside of an arc, above a plane fitted to the ground.
-Everything is reported as synthetic (`"synthetic": true`): OSM has none of it.
+berms and wall rides are a banked wall on the outside of an arc, above a plane fitted
+to the ground. Everything is reported as synthetic (`"synthetic": true`): OSM has none
+of it.
 """
 
 from __future__ import annotations
 
 import math
 import re
+import zlib
 
 import numpy as np
 import shapely
@@ -44,13 +52,55 @@ FINE_STEP = 0.1  # ... on a kicker's run-in
 #: Hill grades (deg along the line) a kicker can be built on.
 MIN_GRADE, MAX_GRADE = 4.0, 22.0
 LEAD_IN = 30.0  # from the top of the park to the first feature (m)
-GAP = 25.0  # run-out between features: room to land, spot and set up (m)
+GAP = (18.0, 32.0)  # run-out between features on a line: room to land, spot and set up (m)
 EDGE = 2.0  # features keep this far inside the park's outline (m)
 TWO_LINES = 34.0  # a park at least this wide gets a jib line beside the jumps (m)
+THREE_LINES = 90.0  # ... and this wide, a third line of small mixed features (m)
+MAX_TURN = 25.0  # a feature faces the fall line, within this of its line's direction (deg)
+JITTER = 2.0  # features sit up to this far either side of their line (m)
+#: Clear snow kept beyond a feature's end, for landing and riding away (m).
+CLEAR = {"kicker": 10.0, "jib": 6.0}
 
-#: Rails (the sim draws a steel rail on legs; physics rides its top): long, and well
-#: off the snow, with a snow ramp up to them.
-BOX = {"length": 12.0, "height": 1.3, "width": 0.6, "ramp": 5.0, "rampWidth": 2.0}
+#: Jibs (the sim draws a steel rail or box on legs; physics rides its top), with a snow
+#: ramp up to them. A down rail runs `flat` m parallel to the hill, then drops `drop` m
+#: more by its end; a flat box is low and wide.
+RAILS = {
+    "rail": {"length": 12.0, "height": 1.3, "width": 0.6, "ramp": 5.0, "rampWidth": 2.0},
+    "short-rail": {"length": 7.0, "height": 0.9, "width": 0.6, "ramp": 3.5, "rampWidth": 2.0},
+    "down-rail": {
+        "length": 11.0,
+        "height": 1.3,
+        "width": 0.6,
+        "ramp": 5.0,
+        "rampWidth": 2.0,
+        "flat": 4.0,
+        "drop": 0.8,
+    },
+    "flat-box": {"length": 9.0, "height": 0.5, "width": 1.0, "ramp": 2.5, "rampWidth": 2.4},
+}
+#: A step-down: a low, flat take-off with almost no table, onto a steep landing.
+STEP_DOWN = {"height": 1.0, "angle": 12.0, "table": 2.0, "landing": 32.0, "width": 6.0}
+#: Wall ride: a steep bank (~65° at the top) beside the line, along a gentle arc.
+WALL = {"height": 2.4, "width": 2.2, "radius": 40.0, "length": 12.0}
+#: Superpipe: `flat` bottom, transitions of a circular arc steepening to `vert` degrees
+#: over the top `vertHeight` m, walls `height` m, `deck` m decks. The walls rise out of
+#: the floor over the first `dropIn` m and sink back over the last `exit` m; the floor
+#: blends into the hill over `lead` m at either end.
+HALFPIPE = {
+    "flat": 15.0,
+    "height": 5.5,
+    "vert": 85.0,
+    "vertHeight": 0.4,
+    "deck": 4.0,
+    "dropIn": 24.0,
+    "exit": 10.0,
+    "lead": 15.0,
+}
+PIPE_LENGTHS = (170.0, 150.0, 130.0, 110.0, 100.0)
+PIPE_GRADE = (13.0, 20.0)  # real pipes are cut at 15-18°
+PIPE_MAX_FILL = 2.5  # most the floor may stand above the hill (m)
+PIPE_MIN_WIDTH = 60.0  # parks narrower than this keep their room for lines (m)
+PIPE_RUN_OUT = 20.0
 ROLLER = {"height": 0.9, "length": 7.0}
 BERM = {"height": 2.2, "width": 5.0, "radius": 9.0}
 COURSE_WIDTH = 7.0
@@ -123,15 +173,17 @@ def kicker_profile(grade: float, size: dict) -> np.ndarray:
     return np.column_stack([us, out])
 
 
-def box_profile(grade: float) -> tuple[np.ndarray, np.ndarray]:
-    """(ramp, box) profiles: a snow ramp up to the box's height, then the box top running
-    parallel to the hill. u = 0 at the start of the box; heights relative to the hill there."""
+def box_profile(grade: float, spec: dict = RAILS["rail"]) -> tuple[np.ndarray, np.ndarray]:
+    """(ramp, rail) profiles: a snow ramp up to the rail's height, then the rail top running
+    parallel to the hill (a down rail kinks after `flat` m and drops `drop` m more by its
+    end). u = 0 at the start of the rail; heights relative to the hill there."""
     th = math.tan(math.radians(grade))
-    r, b, h = BOX["ramp"], BOX["length"], BOX["height"]
+    r, b, h = spec["ramp"], spec["length"], spec["height"]
     ramp_u = np.arange(-r - 1.0, 0.0 + STEP / 2, STEP)
     ramp = np.where(ramp_u < -r, -th * ramp_u, -th * ramp_u + h * (ramp_u + r) / r)
-    box_u = np.array([0.0, b])
-    box = h - th * box_u
+    flat = spec.get("flat", b)
+    box_u = np.array([0.0, flat, b]) if flat < b else np.array([0.0, b])
+    box = h - th * box_u - np.where(box_u > flat, spec.get("drop", 0.0), 0.0)
     return np.column_stack([ramp_u, ramp]), np.column_stack([box_u, box])
 
 
@@ -249,72 +301,248 @@ class _Placer:
         self.taken.append(poly.buffer(1.0))
 
 
-def _jump_line(spine, offset, sizes, placer, ground, with_boxes) -> list[dict]:
-    out: list[dict] = []
-    d = LEAD_IN
-    k = kickers = 0  # features placed; kickers placed (sizes cycle through these)
-    while d < spine.length - 20:
-        centre, t = _frame(spine, d)
-        origin = centre + np.array([-t[1], t[0]]) * offset
-        size = SIZES[sizes[kickers % len(sizes)]]
-        grade = _grade(ground, origin, t, 30.0)
-        box_turn = with_boxes and k % 2 == 1
-        if not MIN_GRADE <= grade <= MAX_GRADE:
-            d += 5.0
-            continue
-        if box_turn:
-            ramp, box = box_profile(grade)
-            u0, u1 = float(ramp[0, 0]), float(box[-1, 0]) + 1
-            poly = _footprint(origin, t, u0, u1, BOX["rampWidth"] + 1)
-            if placer.fits(poly):
-                y = float(ground(np.array([origin[0]]), np.array([origin[1]]))[0])
-                out.append(_line_feature("ramp", origin, t, y, ramp, BOX["rampWidth"]))
-                out.append(_line_feature("box", origin, t, y, box, BOX["width"]))
-                placer.take(poly)
-                d += u1 + GAP
-                k += 1
+def _unit(v: np.ndarray) -> np.ndarray:
+    return v / max(float(np.linalg.norm(v)), 1e-9)
+
+
+def _left(t: np.ndarray) -> np.ndarray:
+    return np.array([-t[1], t[0]])
+
+
+def _ground_at(ground, p: np.ndarray) -> float:
+    return float(ground(np.array([p[0]]), np.array([p[1]]))[0])
+
+
+def _fall(ground, p: np.ndarray, radius: float) -> np.ndarray | None:
+    """Unit downhill direction of the plane fitted round p; None on the flat."""
+    _, ge, gn = _plane(ground, p, radius)
+    g = np.array([ge, gn])
+    return None if np.linalg.norm(g) < 1e-3 else _unit(-g)
+
+
+def _turn_toward(t: np.ndarray, target: np.ndarray, limit: float) -> np.ndarray:
+    """`target` direction, turned back to within `limit` degrees of t."""
+    a = math.atan2(t[0] * target[1] - t[1] * target[0], float(t @ target))
+    a = max(-math.radians(limit), min(math.radians(limit), a))
+    c, s = math.cos(a), math.sin(a)
+    return np.array([c * t[0] - s * t[1], s * t[0] + c * t[1]])
+
+
+#: What each kind of line is made of (kind: weight).
+JUMP_LINE = {"kicker": 0.8, "step-down": 0.2}
+JIB_LINE = {"rail": 0.3, "short-rail": 0.2, "down-rail": 0.2, "flat-box": 0.2, "wall": 0.1}
+MIXED_LINE = {
+    "kicker": 0.4,
+    "step-down": 0.1,
+    "rail": 0.15,
+    "short-rail": 0.1,
+    "down-rail": 0.1,
+    "flat-box": 0.15,
+}
+SMALL_LINE = {"kicker": 0.3, "flat-box": 0.25, "short-rail": 0.25, "wall": 0.2}
+#: Left out of family / kids parks.
+NOT_SMALL = {"step-down", "down-rail", "wall"}
+
+
+class _Line:
+    """One line of features down the park: a gentle meander of `amplitude` m about
+    `offset` m left of the spine, built from `menu`, with kickers from `sizes`."""
+
+    def __init__(self, spine, offset, amplitude, menu, sizes, rng, small):
+        self.spine, self.offset, self.amplitude = spine, offset, amplitude
+        self.kinds = [k for k in menu if not (small and k in NOT_SMALL)]
+        w = np.array([menu[k] for k in self.kinds])
+        self.weights = w / w.sum()
+        self.sizes, self.rng, self.small = sizes, rng, small
+        self.wave = rng.uniform(120.0, 220.0)
+        self.phase = rng.uniform(0.0, 2 * math.pi)
+        self.kickers = 0
+
+    def at(self, d: float) -> tuple[np.ndarray, np.ndarray]:
+        """Point and unit direction of the line at distance d down the spine."""
+        centre, t = _frame(self.spine, d)
+        k = 2 * math.pi / self.wave
+        off = self.offset + self.amplitude * math.sin(k * d + self.phase)
+        slope = self.amplitude * k * math.cos(k * d + self.phase)
+        n = _left(t)
+        return centre + n * off, _unit(t + n * slope)
+
+    def size(self) -> dict:
+        # The first kicker is the park's headline size; after that a mix, sometimes
+        # one size down.
+        name = self.sizes[0] if self.kickers == 0 else self.rng.choice(self.sizes)
+        if not self.small and self.kickers > 0 and self.rng.random() < 0.25:
+            name = {"large": "medium", "medium": "small"}.get(name, name)
+        self.kickers += 1
+        return SIZES[name]
+
+    def fill(self, placer, ground) -> list[dict]:
+        out: list[dict] = []
+        d = LEAD_IN + self.rng.uniform(0.0, 10.0)
+        while d < self.spine.length - 20:
+            kind = self.kinds[int(self.rng.choice(len(self.kinds), p=self.weights))]
+            p, t = self.at(d)
+            p = p + _left(t) * self.rng.uniform(-JITTER, JITTER)
+            placed = self.place(kind, p, t, placer, ground)
+            if placed is None:
+                d += 5.0
                 continue
-            d += 5.0
-            continue
-        profile = kicker_profile(grade, size)
-        u0, u1 = float(profile[0, 0]), float(profile[-1, 0])
-        # The lip sits at u = 0: shift so the run-in starts at d.
-        origin = origin - t * u0
-        poly = _footprint(origin, t, u0, u1, size["width"] + 2 * size["height"] / SIDE)
-        if placer.fits(poly):
-            y = float(ground(np.array([origin[0]]), np.array([origin[1]]))[0])
-            out.append(_line_feature("kicker", origin, t, y, profile, size["width"]))
+            features, length = placed
+            out += features
+            d += length + self.rng.uniform(*GAP)
+        return out
+
+    def place(self, kind, p, path, placer, ground) -> tuple[list[dict], float] | None:
+        """Build `kind` starting at p, facing the fall line there (within MAX_TURN of the
+        line's direction `path`), if it fits: its features and length."""
+        fall = _fall(ground, p, 8.0)
+        t = path if fall is None else _turn_toward(path, fall, MAX_TURN)
+        if kind in ("kicker", "step-down"):
+            grade = _grade(ground, p, t, 30.0)
+            if not MIN_GRADE <= grade <= MAX_GRADE:
+                return None
+            size = STEP_DOWN if kind == "step-down" else self.size()
+            profile = kicker_profile(grade, size)
+            u0, u1 = float(profile[0, 0]), float(profile[-1, 0])
+            origin = p - t * u0  # the lip sits at u = 0: the run-in starts at p
+            width = size["width"] + 2 * size["height"] / SIDE
+            poly = _footprint(origin, t, u0, u1 + CLEAR["kicker"], width)
+            if not placer.fits(poly):
+                return None
             placer.take(poly)
-            d += (u1 - u0) + GAP
-            k += 1
-            kickers += 1
-        else:
-            d += 5.0
-    return out
+            y = _ground_at(ground, origin)
+            return [_line_feature("kicker", origin, t, y, profile, size["width"])], u1 - u0
+        if kind in RAILS:
+            spec = RAILS[kind]
+            grade = _grade(ground, p, t, 12.0)
+            if not 2.0 <= grade <= MAX_GRADE:
+                return None
+            ramp, box = box_profile(grade, spec)
+            u0, u1 = float(ramp[0, 0]), float(box[-1, 0])
+            origin = p - t * u0
+            poly = _footprint(origin, t, u0, u1 + CLEAR["jib"], spec["rampWidth"] + 1)
+            if not placer.fits(poly):
+                return None
+            placer.take(poly)
+            y = _ground_at(ground, origin)
+            return [
+                _line_feature("ramp", origin, t, y, ramp, spec["rampWidth"]),
+                _line_feature("box", origin, t, y, box, spec["width"]),
+            ], u1 - u0
+        return self.wall(p, t, placer, ground)
 
-
-def _jib_line(spine, offset, placer, ground) -> list[dict]:
-    out: list[dict] = []
-    d = LEAD_IN
-    while d < spine.length - 15:
-        centre, t = _frame(spine, d)
-        origin = centre + np.array([-t[1], t[0]]) * offset
-        grade = _grade(ground, origin, t, 12.0)
+    def wall(self, p, t, placer, ground) -> tuple[list[dict], float] | None:
+        """A wall ride: a steep bank rising beside the line, on a random side."""
+        length, r = WALL["length"], WALL["radius"]
+        grade = _grade(ground, p + t * length / 2, t, length)
         if not 2.0 <= grade <= MAX_GRADE:
-            d += 5.0
-            continue
-        ramp, box = box_profile(grade)
-        origin = origin - t * float(ramp[0, 0])
-        poly = _footprint(origin, t, float(ramp[0, 0]), float(box[-1, 0]) + 1, BOX["rampWidth"] + 1)
-        if placer.fits(poly):
-            y = float(ground(np.array([origin[0]]), np.array([origin[1]]))[0])
-            out.append(_line_feature("ramp", origin, t, y, ramp, BOX["rampWidth"]))
-            out.append(_line_feature("box", origin, t, y, box, BOX["width"]))
-            placer.take(poly)
-            d += BOX["length"] + BOX["ramp"] + GAP * 0.8
-        else:
-            d += 5.0
-    return out
+            return None
+        n = _left(t) * (1 if self.rng.random() < 0.5 else -1)  # toward the wall
+        mid = p + t * length / 2
+        reach = WALL["width"] + WALL["height"] / SIDE + 1
+        # From 3 m inside the riding line (room to ride along it) out to the wall's back.
+        poly = _footprint(p + n * (reach - 3) / 2, t, -1.0, length + CLEAR["jib"], reach + 3)
+        if not placer.fits(poly):
+            return None
+        placer.take(poly)
+        y_mid, ge, gn = _plane(ground, mid, length / 2 + 2)
+        centre = mid - n * r  # the arc's centre, on the riding side
+        y = y_mid + ge * (centre[0] - mid[0]) + gn * (centre[1] - mid[1])
+        sweep = math.degrees(length / r)
+        bearing = _heading(n)  # from the arc's centre to the middle of the wall
+        return [
+            {
+                "kind": "wall",
+                "east": round(float(centre[0]), 2),
+                "north": round(float(centre[1]), 2),
+                "y": round(y, 2),
+                "grad": [round(ge, 4), round(gn, 4)],
+                "radius": r,
+                "start": round((bearing - sweep / 2) % 360, 2),
+                "sweep": round(sweep, 2),
+                "width": WALL["width"],
+                "height": WALL["height"],
+                "side": SIDE,
+            }
+        ], length
+
+
+def halfpipe_section(spec: dict = HALFPIPE) -> tuple[float, float]:
+    """A pipe's transition radius, and its half width out to the decks' outer edge (m)."""
+    a = math.radians(spec["vert"])
+    radius = (spec["height"] - spec["vertHeight"]) / (1 - math.cos(a))
+    half = spec["flat"] / 2 + radius * math.sin(a) + spec["vertHeight"] / math.tan(a) + spec["deck"]
+    return radius, half
+
+
+def _halfpipe(spine, width, placer, ground) -> dict | None:
+    """The longest superpipe that fits down the park's fall line on a pipe-like grade,
+    with its floor no more than PIPE_MAX_FILL above the hill; None if none does."""
+    hp = HALFPIPE
+    radius, half = halfpipe_section()
+    reach = half + hp["height"] / SIDE  # out to where the outer walls meet the hill
+    lead = hp["lead"]
+    for length in PIPE_LENGTHS:
+        total = length + 2 * lead
+        for d in np.arange(10.0, spine.length - total + 1, 10.0):
+            for frac in (0.0, 0.15, -0.15, 0.3, -0.3):
+                centre, t = _frame(spine, d + total / 2)
+                c = centre + _left(t) * frac * width
+                fall = _fall(ground, c, length / 2)
+                if fall is None or float(fall @ t) < math.cos(math.radians(35)):
+                    continue
+                start = c - fall * length / 2
+                poly = _footprint(start, fall, -lead, length + lead + PIPE_RUN_OUT, 2 * reach)
+                if not placer.fits(poly):
+                    continue
+                # Fit the floor's plane to the hill under it, raised clear of every bump.
+                us = np.arange(0.0, length + 0.1, 2.0)
+                vs = np.linspace(-hp["flat"] / 2, hp["flat"] / 2, 5)
+                n = _left(fall)
+                e = start[0] + fall[0] * us[:, None] + n[0] * vs[None, :]
+                no = start[1] + fall[1] * us[:, None] + n[1] * vs[None, :]
+                z = ground(e.ravel(), no.ravel()).reshape(e.shape)
+                slope, y0 = np.polyfit(us, z.mean(axis=1), 1)
+                if not PIPE_GRADE[0] <= math.degrees(math.atan(-slope)) <= PIPE_GRADE[1]:
+                    continue
+                y0 += max(0.0, float((z - (y0 + slope * us)[:, None]).max()))
+                if float(((y0 + slope * us)[:, None] - z).max()) > PIPE_MAX_FILL:
+                    continue
+                placer.take(poly)
+                return _halfpipe_feature(start, fall, float(y0), float(-slope), length, ground)
+    return None
+
+
+def _halfpipe_feature(start, fall, y0: float, grade: float, length: float, ground) -> dict:
+    """The pipe's record: the floor as a profile along it (the fitted plane, blending
+    into the hill over `lead` m at either end) plus its cross-section."""
+    hp = HALFPIPE
+    lead = hp["lead"]
+    tail = np.arange(length + 1.0, length + lead + 0.01, 1.0)
+    us = np.concatenate([np.arange(-lead, 0.0, 1.0), [0.0, length], tail])
+    hill = ground(start[0] + fall[0] * us, start[1] + fall[1] * us) - y0
+    plane = -grade * us
+    s = np.clip(np.where(us < 0, (us + lead) / lead, (length + lead - us) / lead), 0.0, 1.0)
+    blend = s * s * (3 - 2 * s)
+    floor = np.where((us >= 0) & (us <= length), plane, hill + (plane - hill) * blend)
+    radius, _ = halfpipe_section()
+    return {
+        "kind": "halfpipe",
+        "east": round(float(start[0]), 2),
+        "north": round(float(start[1]), 2),
+        "y": round(y0, 2),
+        "heading": round(_heading(fall), 2),
+        "length": length,
+        "flat": hp["flat"],
+        "radius": round(radius, 3),
+        "vert": hp["vert"],
+        "height": hp["height"],
+        "deck": hp["deck"],
+        "dropIn": hp["dropIn"],
+        "exit": hp["exit"],
+        "side": SIDE,
+        "profile": np.round(np.column_stack([us, floor]), 3).tolist(),
+    }
 
 
 def _plane(ground, centre: np.ndarray, radius: float) -> tuple[float, float, float]:
@@ -385,12 +613,20 @@ def _width(geom, spine: LineString) -> float:
     return geom.area / max(spine.length, 1.0)
 
 
+def _seed(piste: dict, geom) -> int:
+    """A stable seed per park geometry (Python's hash() changes between runs)."""
+    bounds = ",".join(f"{v:.0f}" for v in geom.bounds)
+    return zlib.crc32(f"{piste.get('name') or ''}|{bounds}".encode())
+
+
 def layout(piste: dict, ground, blocked=None) -> list[dict]:
     """Every generated feature of one park (all its areas and lines)."""
     from .pistes import TYPE_WIDTH
 
     features: list[dict] = []
     style = "course" if CROSS_NAMES.search(piste.get("name") or "") else "jumps"
+    sizes = size_for(piste)
+    small = sizes == ["small"]
     geoms = [*piste["areas"], *piste["lines"]]
     for geom in geoms:
         spine = _spine(geom, ground)
@@ -405,13 +641,43 @@ def layout(piste: dict, ground, blocked=None) -> list[dict]:
         if style == "course":
             features += _course(spine, width, placer, ground)
             continue
-        sizes = size_for(piste)
-        if width >= TWO_LINES:
-            features += _jump_line(spine, width * 0.15, sizes, placer, ground, False)
-            features += _jib_line(spine, -width * 0.25, placer, ground)
+        rng = np.random.default_rng(_seed(piste, geom))
+        if isinstance(geom, Polygon) and not small and width >= PIPE_MIN_WIDTH:
+            pipe = _halfpipe(spine, width, placer, ground)
+            if pipe is not None:
+                features.append(pipe)
+        amplitude = min(max(width * 0.08, 1.5), 8.0)
+        if width >= THREE_LINES:
+            plan = [(0.25, JUMP_LINE, sizes), (-0.25, JIB_LINE, sizes)]
+            plan.append((0.0, SMALL_LINE, ["small"]))
+        elif width >= TWO_LINES:
+            plan = [(0.15, JUMP_LINE, sizes), (-0.25, JIB_LINE, sizes)]
         else:
-            features += _jump_line(spine, 0.0, sizes, placer, ground, True)
+            plan = [(0.0, MIXED_LINE, sizes)]
+        for frac, menu, line_sizes in plan:
+            line = _Line(spine, frac * width, amplitude, menu, line_sizes, rng, small)
+            features += line.fill(placer, ground)
     return features
+
+
+def footprint(f: dict) -> Polygon:
+    """Ground footprint of a generated feature, with its side slopes."""
+    if f["kind"] in ("berm", "wall"):
+        angles = np.radians(f["start"] + np.linspace(0, f["sweep"], 24))
+        ring = np.column_stack([np.sin(angles), np.cos(angles)])
+        centre = np.array([f["east"], f["north"]])
+        outer = centre + ring * (f["radius"] + f["width"] + f["height"] / f["side"])
+        inner = centre + ring[::-1] * (f["radius"] - 1)
+        return Polygon(np.vstack([outer, inner]))
+    h = math.radians(f["heading"])
+    t = np.array([math.sin(h), math.cos(h)])
+    origin = np.array([f["east"], f["north"]])
+    u0, u1 = f["profile"][0][0], f["profile"][-1][0]
+    if f["kind"] == "halfpipe":
+        _, half = halfpipe_section()
+        return _footprint(origin, t, u0, u1, 2 * (half + f["height"] / f["side"]))
+    top = max(abs(y) for _, y in f["profile"]) if f["kind"] != "box" else 0.0
+    return _footprint(origin, t, u0, u1, f["width"] + 2 * min(top, 3.0) / f["side"])
 
 
 def blocked(feature_data: dict):

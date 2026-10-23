@@ -71,6 +71,22 @@ export const SKI = {
    */
   liftLook: 0.06,
   liftGap: 0.15,
+  /**
+   * Going over a sharp convex edge (a halfpipe's coping) the look-ahead can miss it: up a
+   * near-vertical wall the snow rises almost as fast as you do. If the snow you step onto
+   * turns away from your path faster than this (m/s along its normal), you fly.
+   */
+  peelSpeed: 1.5,
+  /**
+   * Leaving a wall steeper than this (rad) you go straight up: the vert at the top of a
+   * halfpipe turns you vertical, which a height field can't quite reach. Your motion out
+   * over the deck is dropped, and you drift `vertDrift` m/s back in, so you come down on
+   * the transition just inside the coping.
+   */
+  vertAngle: (70 * Math.PI) / 180,
+  vertDrift: 0.35,
+  /** ... if you were on such a wall this recently (s). */
+  vertMemory: 0.15,
   maxStep: 1 / 120,
   /** Sliding a rail: friction (μ), and the pull onto its centreline (1/s², damping 1/s). */
   railFriction: 0.008,
@@ -117,6 +133,11 @@ export interface SkiState {
   crash?: number;
   /** How the touchdown went, on the stepSki call you land in; null otherwise. */
   landing?: Landing | null;
+  /**
+   * The last near-vertical wall ridden (`SKI.vertAngle`): its normal, and how long ago
+   * (s). Kept briefly: right at the coping the normal is already turning to the deck.
+   */
+  wall?: { normal: Vector3; age: number };
 }
 
 export interface Landing {
@@ -156,6 +177,10 @@ const skis = new Vector3();
 const dir = new Vector3();
 const target = new Vector3();
 const slopeDir = new Vector3();
+const deck = new Vector3();
+const coping = new Vector3();
+/** How far over the edge the deck is sampled when leaving a wall (m). */
+const VERT_PROBE = 0.5;
 
 /** Upward unit surface normal at (x, z), in world axes. */
 export function surfaceNormal(t: SkiTerrain, x: number, z: number, out: Vector3): Vector3 {
@@ -171,10 +196,16 @@ export function slopePitch(yaw: number, normal: Vector3): number {
   return Math.asin(Math.max(-1, Math.min(1, skiDirection(yaw, normal, slopeDir).y)));
 }
 
-/** Unit vector the skis point along, lying in the surface with normal `normal`. */
+/**
+ * Unit vector the skis point along, lying in the surface with normal `normal`: the
+ * surface direction that, seen from above, points along `yaw`. (Projecting straight down,
+ * not along the normal, keeps a halfpipe wall's diagonal a diagonal: the normal
+ * projection would swing any yaw on a near-vertical wall to run along it.)
+ */
 export function skiDirection(yaw: number, normal: Vector3, out: Vector3): Vector3 {
-  out.set(-Math.sin(yaw), 0, -Math.cos(yaw));
-  return out.addScaledVector(normal, -out.dot(normal)).normalize();
+  const x = -Math.sin(yaw);
+  const z = -Math.cos(yaw);
+  return out.set(x, -(x * normal.x + z * normal.z) / Math.max(normal.y, 0.02), z).normalize();
 }
 
 export function stepSki(
@@ -342,15 +373,57 @@ function substep(
     p.y + v.y * t - 0.5 * SKI.gravity * t * t >
     terrain.height(p.x + v.x * t, p.z + v.z * t) + SKI.liftGap;
   const lip = clears(SKI.liftLook) && clears(SKI.liftLook / 2);
+  if (n.y < Math.cos(SKI.vertAngle)) {
+    if (state.wall) state.wall.normal.copy(n);
+    else state.wall = { normal: n.clone(), age: 0 };
+    state.wall.age = 0;
+  } else if (state.wall) {
+    state.wall.age += h;
+  }
   p.addScaledVector(v, h);
   const ground = terrain.height(p.x, p.z);
   if (lip || p.y > ground + SKI.airThreshold) {
-    takeOff(state); // the slope fell away faster than we did
-  } else {
-    p.y = ground;
-    surfaceNormal(terrain, p.x, p.z, n);
-    v.addScaledVector(n, -v.dot(n)); // stay in the new surface plane
+    leave(state, terrain); // the slope fell away faster than we did
+    return;
   }
+  p.y = ground;
+  surfaceNormal(terrain, p.x, p.z, n);
+  if (v.dot(n) > SKI.peelSpeed) {
+    leave(state, terrain); // over an edge: the snow turned away under us
+    return;
+  }
+  v.addScaledVector(n, -v.dot(n)); // stay in the new surface plane
+}
+
+/** Take off from the snow; just off a near-vertical wall, straight up (`SKI.vertAngle`). */
+function leave(state: SkiState, terrain: SkiTerrain): void {
+  const w = state.wall;
+  if (w && w.age < SKI.vertMemory) {
+    // Straight up means no motion across the coping. The wall's normal alone leans down
+    // the pipe's grade, so take the coping's line from it and the deck just beyond.
+    const p = state.position;
+    const out = Math.sqrt(w.normal.x * w.normal.x + w.normal.z * w.normal.z);
+    const ox = w.normal.x / out;
+    const oz = w.normal.z / out;
+    surfaceNormal(terrain, p.x - ox * VERT_PROBE, p.z - oz * VERT_PROBE, deck);
+    coping.crossVectors(w.normal, deck);
+    let ax = -coping.z;
+    let az = coping.x;
+    const len = Math.sqrt(ax * ax + az * az);
+    if (len > 0.1 * coping.length()) {
+      const sign = ax * ox + az * oz < 0 ? -1 : 1;
+      ax *= sign / len;
+      az *= sign / len;
+    } else {
+      [ax, az] = [ox, oz]; // no deck: just leave the wall's face
+    }
+    const v = state.velocity;
+    const into = v.x * ax + v.z * az;
+    v.x += ax * (SKI.vertDrift - into);
+    v.z += az * (SKI.vertDrift - into);
+  }
+  state.wall = undefined;
+  takeOff(state);
 }
 
 /**

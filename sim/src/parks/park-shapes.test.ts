@@ -5,6 +5,9 @@ import { type SkiState, stepSki, type SkiTerrain } from '../controls/ski-physics
 import {
   type BermFeature,
   bermHeight,
+  type HalfpipeFeature,
+  halfpipeEdges,
+  halfpipeHeight,
   type LineFeature,
   profileAt,
   SnowParks,
@@ -138,5 +141,116 @@ describe('berms', () => {
     expect(at(90, 9)).toBeLessThan(2000); // the riding line stays natural snow
     expect(at(25, 14)).toBeLessThan(at(90, 14)); // tapers toward the ends
     expect(at(0, 14)).toBe(-Infinity);
+  });
+});
+
+describe('halfpipes', () => {
+  const PITCH = Math.tan(17 * RAD);
+  /** A 17° hill falling to the north, the pipe's floor lying on it. */
+  const slope = (_x: number, z: number) => 2000 + PITCH * z;
+  // Built like pipeline/parks.py's _halfpipe_feature on that hill.
+  const a = 85 * RAD;
+  const pipe: HalfpipeFeature = {
+    kind: 'halfpipe',
+    east: 0,
+    north: 0,
+    y: 2000,
+    heading: 0,
+    profile: [
+      [-15, 15 * PITCH],
+      [165, -165 * PITCH],
+    ],
+    length: 150,
+    flat: 15,
+    radius: (5.5 - 0.4) / (1 - Math.cos(a)),
+    vert: 85,
+    height: 5.5,
+    deck: 4,
+    dropIn: 24,
+    exit: 10,
+    side: 1.2,
+  };
+  const edges = halfpipeEdges(pipe);
+  const floor = (u: number) => 2000 - PITCH * u;
+
+  it('has a flat bottom, transitions up to a near-vertical coping and level decks', () => {
+    const at = (v: number) => halfpipeHeight(pipe, 60, v) - floor(60);
+    expect(at(0)).toBeCloseTo(0);
+    expect(at(7)).toBeCloseTo(0);
+    expect(edges.coping - edges.flat).toBeGreaterThan(5);
+    expect(edges.coping - edges.flat).toBeLessThan(6);
+    expect(at(edges.coping)).toBeCloseTo(5.5);
+    expect(at(-edges.coping)).toBeCloseTo(5.5); // both walls
+    expect(at(edges.coping + 2)).toBeCloseTo(5.5); // the deck
+    expect(at(edges.deck + 2)).toBeCloseTo(5.5 - 2 * 1.2); // the outer wall falls away
+    // The wall steepens all the way up: ~45° halfway round, past 80° below the coping.
+    const angle = (v: number) => Math.atan((at(v + 0.01) - at(v - 0.01)) / 0.02) / RAD;
+    expect(angle(edges.flat + pipe.radius * Math.sin(45 * RAD))).toBeCloseTo(45, 0);
+    expect(angle(edges.coping - 0.03)).toBeGreaterThan(80);
+    expect(angle(edges.coping - 0.03)).toBeLessThan(86);
+  });
+
+  it('grows its walls out of the floor at the drop-in and ends on the hill', () => {
+    const wall = (u: number) => halfpipeHeight(pipe, u, edges.coping) - floor(u);
+    expect(wall(0)).toBeCloseTo(0);
+    expect(wall(12)).toBeCloseTo(2.75, 1);
+    expect(wall(30)).toBeCloseTo(5.5);
+    expect(wall(150)).toBeCloseTo(0);
+    expect(halfpipeHeight(pipe, -16, 0)).toBe(-Infinity);
+    expect(halfpipeHeight(pipe, 166, 0)).toBe(-Infinity);
+    // Its ends dive under the snow: no step where the floor meets the hill.
+    expect(halfpipeHeight(pipe, -15, 0)).toBeLessThan(floor(-15));
+  });
+
+  /** Ride from the middle of the floor toward the east wall, `angle` deg off the pipe. */
+  function ride(speed: number, angle: number) {
+    const parks = new SnowParks([{ index: 1, style: 'jumps', synthetic: true, features: [pipe] }]);
+    const terrain: SkiTerrain = {
+      height: (x, z) => parks.height(x, z, slope(x, z)),
+      normal: (x, z, out) => parks.normal(x, z, slope, out),
+    };
+    const yaw = -angle * RAD; // positive yaw turns left (west); the east wall is to the right
+    const state: SkiState = {
+      position: new Vector3(0, 0, -60),
+      velocity: new Vector3(Math.sin(angle * RAD) * speed, 0, -Math.cos(angle * RAD) * speed),
+      yaw,
+      airborne: false,
+    };
+    state.position.y = terrain.height(0, -60);
+    const n = new Vector3();
+    terrain.normal!(0, -60, n);
+    state.velocity.addScaledVector(n, -state.velocity.dot(n));
+    const intent = { tuck: false, push: false, brake: false, jump: false };
+    let takeoff: { across: number; height: number } | null = null;
+    let air = -Infinity;
+    let landing: { across: number; outcome: string } | null = null;
+    for (let i = 0; i < 600 && !landing; i++) {
+      const was = state.airborne;
+      stepSki(state, intent, 1 / 60, terrain);
+      const across = state.position.x; // the pipe runs north, so east is across it
+      const u = -state.position.z;
+      const lip = floor(u) + pipe.height;
+      if (state.airborne && !was) takeoff = { across, height: state.position.y - lip };
+      if (state.airborne) air = Math.max(air, state.position.y - lip);
+      if (state.landing && takeoff) landing = { across, outcome: state.landing.outcome };
+    }
+    return { takeoff, air, landing };
+  }
+
+  it('carves up a wall, flies above the coping and lands back on the transition', () => {
+    const { takeoff, air, landing } = ride(15, 55);
+    expect(takeoff).not.toBeNull();
+    expect(Math.abs(takeoff!.across - edges.coping)).toBeLessThan(0.3); // off the coping
+    expect(takeoff!.height).toBeGreaterThan(-0.3);
+    expect(air).toBeGreaterThan(1.5); // real air above the lip
+    expect(landing).not.toBeNull();
+    expect(landing!.across).toBeLessThan(edges.coping - 0.3); // back in the pipe, not the deck
+    expect(landing!.across).toBeGreaterThan(edges.flat);
+    expect(landing!.outcome).toBe('clean'); // skis aligned with the steep transition
+  });
+
+  it('without the speed to reach the coping, rides back down the wall', () => {
+    const { takeoff } = ride(8, 70);
+    expect(takeoff).toBeNull();
   });
 });
