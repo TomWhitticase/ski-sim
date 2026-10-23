@@ -190,6 +190,8 @@ const VIEWS = [
   },
   { name: 'station-chair-fixed', query: 'at=45.32557,6.53075,1662&heading=4&pitch=-8' },
   { name: 'station-gondola', query: 'at=45.27297,6.60583,2818&heading=118&pitch=-6' },
+  { name: 'tower-chair', query: 'at=45.33980,6.57504,2644&heading=297&pitch=2' },
+  { name: 'tower-gondola', query: 'at=45.28142,6.59322,2528&heading=199&pitch=2' },
   // Snow parks: VT Park's halfpipe from below and the side, and Open Park's meandering lines.
   { name: 'park-halfpipe', query: 'at=45.27925,6.57367,2511&heading=136&pitch=-4' },
   { name: 'park-halfpipe-side', query: 'at=45.27908,6.57497,2544&heading=226&pitch=-18' },

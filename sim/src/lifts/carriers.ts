@@ -360,22 +360,54 @@ export function platterGeometry(tbar: boolean): BufferGeometry {
 }
 
 /** Static parts (unit sized, scaled per instance). */
+const CONCRETE: RGB = [0.56, 0.55, 0.53];
+
 export function towerGeometry(): BufferGeometry {
-  // Tapered tubular column, base at y = 0 and top at y = 1.
+  // Tapered tubular column, base at y = 0 and top at y = 1, with a ladder up its
+  // downhill side (scaled with the column, so only its rails: rungs would stretch).
   const column = new CylinderGeometry(0.55, 0.85, 1, 10);
   column.translate(0, 0.5, 0);
-  return merge([part(column, STEEL, [0, 0, 0])]);
+  const parts = [part(column, STEEL, [0, 0, 0])];
+  for (const x of [-0.22, 0.22])
+    parts.push(part(new BoxGeometry(0.06, 1, 0.06), DARK, [x, 0.5, 0.95]));
+  return merge(parts);
 }
 
-/** Sheave train: a beam with a row of wheels, cable running along z. */
+/** A tower's concrete footing, 1 m across per unit of the column's scale (x, z). */
+export function footingGeometry(): BufferGeometry {
+  return merge([part(new BoxGeometry(2.4, 1.4, 2.4), CONCRETE, [0, -0.2, 0])]);
+}
+
+/**
+ * Crossarm, 1 m long across the line (instances stretch it in x to the gauge): the beam,
+ * with a grated maintenance catwalk and its handrail along the downhill side.
+ */
+export function crossArmGeometry(): BufferGeometry {
+  return merge([
+    part(new BoxGeometry(1, 0.35, 0.45), STEEL, [0, 0, 0]),
+    part(new BoxGeometry(1, 0.05, 0.75), DARK, [0, -0.2, 0.6]), // catwalk grating
+    part(new BoxGeometry(1, 0.04, 0.04), STEEL, [0, 0.75, 0.95]), // handrail
+    part(new BoxGeometry(1, 0.04, 0.04), STEEL, [0, 0.3, 0.95]), // knee rail
+  ]);
+}
+
+/**
+ * Sheave train: a row of rubber-lined wheels between side plates, the cable running
+ * along z, hung from the crossarm above it.
+ */
 export function sheaveGeometry(): BufferGeometry {
-  const parts = [part(new BoxGeometry(0.22, 0.25, 2.6), DARK, [0, 0.15, 0])];
-  for (let i = 0; i < 4; i++) {
+  const parts = [
+    part(new BoxGeometry(0.16, 0.3, 0.2), DARK, [0, 0.33, 0]), // hanger up to the arm
+    part(new BoxGeometry(0.3, 0.1, 2.7), DARK, [0, 0.2, 0]), // rocker beam
+  ];
+  for (const x of [-0.13, 0.13])
+    parts.push(part(new BoxGeometry(0.03, 0.32, 2.7), STEEL, [x, 0, 0]));
+  for (let i = 0; i < 6; i++) {
     parts.push(
       part(
-        new CylinderGeometry(0.2, 0.2, 0.12, 12),
-        STEEL,
-        [0, 0, -0.9 + i * 0.6],
+        new CylinderGeometry(0.19, 0.19, 0.16, 12),
+        DARK,
+        [0, 0, -1.1 + i * 0.44],
         [0, 0, Math.PI / 2],
       ),
     );

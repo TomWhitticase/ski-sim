@@ -13,7 +13,9 @@ import type { Lift, Terminal } from '../features/types';
 import {
   cabinGeometry,
   chairGeometry,
+  crossArmGeometry,
   floorBelowGrip,
+  footingGeometry,
   gondolaGeometry,
   platterGeometry,
   platterGripGeometry,
@@ -670,6 +672,7 @@ export class LiftSystem {
 
   private buildStatics(material: MeshStandardNodeMaterial): void {
     const towers: Matrix4[] = [];
+    const footings: Matrix4[] = [];
     const arms: Matrix4[] = [];
     const sheaves: Matrix4[] = [];
     const cables: Matrix4[] = [];
@@ -703,8 +706,10 @@ export class LiftSystem {
         const armY = top.y + 0.35;
         pos.set(top.x, base, top.z);
         towers.push(m.compose(pos, q, scale.set(radius, armY - base, radius)).clone());
+        pos.set(top.x, s.ground, top.z);
+        footings.push(m.compose(pos, q, scale.set(radius, 1, radius)).clone());
         pos.set(top.x, armY + 0.2, top.z);
-        arms.push(m.compose(pos, q, scale.set(lift.gauge + 1.2, 0.35, 0.45)).clone());
+        arms.push(m.compose(pos, q, scale.set(lift.gauge + 1.2, 1, 1)).clone());
         for (const side of [1, -1]) {
           pos.copy(top).addScaledVector(line.across, side * r);
           sheaves.push(m.compose(pos, q, ONE).clone());
@@ -743,11 +748,8 @@ export class LiftSystem {
       this.root.add(mesh);
     };
     add(towerGeometry(), material, towers);
-    add(
-      new BoxGeometry(1, 1, 1),
-      new MeshStandardNodeMaterial({ color: 0x6c7076, metalness: 0.5, roughness: 0.45 }),
-      arms,
-    );
+    add(footingGeometry(), material, footings);
+    add(crossArmGeometry(), material, arms);
     // Sheaves are a few cm thick: shadows wouldn't show but would cost every shadow
     // cascade thousands of instances.
     add(sheaveGeometry(), material, sheaves, false);
