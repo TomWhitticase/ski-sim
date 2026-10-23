@@ -73,10 +73,13 @@ export const SKI = {
   liftGap: 0.15,
   /**
    * Going over a sharp convex edge (a halfpipe's coping) the look-ahead can miss it: up a
-   * near-vertical wall the snow rises almost as fast as you do. If the snow you step onto
-   * turns away from your path faster than this (m/s along its normal), you fly.
+   * near-vertical wall the snow rises almost as fast as you do. Riding a wall steeper than
+   * `peelFrom` (rad), if the snow you step onto turns away from your path faster than
+   * `peelSpeed` (m/s along its normal), you fly. (Only on steep walls: on bumpy ordinary
+   * slopes it would bounce you off every crease.)
    */
   peelSpeed: 1.5,
+  peelFrom: (45 * Math.PI) / 180,
   /**
    * Leaving a wall steeper than this (rad) you go straight up: the vert at the top of a
    * halfpipe turns you vertical, which a height field can't quite reach. Your motion out
@@ -178,6 +181,10 @@ const dir = new Vector3();
 const target = new Vector3();
 const slopeDir = new Vector3();
 const deck = new Vector3();
+const steepDir = new Vector3();
+/** Wall steepness (normal's y) over which ski direction blends to straight-down projection. */
+const STEEP_FROM = Math.cos((40 * Math.PI) / 180);
+const STEEP_TO = Math.cos((55 * Math.PI) / 180);
 const coping = new Vector3();
 /** How far over the edge the deck is sampled when leaving a wall (m). */
 const VERT_PROBE = 0.5;
@@ -197,15 +204,23 @@ export function slopePitch(yaw: number, normal: Vector3): number {
 }
 
 /**
- * Unit vector the skis point along, lying in the surface with normal `normal`: the
- * surface direction that, seen from above, points along `yaw`. (Projecting straight down,
- * not along the normal, keeps a halfpipe wall's diagonal a diagonal: the normal
- * projection would swing any yaw on a near-vertical wall to run along it.)
+ * Unit vector the skis point along, lying in the surface with normal `normal`. On ordinary
+ * slopes that's the yaw projected along the normal. On steep walls (from `STEEP_FROM`, all
+ * the way by `STEEP_TO`) it's projected straight down instead, so the skis point where the
+ * yaw does seen from above: projecting along a near-vertical wall's normal would swing any
+ * diagonal line up a halfpipe wall to run along it.
  */
 export function skiDirection(yaw: number, normal: Vector3, out: Vector3): Vector3 {
   const x = -Math.sin(yaw);
   const z = -Math.cos(yaw);
-  return out.set(x, -(x * normal.x + z * normal.z) / Math.max(normal.y, 0.02), z).normalize();
+  const across = x * normal.x + z * normal.z;
+  out.set(x, 0, z).addScaledVector(normal, -across).normalize();
+  const w = 1 - Math.min(1, Math.max(0, (normal.y - STEEP_TO) / (STEEP_FROM - STEEP_TO)));
+  if (w > 0) {
+    const down = steepDir.set(x, -across / Math.max(normal.y, 0.02), z).normalize();
+    out.lerp(down, w).normalize();
+  }
+  return out;
 }
 
 export function stepSki(
@@ -373,6 +388,7 @@ function substep(
     p.y + v.y * t - 0.5 * SKI.gravity * t * t >
     terrain.height(p.x + v.x * t, p.z + v.z * t) + SKI.liftGap;
   const lip = clears(SKI.liftLook) && clears(SKI.liftLook / 2);
+  const onWall = n.y < Math.cos(SKI.peelFrom);
   if (n.y < Math.cos(SKI.vertAngle)) {
     if (state.wall) state.wall.normal.copy(n);
     else state.wall = { normal: n.clone(), age: 0 };
@@ -388,7 +404,7 @@ function substep(
   }
   p.y = ground;
   surfaceNormal(terrain, p.x, p.z, n);
-  if (v.dot(n) > SKI.peelSpeed) {
+  if (onWall && v.dot(n) > SKI.peelSpeed) {
     leave(state, terrain); // over an edge: the snow turned away under us
     return;
   }

@@ -89,10 +89,13 @@ test('a rail boardslides: skis across it, it barely slows you and keeps you on i
   await start(page, 'at=45.27692,6.57690,2600&heading=315&pitch=-10');
   const rail = await page.evaluate(async () => {
     const data = await (await fetch('/les-3-vallees/pistes.json')).json();
-    const rails = data.parks.flatMap((p: { features: Feature[] }) =>
-      p.features.filter((f) => f.kind === 'box'),
+    type Rail = Feature & { width: number; profile: [number, number][] };
+    // The longest straight rail (parks also have short rails, kinked down rails and boxes).
+    const rails: Rail[] = data.parks.flatMap((p: { features: Rail[] }) =>
+      p.features.filter((f) => f.kind === 'box' && f.width < 0.8 && f.profile.length === 2),
     );
-    return rails[0] as Feature & { profile: [number, number][] };
+    const length = (r: Rail) => r.profile.at(-1)![0];
+    return rails.reduce((a, b) => (length(b) > length(a) ? b : a));
   });
   await page.keyboard.press('KeyF'); // ski mode
   await page.keyboard.press('KeyV'); // chase camera
