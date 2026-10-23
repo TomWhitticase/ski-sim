@@ -416,7 +416,11 @@ export class LiftSystem {
       new MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.25 });
     const terminals = createTerminals(
       this.lines.flatMap((line) =>
-        [line.bottomTerminal, line.topTerminal].map((terminal) => ({ terminal, rail: line.rail })),
+        [line.bottomTerminal, line.topTerminal].map((terminal) => ({
+          terminal,
+          rail: line.rail,
+          seed: line.lift.id,
+        })),
       ),
       groundHeight,
     );

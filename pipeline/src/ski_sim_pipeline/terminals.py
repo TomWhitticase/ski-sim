@@ -366,6 +366,11 @@ def choose_entrances(terminals: list[dict], buildings: list[dict]) -> None:
 # --- Volumetric building cuts -----------------------------------------------------------
 
 NO_FLOOR = -1e9
+# Halls and the rope corridor clear a building's full height: a station or a line roofed
+# over by the storeys above it read as an archway or tunnel through the block.
+NO_CEILING = 1e9
+# Leftover building pieces narrower than this are dropped (slivers beside a cut).
+MIN_PIECE_WIDTH = 2.5
 
 
 def cut_volumes(
@@ -374,7 +379,7 @@ def cut_volumes(
     """Spaces lifts need: (footprint, from height, to height, what)."""
     cuts = []
     for t in terminals:
-        cuts.append((hall_polygon(t), NO_FLOOR, t["pad"] + t["roofTop"] + 0.6, "hall"))
+        cuts.append((hall_polygon(t), NO_FLOOR, NO_CEILING, "hall"))
         side = t.get("entrance")
         if side:
             cuts.append(
@@ -414,8 +419,13 @@ def cut_volumes(
                 ).buffer(width, cap_style="flat")
                 hs = [rope(d) for d in (d0, d1, level_a, level_b) if d0 <= d <= d1]
                 low = NO_FLOOR if kind == "drag" else min(hs) - HANG_DEPTH[kind] - 0.5
-                cuts.append((piece, low, max(hs) + 1.5, "cable"))
+                cuts.append((piece, low, NO_CEILING, "cable"))
     return cuts
+
+
+def station_halls(terminals: list[dict]) -> list[tuple[Polygon, float]]:
+    """Each terminal's hall footprint and roof height, to tell which building *is* it."""
+    return [(hall_polygon(t), t["pad"] + t["roofTop"] + 0.6) for t in terminals]
 
 
 def _station_length(support: dict, terms: list[dict]) -> float:
@@ -476,26 +486,29 @@ def _clip_roof(roof: dict | None, piece: Polygon) -> dict | None:
     return {**roof, "faces": faces} if faces else None
 
 
-def cut_buildings(buildings: list[dict], cuts: list[tuple], halls: list[tuple] | None = None):
+def cut_buildings(
+    buildings: list[dict], cuts: list[tuple], halls: list[tuple[Polygon, float]] = ()
+):
     """Apply volumetric `cuts` to buildings. Returns (buildings, stats).
 
-    A building mostly inside a station hall and not much taller than it *is* the
-    station: it's replaced by the generated terminal. Otherwise each building is split:
-    what's outside a cut stays as it was; inside it, anything below the cut's floor stays
-    (flat-topped) and anything above its ceiling stays as a raised piece (keeping its
-    original roof), unless it would be a sliver thinner than MIN_SLAB.
+    A building mostly inside a station hall (`halls`) and not much taller than it *is*
+    the station: it's replaced by the generated terminal. Otherwise each building is
+    split: what's outside a cut stays as it was; inside it, anything below the cut's
+    floor stays (flat-topped) and anything above its ceiling stays as a raised piece
+    (keeping its original roof), unless it would be a sliver thinner than MIN_SLAB. Halls
+    and the rope corridor have no ceiling, so they leave a notch, never an archway; only
+    a walkway can pass under a building. Pieces narrower than MIN_PIECE_WIDTH go.
     """
     from shapely.strtree import STRtree
 
     tree = STRtree([c[0] for c in cuts])
-    hall_cuts = [c for c in cuts if c[3] == "hall"]
     stats = {"removedAsStation": 0, "cut": 0, "raisedPieces": 0}
     out: list[dict] = []
     for b in buildings:
         polygon = Polygon(b["footprint"]).buffer(0)
         top = _full_top(b)
-        for hall, _, ceiling, _ in hall_cuts:
-            if polygon.intersection(hall).area > 0.5 * polygon.area and top <= ceiling + 3:
+        for hall, roof in halls:
+            if polygon.intersection(hall).area > 0.5 * polygon.area and top <= roof + 3:
                 stats["removedAsStation"] += 1
                 break
         else:
@@ -542,7 +555,12 @@ def cut_buildings(buildings: list[dict], cuts: list[tuple], halls: list[tuple] |
                 out.append(b)
                 continue
             stats["cut"] += 1
-            kept = [p for p in pieces if p["polygon"].area >= 4]
+            kept = [
+                p
+                for p in pieces
+                if p["polygon"].area >= 4
+                and not p["polygon"].buffer(-MIN_PIECE_WIDTH / 2, join_style=2).is_empty
+            ]
             for k, p in enumerate(kept):
                 stats["raisedPieces"] += p["raised"]
                 out.append(

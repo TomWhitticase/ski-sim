@@ -64,7 +64,13 @@ def test_flatten_makes_a_level_pad_and_a_ramp_down_at_the_top():
 
 
 def test_buildings_are_cut_only_where_and_as_high_as_lifts_need():
-    from ski_sim_pipeline.terminals import WALK_HEIGHT, choose_entrances, conflicts, cut_volumes
+    from ski_sim_pipeline.terminals import (
+        WALK_HEIGHT,
+        choose_entrances,
+        conflicts,
+        cut_volumes,
+        station_halls,
+    )
 
     terms = plan([lift(duration=200)])
     for t in terms:
@@ -94,15 +100,19 @@ def test_buildings_are_cut_only_where_and_as_high_as_lifts_need():
     buildings = [station, block, beside]
     choose_entrances(terms, buildings)
     cuts = cut_volumes([lift(duration=200)], terms)
-    out, stats = cut_buildings(buildings, cuts)
+    out, stats = cut_buildings(buildings, cuts, station_halls(terms))
     ids = {b["id"] for b in out}
     assert 7 not in ids  # the small station building is replaced by the terminal
     assert 9 in ids  # untouched
     pieces = [b for b in out if b["id"] // 100 == 8]
     raised = [b for b in pieces if b.get("raised")]
-    # The block stays above the station (roofing it over) and above the walkway tunnel.
+    # The block stays above the walkway tunnel, but the station and the rope corridor
+    # clear its full height: no archway with storeys over the hall.
     assert raised and min(b["base"] for b in raised) >= 2000 + WALK_HEIGHT
-    assert max(b["base"] for b in raised) >= 2000 + terms[0]["roofTop"]
+    hall = hall_polygon(terms[0])
+    assert all(Polygon(b["footprint"]).intersection(hall).area < 0.5 for b in pieces)
+    # No slivers left beside a cut.
+    assert all(not Polygon(b["footprint"]).buffer(-1.2).is_empty for b in pieces)
     assert all(len(b["footprint"]) <= 12 for b in pieces)  # clean, square-cornered cuts
     # ...and keeps its full outer walls at ground level elsewhere.
     assert any(not b.get("raised") and b["base"] < 2000 for b in pieces)

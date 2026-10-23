@@ -4,9 +4,11 @@ import {
   BufferAttribute,
   type BufferGeometry,
   CylinderGeometry,
+  ExtrudeGeometry,
   Matrix4,
   Mesh,
   MeshStandardNodeMaterial,
+  Shape,
   Vector3,
 } from 'three/webgpu';
 
@@ -17,11 +19,52 @@ type RGB = [number, number, number];
 const CONCRETE: RGB = [0.56, 0.55, 0.53];
 const STEEL: RGB = [0.42, 0.45, 0.5];
 const ROOF: RGB = [0.62, 0.12, 0.1];
-const HOUSING: RGB = [0.09, 0.22, 0.42];
-const WALL: RGB = [0.82, 0.8, 0.76];
 const GLASS: RGB = [0.12, 0.16, 0.22];
+/** Station glazing: lighter than a window at night, reflecting the sky. */
+const GLAZING: RGB = [0.3, 0.4, 0.5];
 const TIMBER: RGB = [0.38, 0.25, 0.15];
 const STRIPE: RGB = [0.95, 0.75, 0.1];
+const RUBBER: RGB = [0.1, 0.1, 0.11];
+const WHEEL: RGB = [0.15, 0.15, 0.17];
+const DARK_STEEL: RGB = [0.2, 0.22, 0.25];
+const CABIN_WALL: RGB = [0.9, 0.9, 0.88];
+/**
+ * Station colours (hood / roof, then trim). Picked per lift from its id, so a resort's
+ * stations aren't all one colour but both ends of a lift match.
+ */
+const LIVERIES: [RGB, RGB][] = [
+  [
+    [0.62, 0.12, 0.1],
+    [0.82, 0.8, 0.76],
+  ], // red
+  [
+    [0.09, 0.22, 0.42],
+    [0.85, 0.85, 0.85],
+  ], // navy
+  [
+    [0.86, 0.86, 0.84],
+    [0.2, 0.22, 0.25],
+  ], // white
+  [
+    [0.24, 0.26, 0.29],
+    [0.75, 0.75, 0.73],
+  ], // graphite
+  [
+    [0.12, 0.35, 0.22],
+    [0.82, 0.8, 0.76],
+  ], // green
+  [
+    [0.1, 0.42, 0.62],
+    [0.88, 0.88, 0.86],
+  ], // sky blue
+];
+
+export function livery(seed: number): [RGB, RGB] {
+  // Integer hash, so neighbouring ids don't run through the palette in order.
+  let h = Math.imul(seed | 0, 0x9e3779b1);
+  h ^= h >>> 15;
+  return LIVERIES[(h >>> 0) % LIVERIES.length]!;
+}
 /**
  * The pad is flattened to exactly y = 0, so a face within this of it would z-fight the
  * snow. `box` moves such faces clear: up to a visible step, or down out of sight.
@@ -135,13 +178,80 @@ class TerminalBuilder {
     this.box(u - 0.5, u + 0.5, v - 0.5, v + 0.5, below, 0.25, CONCRETE, true);
   }
 
+  /** The bullwheel: rim, spokes and hub at rope height, on its shaft. */
   wheel(rail: number) {
     const r = this.t.gauge / 2;
-    const g = new CylinderGeometry(r, r, 0.12, 24, 1, true).toNonIndexed();
+    const rim = new CylinderGeometry(r, r, 0.3, 32, 1, true).toNonIndexed();
     const at = this.world(0, 0, rail);
-    g.applyMatrix4(new Matrix4().makeTranslation(at.x, at.y, at.z));
-    paint(g, [0.15, 0.15, 0.17]);
+    rim.applyMatrix4(new Matrix4().makeTranslation(at.x, at.y, at.z));
+    paint(rim, WHEEL);
+    this.parts.push(rim);
+    for (let k = 0; k < 3; k++) {
+      const a = (k / 3) * Math.PI;
+      const cu = Math.cos(a) * (r - 0.1);
+      const cv = Math.sin(a) * (r - 0.1);
+      this.beam(-cu, -cv, cu, cv, rail, 0.12, WHEEL);
+    }
+    this.box(-0.35, 0.35, -0.35, 0.35, rail - 0.2, rail + 0.25, DARK_STEEL);
+  }
+
+  /** A flat bar of `size` square section between two points at height `y`. */
+  beam(u0: number, v0: number, u1: number, v1: number, y: number, size: number, colour: RGB) {
+    const len = Math.hypot(u1 - u0, v1 - v0);
+    const g = new BoxGeometry(size, size, len).toNonIndexed();
+    const dir = this.dirOf(u1 - u0, v1 - v0);
+    const side = new Vector3(0, 1, 0).cross(dir).normalize();
+    const centre = this.world((u0 + u1) / 2, (v0 + v1) / 2, y);
+    g.applyMatrix4(new Matrix4().makeBasis(side, new Vector3(0, 1, 0), dir).setPosition(centre));
+    paint(g, colour);
     this.parts.push(g);
+  }
+
+  /**
+   * A moulded hood, the shape of a modern station housing: in plan, rounded round the
+   * bullwheel at the back (`u0`, the centre of the curve at u0 + half) and tapering to
+   * `taper` of its width at the front end `u1`; edges rounded by `round`.
+   */
+  hood(
+    u0: number,
+    u1: number,
+    half: number,
+    y0: number,
+    y1: number,
+    colour: RGB,
+    taper = 0.7,
+    round = 0.35,
+  ) {
+    // The shape's (x, y) is (u, v), mirrored across the line (it's symmetric) where that
+    // keeps the basis right-handed, so the extrusion's faces point outwards.
+    const flip = this.u.clone().cross(this.v).y > 0 ? 1 : -1;
+    const h = half - round;
+    const c = u0 + half;
+    const shape = new Shape();
+    shape.moveTo(c, -h);
+    shape.lineTo(u1 - 3 - round, -h);
+    shape.lineTo(u1 - round, -h * taper);
+    shape.lineTo(u1 - round, h * taper);
+    shape.lineTo(u1 - 3 - round, h);
+    shape.lineTo(c, h);
+    shape.absarc(c, 0, h, Math.PI / 2, (3 * Math.PI) / 2, false);
+    const depth = Math.max(0.1, y1 - y0 - 2 * round);
+    const g = new ExtrudeGeometry(shape, {
+      depth,
+      bevelEnabled: true,
+      bevelThickness: round,
+      bevelSize: round,
+      bevelSegments: 3,
+      curveSegments: 12,
+    });
+    const flat = g.index ? g.toNonIndexed() : g;
+    const vSigned = this.v.clone().multiplyScalar(flip);
+    const at = this.world(0, 0, y0 + round);
+    flat.applyMatrix4(
+      new Matrix4().makeBasis(this.u, vSigned, new Vector3(0, 1, 0)).setPosition(at),
+    );
+    paint(flat, colour);
+    this.parts.push(flat);
   }
 }
 
@@ -155,20 +265,22 @@ function paint(g: BufferGeometry, colour: RGB) {
 /**
  * Build one terminal. `rail` is the haul rope's height above the pad inside the station.
  * Layouts (all from the same few parameters, so they fit any lift):
- * - chair: bullwheel housing on a portal frame, a roof canopy over the loading area,
- *   an operator's hut, a loading-line gate;
- * - gondola / cable car: an enclosed hall, open at the line end, with a door gap on the
- *   uphill track's side where you walk in and out;
+ * - detachable chair: one moulded hood over the bullwheel and the slow section, on
+ *   columns between the tracks, with a loading carpet, gate and glazed operator's cabin;
+ * - fixed-grip chair: the bullwheel in the open on a column, under a small drive lid;
+ * - gondola / cable car: a glazed hall on a dark plinth under a rounded roof that
+ *   overhangs the open line end, the drive housing visible over the bullwheel, and a door
+ *   gap on the uphill track's side where you walk in and out;
  * - drag: a bullwheel on a post and a small hut.
  */
 const BOARD_RATIO = 0.19; // sign height / width
-const HOUSING_TOP = 1.9; // bullwheel housing top above the rail (chairs)
 const WALK_HEADROOM = 4.5; // walkway cut height above the pad (pipeline WALK_HEIGHT)
 
 function buildTerminal(
   t: Terminal,
   rail: number,
   ground: (x: number, z: number) => number,
+  seed = 0,
 ): TerminalBuilder {
   const b = new TerminalBuilder(t, ground);
   const r = t.gauge / 2;
@@ -180,45 +292,75 @@ function buildTerminal(
   const backward = b.dirOf(-1, 0);
   const forward = b.dirOf(1, 0);
   const at = t.end === 'bottom' ? t.load : t.unload;
+  const [paintwork, trim] = livery(seed);
   b.wheel(rail);
 
   if (t.kind === 'chair') {
-    // Bullwheel housing on a portal frame (above the carriers' grips), always clearly
-    // under the canopy roof so the two never overlap.
-    const housingTop = rail + HOUSING_TOP;
-    for (const v of [-(r + 1.2), r + 1.2]) b.column(-B + 0.6, v, rail + 0.3);
-    b.box(-B, r + 1.5, -(r + 1.6), r + 1.6, rail + 0.3, housingTop, HOUSING);
-    let signY = (rail + 0.3 + housingTop) / 2;
+    let signY: number;
+    let hoodHalf: number;
+    let hoodFront: number;
+    let hoodBack: number;
     if (t.detachable) {
-      const roofY = roofTop - 0.25;
-      for (const u of [r + 1.5, L * 0.55, L - 0.5]) {
-        for (const v of [-w + 0.4, w - 0.4]) b.column(u, v, roofY);
+      // A modern detachable terminal: one moulded hood over the bullwheel and the slow
+      // section, on a steel frame between the tracks (the chairs swing round outside it).
+      hoodHalf = r + 1.7;
+      hoodFront = L - 0.5;
+      hoodBack = B - 0.3;
+      const y0 = rail + 0.35;
+      b.hood(-hoodBack, hoodFront, hoodHalf, y0, roofTop, paintwork);
+      b.hood(
+        -B + 0.5,
+        hoodFront - 0.4,
+        hoodHalf - 0.2,
+        y0 - 0.25,
+        y0 + 0.05,
+        DARK_STEEL,
+        0.65,
+        0.1,
+      );
+      for (const u of [0, L * 0.45, L * 0.8]) b.column(u, 0, y0 - 0.2, 0.32);
+      // Grip rails each side, under the hood, where the chairs run through the station.
+      for (const v of [-r, r])
+        b.box(1, hoodFront - 1, v - 0.15, v + 0.15, rail + 0.15, rail + 0.4, STEEL);
+      signY = (y0 + roofTop) / 2;
+      if (t.end === 'bottom') {
+        // Loading carpet up to the loading point, on the uphill track.
+        b.box(t.load - 7, t.load - 0.3, r - 1.4, r + 1.4, -0.3, 0.12, RUBBER);
       }
-      b.box(-B, L, -w, w, roofY, roofTop, ROOF);
-      b.box(-B + 0.5, L - 0.5, -(r + 0.5), r + 0.5, rail + 0.15, rail + 0.4, STEEL); // rail beam
-      signY = roofY - 0.15 - (9 * BOARD_RATIO) / 2;
+    } else {
+      // Fixed grip: the bullwheel out in the open on a single column, the drive (or
+      // tension) unit a small housing over its hub.
+      hoodHalf = 1.1;
+      hoodFront = 2.7;
+      hoodBack = hoodHalf;
+      b.column(0, 0, rail - 0.2, 0.3);
+      b.hood(-hoodBack, hoodFront, hoodHalf, rail + 0.3, rail + 1.5, paintwork, 0.8, 0.25);
+      signY = rail + 0.9;
     }
     if (t.hut) {
       const hu = Math.max(at - 1.5, 0.5);
-      hut(b, hu, hu + 3, -w - 3.2, -w - 0.4);
+      operatorCabin(b, hu, hu + 3, -w - 3.2, -w - 0.4, trim, paintwork);
     }
+    const boardW = Math.min(9, hoodFront + hoodBack - 2.5);
     if (t.end === 'bottom') {
       // Loading-line gate, just behind the loading point.
       for (const v of [r - 0.9, r + 0.9])
         b.box(t.load - 1.4, t.load - 1.3, v - 0.04, v + 0.04, 0, 1.1, STRIPE);
       b.box(t.load - 1.4, t.load - 1.3, r - 0.9, r + 0.9, 1.05, 1.12, STRIPE);
-      // Name board over the way in: canopy (or housing) edge facing the entrance.
+      // Name board over the way in: on the hood, facing the entrance.
       if (t.entrance === 'back') {
-        b.sign(-B - 0.08, 0, signY, backward, t.detachable ? t.width - 0.6 : 2 * r + 3);
-      } else if (t.detachable) {
-        b.sign(at, w + 0.08, signY, side, 9);
+        b.sign(-hoodBack - 0.08, 0, signY, backward, Math.min(boardW, 2 * hoodHalf - 1));
       } else {
-        b.sign((r + 1.5 - B) / 2, r + 1.68, signY, side, 3.2);
+        // Along the hood's straight side, as near the loading point as it fits.
+        const u = Math.min(
+          Math.max(at, boardW / 2 - hoodBack + hoodHalf),
+          hoodFront - 3 - boardW / 2,
+        );
+        b.sign(u, hoodHalf + 0.08, signY, side, boardW);
       }
     } else {
-      // Arriving riders see it on the line end.
-      const u = t.detachable ? L + 0.08 : r + 1.58;
-      b.sign(u, 0, signY, forward, t.detachable ? t.width - 0.6 : 2 * r + 3);
+      // Arriving riders see it on the hood's front end.
+      b.sign(hoodFront + 0.08, 0, signY, forward, Math.min(boardW, 2 * hoodHalf * 0.6));
     }
   } else if (t.kind === 'gondola' || t.kind === 'cabin') {
     const roofY = roofTop - 0.45;
@@ -228,22 +370,41 @@ function buildTerminal(
     const backDoor: [number, number] = [r + 0.8, Math.min(r + 4.8, w - 0.4)];
     const sideDoor = t.entrance !== 'back';
     const doorTop = Math.min(2.8, roofY - 0.8);
+    const sill = Math.min(1.2, doorTop - 0.4); // solid wall below the glazing
     b.box(-B, L, -w, w, -2.5, 0.08, CONCRETE); // platform on its foundation
+    // Walls: a concrete plinth, glazing above it, a trim band under the roof. Solid for
+    // collisions all the way up.
+    const wall = (u0: number, u1: number, v0: number, v1: number, y0 = 0) => {
+      b.box(u0, u1, v0, v1, y0, roofY, CONCRETE, true);
+      if (y0 < sill) {
+        const inset = 0.05;
+        const out = (lo: number, hi: number) => [lo - inset, hi + inset] as const;
+        const [a0, a1] = out(u0, u1);
+        const [b0, b1] = out(v0, v1);
+        b.box(a0, a1, b0, b1, Math.max(y0, sill), roofY - 0.5, GLAZING);
+        b.box(a0, a1, b0, b1, roofY - 0.5, roofY, trim);
+      }
+    };
     if (sideDoor) {
-      b.box(-B, -B + 0.4, -w, w, 0, roofY, WALL, true);
-      b.box(-B, door[0], w - 0.4, w, 0, roofY, WALL, true);
-      b.box(door[1], L, w - 0.4, w, 0, roofY, WALL, true);
-      b.box(door[0], door[1], w - 0.4, w, doorTop, roofY, WALL); // lintel
+      wall(-B, -B + 0.4, -w, w);
+      wall(-B, door[0], w - 0.4, w);
+      wall(door[1], L, w - 0.4, w);
+      b.box(door[0], door[1], w - 0.4, w, doorTop, roofY, trim); // lintel
     } else {
-      b.box(-B, -B + 0.4, -w, backDoor[0], 0, roofY, WALL, true);
-      b.box(-B, -B + 0.4, backDoor[1], w, 0, roofY, WALL, true);
-      b.box(-B, -B + 0.4, backDoor[0], backDoor[1], doorTop, roofY, WALL); // lintel
-      b.box(-B, L, w - 0.4, w, 0, roofY, WALL, true);
+      wall(-B, -B + 0.4, -w, backDoor[0]);
+      wall(-B, -B + 0.4, backDoor[1], w);
+      b.box(-B, -B + 0.4, backDoor[0], backDoor[1], doorTop, roofY, trim); // lintel
+      wall(-B, L, w - 0.4, w);
     }
-    b.box(-B, L, -w, -w + 0.4, 0, roofY, WALL, true);
-    b.box(-B + 1, L - 1, -w - 0.02, -w + 0.42, roofY * 0.55, roofY * 0.85, GLASS);
-    b.box(-B - 0.5, L + 0.8, -w - 0.5, w + 0.5, roofY, roofTop, ROOF);
+    wall(-B, L, -w, -w + 0.4);
+    // Steel portal round the open end, where the cabins leave.
+    for (const v of [-w + 0.2, w - 0.2])
+      b.box(L - 0.5, L + 0.1, v - 0.3, v + 0.3, 0, roofY, DARK_STEEL);
+    // Roof: a rounded hood over the hall, overhanging the open end and the door side.
+    b.hood(-B - 0.6, L + 2.5, w + 0.6, roofY, roofTop + 0.3, paintwork, 0.92, 0.4);
     b.box(-B + 0.5, L - 0.5, -(r + 0.6), r + 0.6, rail + 0.2, rail + 0.5, STEEL); // rail beam
+    // Drive housing over the bullwheel, seen through the open end.
+    b.box(-1.2, 1.2, -1.2, 1.2, rail + 0.5, Math.min(rail + 2.2, roofY - 0.2), paintwork);
     // Name board above the door, inside the walkway the pipeline cuts through any
     // building in front of it (6 m wide / 4 m at the back, 4.5 m headroom).
     const opening = sideDoor ? door[1] - door[0] : backDoor[1] - backDoor[0];
@@ -269,6 +430,21 @@ function buildTerminal(
   return b;
 }
 
+/** A lift operator's cabin: light walls, a glass band all round, a flat roof. */
+function operatorCabin(
+  b: TerminalBuilder,
+  u0: number,
+  u1: number,
+  v0: number,
+  v1: number,
+  walls: RGB,
+  roof: RGB,
+) {
+  b.box(u0, u1, v0, v1, -0.8, 2.6, walls === DARK_STEEL ? CABIN_WALL : walls, true);
+  b.box(u0 - 0.03, u1 + 0.03, v0 - 0.03, v1 + 0.03, 1.1, 2.15, GLASS);
+  b.box(u0 - 0.35, u1 + 0.35, v0 - 0.35, v1 + 0.35, 2.6, 2.85, roof);
+}
+
 function hut(b: TerminalBuilder, u0: number, u1: number, v0: number, v1: number) {
   b.box(u0, u1, v0, v1, -0.8, 2.5, TIMBER, true);
   b.box(u0 + 0.3, u1 - 0.3, v1 - 0.02, v1 + 0.02, 1.2, 2.0, GLASS); // window to the line
@@ -280,14 +456,14 @@ function hut(b: TerminalBuilder, u0: number, u1: number, v0: number, v1: number)
  * `rails` gives each terminal's rail height above its pad.
  */
 export function createTerminals(
-  terminals: { terminal: Terminal; rail: number }[],
+  terminals: { terminal: Terminal; rail: number; seed?: number }[],
   ground: (x: number, z: number) => number,
 ): { mesh: Mesh; obstacles: Obstacle[]; signs: SignMount[][] } {
   const parts: BufferGeometry[] = [];
   const obstacles: Obstacle[] = [];
   const signs: SignMount[][] = [];
-  for (const { terminal, rail } of terminals) {
-    const built = buildTerminal(terminal, rail, ground);
+  for (const { terminal, rail, seed } of terminals) {
+    const built = buildTerminal(terminal, rail, ground, seed);
     parts.push(...built.parts);
     obstacles.push(...built.obstacles);
     signs.push(built.signs);

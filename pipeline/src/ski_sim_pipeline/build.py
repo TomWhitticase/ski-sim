@@ -186,7 +186,7 @@ def build_features(
     # Entrances, then cut buildings only as much as lifts need (3D volumes).
     terminals.choose_entrances(terms, buildings)
     cuts = terminals.cut_volumes(lifts, terms)
-    buildings, cut_stats = terminals.cut_buildings(buildings, cuts)
+    buildings, cut_stats = terminals.cut_buildings(buildings, cuts, terminals.station_halls(terms))
     log.info(
         "Lift clearance: %d station buildings replaced, %d buildings cut (%d raised pieces)",
         cut_stats["removedAsStation"],

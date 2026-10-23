@@ -183,6 +183,13 @@ const VIEWS = [
     name: 'jackson-hole',
     query: 'resort=jackson-hole&at=43.5800,-110.7900,2500&heading=270&pitch=-6',
   },
+  // Lift stations up close: a detachable chair's hood, a fixed-grip bullwheel, a gondola hall.
+  {
+    name: 'station-chair-detachable',
+    query: 'at=45.34308,6.57994,2403&heading=135&pitch=-8',
+  },
+  { name: 'station-chair-fixed', query: 'at=45.32557,6.53075,1662&heading=4&pitch=-8' },
+  { name: 'station-gondola', query: 'at=45.27297,6.60583,2818&heading=118&pitch=-6' },
   // Snow parks: VT Park's halfpipe from below and the side, and Open Park's meandering lines.
   { name: 'park-halfpipe', query: 'at=45.27925,6.57367,2511&heading=136&pitch=-4' },
   { name: 'park-halfpipe-side', query: 'at=45.27908,6.57497,2544&heading=226&pitch=-18' },
