@@ -1,8 +1,9 @@
 name: Deploy
 
-# Builds the sim and publishes it to GitHub Pages with the resort data from the `data`
-# release (uploaded by scripts/publish-data.sh: the pipeline needs ~1.5 GB of source
-# downloads, so resorts are built locally, not in CI).
+# Builds the sim and publishes it to GitHub Pages. Resort data (uploaded by
+# scripts/publish-data.sh: the pipeline needs ~1.5 GB of source downloads, so resorts are
+# built locally, not in CI) is read from R2 when the DATA_URL variable is set, else
+# bundled from the `data` release.
 on:
   push:
     branches: [main]
@@ -22,7 +23,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # With the repo variable DATA_URL set, the data lives in object storage (Cloudflare
+      # R2) and the site reads it from there; otherwise it's bundled from the release.
       - name: Fetch resort data
+        if: ${{ vars.DATA_URL == '' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -43,6 +47,7 @@ jobs:
         working-directory: sim
         env:
           SIM_BASE: /${{ github.event.repository.name }}/
+          VITE_DATA_URL: ${{ vars.DATA_URL || null }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: sim/dist

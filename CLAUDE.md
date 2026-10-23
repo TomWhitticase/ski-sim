@@ -64,15 +64,18 @@ Built resorts are snapshots of the pipeline that built them: a pipeline change r
 - **Other pipeline changes** (better buildings, grading, land cover...) leave old builds loadable but without the improvement until rebuilt.
 - **Rebuilding everything:** `uv run ski-sim build --all` builds every resort in `data/resorts/` in turn. It reuses the download caches, so it's processing only. A failed resort is logged and the rest still build; it exits non-zero and lists the failures at the end. Builds run one at a time on purpose: they share the caches and `resorts.json`, and each uses several GB of memory.
 - **Caches** (`data/raw/<source>/`) are kept forever. OSM responses are keyed by query text, so a changed query fetches afresh; delete `data/raw/osm/` to pick up newer OSM edits. Terrain and land-cover tiles never change. A new source downloads its own tiles once.
-- **Deploying a format change:** the live site fetches the published data, not the branch's. Rebuild and run `scripts/publish-data.sh` together with merging to `main`, or every resort on the site stops loading until you do.
+- **Deploying a format change:** the live site reads the published data in R2, not the branch's, and a publish is live at once. Data at the new version breaks the deployed code, and new code breaks the old data, so rebuild everything, push to `main`, and run `scripts/publish-data.sh` the moment the deploy finishes (a minute or two of broken loads). Format changes that stay readable by the old code avoid that window.
 
 When something renders wrong, isolate it before guessing. Tinting each terrain layer a flat colour (near vs far) quickly shows which layer, or which gap, is at fault.
 
 ## Deployment
 
-GitHub Pages, all free. `ci.yml` runs lint/typecheck/unit tests (sim) and ruff/pytest (pipeline); e2e needs a GPU, so it stays local. `deploy.yml` (push to `main`, or manual) downloads `resorts.tar.gz` from the `data` release into `data/processed`, builds with `SIM_BASE=/<repo>/` and publishes `sim/dist` to Pages.
-- Resort data is built locally (`ski-sim build --all`) and published with `scripts/publish-data.sh [ids]` (default: every resort with a committed `resort.json`), which also writes a `resorts.json` listing only those and triggers a deploy.
-- Asset URLs must go through `resortUrl` / `DATA_URL` (`resort/manifest.ts`), never a leading `/`: the site lives under `/<repo>/`. `VITE_DATA_URL` at build time can point the data at other storage (e.g. Cloudflare R2) if Pages' 1 GB site limit or bandwidth becomes a problem.
+GitHub Pages for the site and Cloudflare R2 for the resort data, both free (R2: 10 GB storage, no egress fees). `ci.yml` runs lint/typecheck/unit tests (sim) and ruff/pytest (pipeline); e2e needs a GPU, so it stays local. `deploy.yml` (push to `main`, or manual) builds with `SIM_BASE=/<repo>/` and `VITE_DATA_URL` from the repo variable `DATA_URL`, and publishes `sim/dist` to Pages.
+- Resort data is built locally (`ski-sim build --all`) and published with `scripts/publish-data.sh [ids]` (default: every resort with a committed `resort.json`). It uploads each resort's files, then its manifest, then a `resorts.json` listing only those ids, to the R2 bucket named by the repo variable `DATA_BUCKET` (needs `npx wrangler login`). The site reads them live, so publishing needs no redeploy. Only the listed resorts show in the menu, so pass every resort you want on the site.
+- Caching: manifests and `resorts.json` are uploaded `no-cache`; other files for a day, since `resortUrl` adds `?v=<manifest generatedAt>`.
+- Bucket setup (done once): `wrangler r2 bucket create`, `wrangler r2 bucket dev-url enable` (the public `https://pub-….r2.dev/` URL goes in `DATA_URL`, with a trailing `/`), and `wrangler r2 bucket cors set` allowing GET from the Pages origin and `http://localhost:*`.
+- Without `DATA_URL` the old path still works: the deploy bundles `resorts.tar.gz` from the GitHub `data` release into the site, and publish-data.sh uploads there when `DATA_BUCKET` is unset. Pages caps a site at 1 GB, which is why the data moved to R2.
+- Asset URLs must go through `resortUrl` / `DATA_URL` (`resort/manifest.ts`), never a leading `/`: the site lives under `/<repo>/`.
 
 ## Core principles
 

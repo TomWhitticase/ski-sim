@@ -98,7 +98,7 @@ const SUPPORTED_VERSION = 9; // bump with the pipeline's MANIFEST_VERSION
  * `VITE_DATA_URL` at build time when the data lives elsewhere (e.g. object storage).
  */
 export const DATA_URL =
-  (import.meta.env.VITE_DATA_URL as string | undefined) ?? import.meta.env.BASE_URL;
+  (import.meta.env.VITE_DATA_URL as string | undefined) || import.meta.env.BASE_URL; // '' = unset
 
 /**
  * The loaded build's timestamp, added to every data URL so a new deploy's files are
