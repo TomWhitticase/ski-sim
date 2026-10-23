@@ -40,8 +40,9 @@ NEAR_CELL = 8.0  # WorldCover is 10 m; finer would only add bytes
 FAR_SOURCE_RESOLUTION = 40.0
 
 # Where trees are cleared (half-widths, m). Real lift corridors through forest are cut
-# ~15-25 m wide; cable cars span high over it.
-CORRIDOR_HALF_WIDTH = {"chair": 9.0, "gondola": 9.0, "cabin": 5.0, "drag": 5.0}
+# ~20-30 m wide: the carriers ride ~3-4 m either side of the line and a valley spruce's
+# branches spread up to ~5 m from its trunk. Cable cars span high over the forest.
+CORRIDOR_HALF_WIDTH = {"chair": 14.0, "gondola": 14.0, "cabin": 5.0, "drag": 5.0}
 PISTE_MARGIN = 3.0
 BUILDING_MARGIN = 4.0
 STATION_MARGIN = 12.0

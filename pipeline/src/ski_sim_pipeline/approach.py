@@ -28,7 +28,7 @@ from .features import LIFT_PROFILES, _fill_span
 
 #: Rope height above the pad inside a terminal, by terminal kind (mirrors the sim's
 #: carrier floor heights; used for angles and clearances here).
-RAIL = {"chair": 2.35, "gondola": 4.3, "cabin": 7.45, "drag": 4.0}
+RAIL = {"chair": 2.83, "gondola": 4.3, "cabin": 7.45, "drag": 4.0}
 #: Gap between the station exit and the first tower (m).
 MIN_GAP = {"chair": 8.0, "gondola": 10.0, "cabin": 25.0, "drag": 4.0}
 MAX_EXIT_ANGLE = {"chair": 18.0, "gondola": 18.0, "cabin": 35.0, "drag": 25.0}

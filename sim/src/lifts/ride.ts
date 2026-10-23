@@ -5,7 +5,13 @@ import { FLY } from '../config';
 import { type Input, Look } from '../controls/input';
 import type { SkiControls } from '../controls/ski-controls';
 import { CabinView } from './cabin-view';
-import { backBench, type CabinLayout, cabinLayout, floorBelowGrip } from './carriers';
+import {
+  backBench,
+  type CabinLayout,
+  cabinLayout,
+  CHAIR_SEAT_HEIGHT,
+  floorBelowGrip,
+} from './carriers';
 import { type LiftLine, type LiftSystem, nextDeparture } from './lift-system';
 
 const UP = new Vector3(0, 1, 0);
@@ -20,9 +26,9 @@ const HIP_ABOVE_SEAT = 0.1;
 const SEAT_REACH = 0.42;
 /**
  * On a chair, from the feet (resting on the footrest, ahead of the seat): hips on the
- * cushion and behind the feet (m). The cushion top is 0.5 m above the feet.
+ * cushion and behind the feet (m). The cushion top is `CHAIR_SEAT_HEIGHT` above the feet.
  */
-const CHAIR_HIP = 0.6;
+const CHAIR_HIP = CHAIR_SEAT_HEIGHT + HIP_ABOVE_SEAT;
 const CHAIR_FEET_AHEAD = 0.3;
 const CHAIR_HIP_BACK = 0.48;
 /** Seated eye above the hips; standing eye above the feet (m). */
@@ -344,7 +350,7 @@ export class RideControls {
     if (kind === 'chair') {
       local.set(
         line.seats * 0.25 - 0.35,
-        -(floorBelowGrip(kind, line.seats, hang) + 0.5),
+        -floorBelowGrip(kind, line.seats, hang),
         -0.12 - CHAIR_FEET_AHEAD,
       );
     } else {

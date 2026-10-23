@@ -9,6 +9,7 @@ import {
   Euler,
   Matrix4,
   Quaternion,
+  SphereGeometry,
   TorusGeometry,
   Vector3,
 } from 'three/webgpu';
@@ -58,31 +59,147 @@ function merge(parts: BufferGeometry[]): BufferGeometry {
  * everything hangs below (negative y).
  */
 
-/** Detachable chair for `seats` people, seat `hang` m below the cable. */
+/**
+ * A round bar from `a` to `b`. `joint` adds a ball at `b`, so a bend into the next bar
+ * closes with no gap or notch (frames are drawn as chains of bars).
+ */
+function bar(
+  a: [number, number, number],
+  b: [number, number, number],
+  r: number,
+  colour: RGB,
+  joint = false,
+): BufferGeometry[] {
+  const from = new Vector3(...a);
+  const to = new Vector3(...b);
+  const span = to.clone().sub(from);
+  const g = new CylinderGeometry(r, r, span.length(), 6, 1, true).toNonIndexed();
+  g.applyMatrix4(
+    new Matrix4().compose(
+      from.clone().lerp(to, 0.5),
+      new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), span.normalize()),
+      new Vector3(1, 1, 1),
+    ),
+  );
+  const out = [part(g, colour, [0, 0, 0])];
+  if (joint) out.push(part(new SphereGeometry(r, 6, 4), colour, b));
+  return out;
+}
+
+/** Height of the safety bar and footrest above / below the seat (lowered, riding). */
+const BAR_UP = 0.62;
+const FOOTREST_DOWN = 0.36;
+
+/**
+ * Detachable chair for `seats` people, seat `hang` m below the cable: the grip, a hanger
+ * down behind the back, a tubular frame (back, seat rails, armrests) drawn as joined
+ * bars, a padded cushion and backrest per seat, and the safety bar lowered with its
+ * footrest. Seat top 5 cm above `-hang`; -z is the direction of travel.
+ */
 export function chairGeometry(seats: number, hang: number): BufferGeometry {
-  const w = seats * 0.5;
-  const seatY = -hang;
-  const parts = [
-    part(new BoxGeometry(0.22, 0.28, 0.45), DARK, [0, -0.12, 0]), // grip
-    // Hanger: from the grip neck (-0.25) down to the top of the back frame.
-    part(new CylinderGeometry(0.045, 0.045, hang - 1.2, 8), STEEL, [
-      0,
-      -0.25 - (hang - 1.2) / 2,
-      0.42,
-    ]),
-    part(new BoxGeometry(0.08, 0.08, 0.45), STEEL, [0, -0.25, 0.2]), // hanger neck
-    part(new BoxGeometry(w + 0.1, 0.07, 0.07), STEEL, [0, seatY + 0.95, 0.42]), // top of back frame
-    part(new BoxGeometry(w, 0.1, 0.52), SEAT, [0, seatY, 0]), // cushion
-    part(new BoxGeometry(w, 0.62, 0.09), SEAT, [0, seatY + 0.38, 0.3]), // backrest
-    part(new BoxGeometry(w + 0.05, 0.05, 0.05), BAR, [0, seatY + 0.72, -0.48]), // safety bar
-    part(new BoxGeometry(w * 0.8, 0.04, 0.12), BAR, [0, seatY - 0.48, -0.5]), // footrest
+  const W = seats * 0.5; // seating width
+  const x1 = W / 2 + 0.05; // frame sides
+  const y = -hang; // cushion centre
+  const top = y + 1.05; // back frame's top bar
+  const zBack = 0.42; // back frame at the top; it leans 10 cm forward to the seat
+  const zSeatBack = 0.32;
+  const zFront = -0.28;
+  const backZ = (yy: number) => zSeatBack + ((zBack - zSeatBack) * (yy - y)) / (top - y);
+  const parts: BufferGeometry[] = [
+    // Grip and its jaw on the rope, then the hanger: back, then straight down.
+    part(new RoundedBoxGeometry(0.24, 0.3, 0.52, 1, 0.05), DARK, [0, -0.12, 0]),
+    ...bar([0, -0.25, 0], [0, -0.55, zBack], 0.05, STEEL, true),
+    ...bar([0, -0.55, zBack], [0, top, zBack], 0.05, STEEL, true),
+    // Back frame: top bar across, then each side down the back and forward under the seat.
+    ...bar([-x1, top, zBack], [x1, top, zBack], 0.04, STEEL),
+    part(new SphereGeometry(0.04, 6, 4), STEEL, [-x1, top, zBack]),
+    part(new SphereGeometry(0.04, 6, 4), STEEL, [x1, top, zBack]),
   ];
-  for (const x of [-w / 2, w / 2]) {
-    parts.push(part(new BoxGeometry(0.05, 0.8, 0.05), BAR, [x, seatY + 0.33, -0.1])); // armrest post
-    parts.push(part(new BoxGeometry(0.05, 0.05, 0.6), BAR, [x, seatY + 0.72, -0.2])); // armrest
+  for (const x of [-x1, x1]) {
+    parts.push(
+      ...bar([x, top, zBack], [x, y - 0.06, zSeatBack], 0.035, STEEL, true),
+      ...bar([x, y - 0.06, zSeatBack], [x, y - 0.06, zFront], 0.035, STEEL, true),
+      // Armrest from the back post forward, curling down to the seat rail.
+      ...bar([x, y + 0.3, backZ(y + 0.3)], [x, y + 0.3, -0.12], 0.03, BAR, true),
+      ...bar([x, y + 0.3, -0.12], [x, y - 0.06, -0.2], 0.03, BAR),
+    );
+  }
+  // Cross members under the seat (front edge and middle).
+  parts.push(
+    ...bar([-x1, y - 0.06, zFront], [x1, y - 0.06, zFront], 0.03, STEEL),
+    ...bar([-x1, y - 0.06, 0.02], [x1, y - 0.06, 0.02], 0.03, STEEL),
+  );
+  // One bench: a seat pan and a back panel the full width, on the frame, with a padded
+  // cushion per seat on them (stitched apart by shallow grooves, not gaps).
+  parts.push(
+    part(new RoundedBoxGeometry(W + 0.04, 0.05, 0.54, 1, 0.02), DARK, [0, y - 0.05, -0.02]),
+    part(
+      new RoundedBoxGeometry(W + 0.04, 0.6, 0.04, 1, 0.015),
+      DARK,
+      [0, y + 0.38, 0.4],
+      [-0.1, 0, 0],
+    ),
+  );
+  for (let i = 0; i < seats; i++) {
+    const x = -W / 2 + 0.25 + i * 0.5;
+    parts.push(part(new RoundedBoxGeometry(0.49, 0.09, 0.52, 1, 0.03), SEAT, [x, y, -0.02]));
+    parts.push(
+      part(
+        new RoundedBoxGeometry(0.49, 0.56, 0.07, 1, 0.025),
+        SEAT,
+        [x, y + 0.38, 0.355],
+        [-0.1, 0, 0],
+      ),
+    );
+  }
+  // Safety bar, lowered: arms from hinges on the top bar's ends forward to a front bar,
+  // with the footrest hanging from it.
+  const front: [number, number] = [y + BAR_UP, -0.44];
+  for (const x of [-x1, x1]) {
+    parts.push(...bar([x, top, zBack], [x, front[0], front[1]], 0.028, BAR, true));
+  }
+  parts.push(...bar([-x1, front[0], front[1]], [x1, front[0], front[1]], 0.028, BAR));
+  const foot = W * 0.32;
+  for (const x of [-foot, foot]) {
+    parts.push(...bar([x, front[0], front[1]], [x, y - FOOTREST_DOWN, -0.5], 0.025, BAR, true));
+  }
+  parts.push(
+    ...bar(
+      [-foot - 0.06, y - FOOTREST_DOWN, -0.5],
+      [foot + 0.06, y - FOOTREST_DOWN, -0.5],
+      0.03,
+      BAR,
+    ),
+  );
+  return merge(parts);
+}
+
+/**
+ * The same chair for distant views (beyond `CHAIR_DETAIL_RANGE`): its outline in a few
+ * boxes, ~10% of the detailed chair's triangles.
+ */
+export function chairFarGeometry(seats: number, hang: number): BufferGeometry {
+  const W = seats * 0.5;
+  const x1 = W / 2 + 0.05;
+  const y = -hang;
+  const top = y + 1.05;
+  const parts = [
+    part(new BoxGeometry(0.24, 0.3, 0.52), DARK, [0, -0.12, 0]),
+    part(new BoxGeometry(0.08, top + 0.25, 0.08), STEEL, [0, (top - 0.25) / 2, 0.42]),
+    part(new BoxGeometry(2 * x1, 0.08, 0.08), STEEL, [0, top, 0.42]),
+    part(new BoxGeometry(W, 0.1, 0.52), SEAT, [0, y, -0.02]),
+    part(new BoxGeometry(W, 0.56, 0.08), SEAT, [0, y + 0.38, 0.36], [-0.1, 0, 0]),
+    part(new BoxGeometry(2 * x1, 0.05, 0.05), BAR, [0, y + BAR_UP, -0.44]),
+    part(new BoxGeometry(W * 0.7, 0.05, 0.05), BAR, [0, y - FOOTREST_DOWN, -0.5]),
+  ];
+  for (const x of [-x1, x1]) {
+    parts.push(part(new BoxGeometry(0.06, 1.1, 0.06), STEEL, [x, y + 0.5, 0.37]));
   }
   return merge(parts);
 }
+
+/** Chairs nearer the camera than this are drawn in full detail (m). */
+export const CHAIR_DETAIL_RANGE = 250;
 
 /**
  * An enclosed cabin (gondola or cable car), in grip coordinates: `x` across the line
@@ -419,12 +536,17 @@ export function bullwheelGeometry(): BufferGeometry {
   return merge([part(new TorusGeometry(1, 0.06, 4, 18), DARK, [0, 0, 0], [Math.PI / 2, 0, 0])]);
 }
 
+/** A chair's seat top above the loading platform: it meets you behind the knees. */
+export const CHAIR_SEAT_HEIGHT = 0.48;
+
 /**
- * Height of a carrier's floor (or seat) below its grip, so terminals can set the rail
- * height to bring it level with the platform: chair seat surface, cabin floor.
+ * Depth below its grip of what a rider stands on as the carrier comes in, so terminals
+ * set the rail height to bring it level with the platform: the snow under a chair
+ * (`CHAIR_SEAT_HEIGHT` below the seat), the cabin floor.
  */
 export function floorBelowGrip(kind: string, seats: number, hang: number): number {
-  if (kind === 'chair') return hang - 0.05; // seat top is 5 cm above the cushion centre
+  // Seat top is 5 cm above the cushion centre, at `hang` below the grip.
+  if (kind === 'chair') return hang - 0.05 + CHAIR_SEAT_HEIGHT;
   if (kind === 'gondola' || kind === 'cabin') return -cabinLayout(kind, seats, hang).floor;
   return 0;
 }

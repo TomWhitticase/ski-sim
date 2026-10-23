@@ -34,7 +34,7 @@ GroundSampler = Callable[[np.ndarray, np.ndarray], np.ndarray]
 class LiftProfile:
     tower_height: float  # cable height above ground at a tower
     station_height: float  # cable height above ground at a station
-    min_clearance: float  # minimum cable height above ground anywhere
+    min_clearance: float  # minimum cable height above the ground under either track
     max_span: float  # longest plausible distance between supports
     gauge: float  # distance between the up and down cables
 
@@ -42,9 +42,11 @@ class LiftProfile:
 _DRAG = LiftProfile(6, 4, 2.5, 120, 2.5)
 LIFT_PROFILES = {
     "cable_car": LiftProfile(25, 8, 15, 3000, 8),
-    "gondola": LiftProfile(14, 6, 6, 400, 6),
-    "mixed_lift": LiftProfile(13, 6, 6, 350, 6),
-    "chair_lift": LiftProfile(11, 5, 5, 300, 5),
+    # Rope to ground: a chair's skis hang ~3.4 m below the rope and a gondola cabin's
+    # floor ~5.7 m, so these leave ~3.5 m under them (real lines run higher over pistes).
+    "gondola": LiftProfile(14, 6, 9, 400, 6),
+    "mixed_lift": LiftProfile(13, 6, 9, 350, 6),
+    "chair_lift": LiftProfile(11, 5, 7, 300, 5),
     "drag_lift": _DRAG,
     "t-bar": _DRAG,
     "j-bar": _DRAG,
@@ -93,10 +95,19 @@ def _fill_span(a: dict, b: dict, ground: GroundSampler, profile: LiftProfile, de
     east = a["east"] + (b["east"] - a["east"]) * t
     north = a["north"] + (b["north"] - a["north"]) * t
     cable = a["top"] + (b["top"] - a["top"]) * t
-    clearance = cable - ground(east, north)
+    # The carriers ride gauge/2 either side of the line: on a side slope the ground under
+    # the uphill track is higher than under the centre, so take the highest of the three.
+    ax, ay = -(b["north"] - a["north"]) / span, (b["east"] - a["east"]) / span
+    half = profile.gauge / 2
+    under = np.maximum.reduce([ground(east + ax * o, north + ay * o) for o in (-half, 0.0, half)])
+    # The rope comes down to a station's platform, so near one the clearance needed
+    # tapers to the supports' own heights; elsewhere it's the profile's minimum.
+    ends = np.array([a["top"] - a["ground"], b["top"] - b["ground"]])
+    needed = np.minimum(profile.min_clearance, ends[0] + (ends[1] - ends[0]) * t)
+    shortfall = needed - (cable - under)
 
-    worst = int(np.argmin(clearance))
-    if clearance[worst] >= profile.min_clearance:
+    worst = int(np.argmax(shortfall))
+    if shortfall[worst] <= 1e-6:
         if span <= profile.max_span:
             return []
         worst = len(t) // 2  # too long a span: split in the middle

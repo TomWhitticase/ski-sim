@@ -12,6 +12,8 @@ import {
 import type { Lift, Terminal } from '../features/types';
 import {
   cabinGeometry,
+  CHAIR_DETAIL_RANGE,
+  chairFarGeometry,
   chairGeometry,
   crossArmGeometry,
   floorBelowGrip,
@@ -358,6 +360,8 @@ export function nextDeparture(op: Operation, t: number): number {
 
 interface CarrierGroup {
   mesh: InstancedMesh;
+  /** A cheaper version for carriers beyond `CHAIR_DETAIL_RANGE` (chairs). */
+  far?: InstancedMesh;
   /** [line index, carrier index] per instance. */
   members: [number, number][];
 }
@@ -437,11 +441,12 @@ export class LiftSystem {
     this.check();
 
     const material = vertexColoured();
-    const group = (key: string, geometry: () => BufferGeometry) => {
+    const group = (key: string, geometry: () => BufferGeometry, far?: () => BufferGeometry) => {
       if (!this.groups.has(key)) {
         const mesh = new InstancedMesh(geometry(), material, 1);
         mesh.name = `carriers-${key}`;
-        this.groups.set(key, { mesh, members: [] });
+        const farMesh = far ? new InstancedMesh(far(), material, 1) : undefined;
+        this.groups.set(key, { mesh, far: farMesh, members: [] });
       }
       return this.groups.get(key)!;
     };
@@ -458,10 +463,11 @@ export class LiftSystem {
       const { kind, hang } = line.op;
       for (let ci = 0; ci < line.op.carriers; ci++) {
         if (kind === 'chair') {
-          group(`chair-${line.seats}`, () => chairGeometry(line.seats, hang)).members.push([
-            li,
-            ci,
-          ]);
+          group(
+            `chair-${line.seats}`,
+            () => chairGeometry(line.seats, hang),
+            () => chairFarGeometry(line.seats, hang),
+          ).members.push([li, ci]);
         } else if (kind === 'gondola') {
           group(`gondola-${line.seats}`, () => gondolaGeometry(line.seats, hang)).members.push([
             li,
@@ -489,6 +495,14 @@ export class LiftSystem {
       mesh.frustumCulled = false; // carriers move along kilometres of line
       g.mesh = mesh;
       this.root.add(mesh);
+      if ('far' in g && g.far) {
+        const far = new InstancedMesh(g.far.geometry, material, count);
+        far.name = `${mesh.name}-far`;
+        far.castShadow = true;
+        far.frustumCulled = false;
+        g.far = far;
+        this.root.add(far);
+      }
     }
     this.update(0);
   }
@@ -504,14 +518,23 @@ export class LiftSystem {
     const close = (p: Vector3) => !camera || p.distanceToSquared(camera) < DRAW_RANGE ** 2;
     for (const g of this.groups.values()) {
       let k = 0;
+      let kf = 0;
       for (const [li, ci] of g.members) {
         if (!near[li] || (li === this.hidden?.[0] && ci === this.hidden[1])) continue;
         this.carrierMatrix(li, ci, m);
         if (!close(pos)) continue;
-        g.mesh.setMatrixAt(k++, m);
+        if (g.far && camera && pos.distanceToSquared(camera) > CHAIR_DETAIL_RANGE ** 2) {
+          g.far.setMatrixAt(kf++, m);
+        } else {
+          g.mesh.setMatrixAt(k++, m);
+        }
       }
       g.mesh.count = k;
       if (k) g.mesh.instanceMatrix.needsUpdate = true;
+      if (g.far) {
+        g.far.count = kf;
+        if (kf) g.far.instanceMatrix.needsUpdate = true;
+      }
     }
     // Drag lifts: pole from the grip down to the skier's platter, just above the snow.
     let poles = 0;

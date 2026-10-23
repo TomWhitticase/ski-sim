@@ -23,7 +23,6 @@ const GLASS: RGB = [0.12, 0.16, 0.22];
 /** Station glazing: lighter than a window at night, reflecting the sky. */
 const GLAZING: RGB = [0.3, 0.4, 0.5];
 const TIMBER: RGB = [0.38, 0.25, 0.15];
-const STRIPE: RGB = [0.95, 0.75, 0.1];
 const RUBBER: RGB = [0.1, 0.1, 0.11];
 const WHEEL: RGB = [0.15, 0.15, 0.17];
 const DARK_STEEL: RGB = [0.2, 0.22, 0.25];
@@ -351,10 +350,6 @@ function buildTerminal(
     }
     const boardW = Math.min(9, hoodFront + hoodBack - 2.5);
     if (t.end === 'bottom') {
-      // Loading-line gate, just behind the loading point.
-      for (const v of [r - 0.9, r + 0.9])
-        b.box(t.load - 1.4, t.load - 1.3, v - 0.04, v + 0.04, 0, 1.1, STRIPE);
-      b.box(t.load - 1.4, t.load - 1.3, r - 0.9, r + 0.9, 1.05, 1.12, STRIPE);
       // Name board over the way in: on the hood, facing the entrance.
       if (t.entrance === 'back') {
         b.sign(-hoodBack - 0.08, 0, signY, backward, Math.min(boardW, 2 * hoodHalf - 1));

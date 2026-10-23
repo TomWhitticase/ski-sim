@@ -30,6 +30,25 @@ def test_long_spans_are_split():
     assert gaps.max() <= LIFT_PROFILES["chair_lift"].max_span
 
 
+def test_towers_keep_the_uphill_track_clear_on_a_side_slope():
+    # A 25° side slope across the line: the ground under the uphill track (gauge / 2 to
+    # the side) is ~1.2 m higher than under the centre, and that's what the chairs clear.
+    def side_slope(east, north):
+        return 2000 + 30 * np.exp(-(((np.asarray(east) - 150) / 40) ** 2)) + 0.47 * north
+
+    profile = LIFT_PROFILES["chair_lift"]
+    supports = place_supports(np.array([[0.0, 0.0], [300.0, 0.0]]), side_slope, profile)
+    for a, b in zip(supports, supports[1:], strict=False):
+        t = np.linspace(0, 1, 200)
+        east = a["east"] + (b["east"] - a["east"]) * t
+        cable = a["top"] + (b["top"] - a["top"]) * t
+        uphill = side_slope(east, profile.gauge / 2)
+        # Measured over the uphill track at the ends too (a station's own height there).
+        ends = (cable[0] - uphill[0], cable[-1] - uphill[-1])
+        needed = np.minimum(profile.min_clearance, ends[0] + (ends[1] - ends[0]) * t)
+        assert (cable - uphill - needed).min() >= -1.0
+
+
 def test_towers_keep_cable_clear_of_a_ridge():
     # A 30 m bump halfway along a 250 m gondola.
     def ridge(east, north):
@@ -42,7 +61,10 @@ def test_towers_keep_cable_clear_of_a_ridge():
         t = np.linspace(0, 1, 200)
         east = a["east"] + (b["east"] - a["east"]) * t
         cable = a["top"] + (b["top"] - a["top"]) * t
-        assert (cable - ridge(east, 0)).min() >= profile.min_clearance - 1.0
+        # Full clearance, tapering to the supports' own heights at the stations.
+        ends = (a["top"] - a["ground"], b["top"] - b["ground"])
+        needed = np.minimum(profile.min_clearance, ends[0] + (ends[1] - ends[0]) * t)
+        assert (cable - ridge(east, 0) - needed).min() >= -1.0
 
 
 @pytest.mark.parametrize(
