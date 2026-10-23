@@ -92,6 +92,7 @@ import { addSpirit, sampleAvatar } from './net/local-avatar';
 import { Multiplayer } from './net/multiplayer';
 import { cleanName, loadName, NAME_KEY, parseRoomCode } from './net/room';
 import { MultiplayerMenu } from './ui/multiplayer-menu';
+import { saveCanvas, screenshotName } from './ui/screenshot';
 
 declare global {
   interface Window {
@@ -627,7 +628,9 @@ async function main(): Promise<void> {
     { lift: prefs.lift, peak: prefs.peak, restaurant: prefs.restaurant },
   );
   const sound = new Sound(!prefs.sound);
-  const sky = new SkyTransition($('#sky-flash'), (up) => sound.whoosh(up));
+  const flash = $('#sky-flash');
+  const sky = new SkyTransition(flash, (up) => sound.whoosh(up));
+  let screenshotPending = false;
   let hudShown = prefs.hud;
   const savePrefs = () =>
     localStorage.setItem(
@@ -1035,6 +1038,11 @@ async function main(): Promise<void> {
       debug.hidden = !debug.hidden;
       return;
     }
+    if (e.code === 'F2') {
+      e.preventDefault();
+      screenshotPending = true; // taken right after the next render
+      return;
+    }
     if (!e.repeat) act(e.code, e.shiftKey);
   });
   /** What a key does in game; the touch buttons and tappable prompts call it too. */
@@ -1373,6 +1381,20 @@ async function main(): Promise<void> {
     }
     multiplayer.update(dt, camera);
     renderer.render(scene, camera);
+    if (screenshotPending) {
+      screenshotPending = false;
+      const pose = currentPose();
+      const { lat, lon } = frame.toLatLon(pose.east, pose.north);
+      const name = screenshotName({ resort: resortId, lat, lon, ...pose }, new Date());
+      void saveCanvas(canvas, name).then(
+        () => {
+          flash.classList.remove('flash');
+          void flash.offsetWidth; // restart the animation
+          flash.classList.add('flash');
+        },
+        (error: unknown) => console.warn(error),
+      );
+    }
 
     const here = pos;
     const { east, north } = worldToEnu(here.x, here.z);

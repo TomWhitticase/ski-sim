@@ -41,7 +41,7 @@ pnpm build
 
 The sim needs pipeline output. Run the pipeline build first on a fresh checkout.
 
-Useful URL params: `?resort=<id>`, `?at=lat,lon,altitude&heading=deg&pitch=deg` (jump the camera to a pose). Start pose priority: `?at=` > saved pose (written ~1/s and on page hide) > manifest spawn. Playwright gets a fresh browser context per test, so no saved pose leaks between tests. F3 in the sim shows fps, draw calls, triangles, position and sun angle.
+Useful URL params: `?resort=<id>`, `?at=lat,lon,altitude&heading=deg&pitch=deg` (jump the camera to a pose). Start pose priority: `?at=` > saved pose (written ~1/s and on page hide) > manifest spawn. Playwright gets a fresh browser context per test, so no saved pose leaks between tests. F3 in the sim shows fps, draw calls, triangles, position and sun angle. F2 saves the rendered scene (no HUD) as a PNG named `ski-sim_<resort>_<lat,lon,alt>_h<heading>_p<pitch>_<time>.png` (`ui/screenshot.ts`), so a screenshot the user sends can be reproduced with `?resort=&at=&heading=&pitch=`.
 
 ## Verifying work
 
