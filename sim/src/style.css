@@ -813,7 +813,7 @@ body.entering #hud {
   opacity: 1;
 }
 
-#click-to-play span {
+#click-to-play > span {
   display: flex;
   align-items: center;
   gap: 10px;
