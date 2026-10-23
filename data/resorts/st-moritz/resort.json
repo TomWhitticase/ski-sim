@@ -1,0 +1,11 @@
+{
+  "id": "st-moritz",
+  "name": "St. Moritz",
+  "country": "CH",
+  "bounds": {
+    "south": 46.4679,
+    "west": 9.7543,
+    "north": 46.6312,
+    "east": 9.9782
+  }
+}

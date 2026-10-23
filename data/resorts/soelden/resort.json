@@ -1,0 +1,11 @@
+{
+  "id": "soelden",
+  "name": "Sölden",
+  "country": "AT",
+  "bounds": {
+    "south": 46.9014,
+    "west": 10.8983,
+    "north": 46.9932,
+    "east": 11.0312
+  }
+}

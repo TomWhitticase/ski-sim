@@ -1,0 +1,11 @@
+{
+  "id": "verbier-4-vallees",
+  "name": "Verbier – 4 Vallées",
+  "country": "CH",
+  "bounds": {
+    "south": 46.0273,
+    "west": 7.1599,
+    "north": 46.2139,
+    "east": 7.4195
+  }
+}

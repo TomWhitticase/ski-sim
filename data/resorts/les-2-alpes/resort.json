@@ -1,0 +1,11 @@
+{
+  "id": "les-2-alpes",
+  "name": "Les 2 Alpes",
+  "country": "FR",
+  "bounds": {
+    "south": 44.9701,
+    "west": 6.0842,
+    "north": 45.0478,
+    "east": 6.2571
+  }
+}

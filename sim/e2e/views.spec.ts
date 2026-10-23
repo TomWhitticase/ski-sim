@@ -154,6 +154,17 @@ const VIEWS = [
     name: 'portes-du-soleil-avoriaz',
     query: 'resort=portes-du-soleil&at=46.1650,6.7450,2200&heading=40&pitch=-12',
   },
+  {
+    name: 'verbier-mont-fort',
+    query: 'resort=verbier-4-vallees&at=46.0960,7.2280,2200&heading=110&pitch=-6',
+  },
+  { name: 'st-moritz', query: 'resort=st-moritz&at=46.4900,9.8600,2300&heading=300&pitch=-8' },
+  {
+    name: 'ischgl-idalp',
+    query: 'resort=ischgl-samnaun&at=47.0250,10.2850,2400&heading=150&pitch=-10',
+  },
+  { name: 'soelden', query: 'resort=soelden&at=46.9750,11.0200,2000&heading=240&pitch=-6' },
+  { name: 'les-2-alpes', query: 'resort=les-2-alpes&at=45.0300,6.1100,2200&heading=150&pitch=-8' },
   // Snow parks: VT Park's halfpipe from below and the side, and Open Park's meandering lines.
   { name: 'park-halfpipe', query: 'at=45.27925,6.57367,2511&heading=136&pitch=-4' },
   { name: 'park-halfpipe-side', query: 'at=45.27908,6.57497,2544&heading=226&pitch=-18' },

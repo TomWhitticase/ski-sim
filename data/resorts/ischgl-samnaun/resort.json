@@ -1,0 +1,11 @@
+{
+  "id": "ischgl-samnaun",
+  "name": "Ischgl – Samnaun",
+  "country": "AT",
+  "bounds": {
+    "south": 46.9083,
+    "west": 10.2557,
+    "north": 47.0276,
+    "east": 10.4234
+  }
+}
