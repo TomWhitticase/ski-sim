@@ -23,7 +23,9 @@ export function simDate(seconds: number): Date {
 
 export const CAMERA = {
   fov: 70,
-  near: 0.5,
+  // Close enough that your own poles and hands in first person aren't clipped. With the
+  // reversed-Z depth buffer a near plane this small costs no precision far away.
+  near: 0.05,
   far: 400_000,
 };
 

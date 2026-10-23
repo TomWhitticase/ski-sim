@@ -1,7 +1,7 @@
 import { cameraSettings } from '../controls/camera-settings';
 import { Euler, Matrix4, type PerspectiveCamera, Quaternion, Vector3 } from 'three/webgpu';
 
-import { CAMERA, FLY } from '../config';
+import { FLY } from '../config';
 import { type Input, Look } from '../controls/input';
 import type { SkiControls } from '../controls/ski-controls';
 import { CabinView } from './cabin-view';
@@ -28,8 +28,6 @@ const CHAIR_HIP_BACK = 0.48;
 /** Seated eye above the hips; standing eye above the feet (m). */
 const SEATED_EYE = 0.7;
 const STANDING_EYE = 1.62;
-/** Near plane inside a cabin, so walls an arm's length away aren't clipped (m). */
-const CABIN_NEAR = 0.05;
 
 export type RidePhase = 'waiting' | 'boarding' | 'riding';
 
@@ -260,7 +258,6 @@ export class RideControls {
     this.lifts.rate = 1;
     this.lifts.hidden = null;
     this.cabinView.hide();
-    this.setNear(CAMERA.near);
   }
 
   private setLine(line: number): void {
@@ -339,12 +336,6 @@ export class RideControls {
     }
   }
 
-  private setNear(near: number): void {
-    if (this.camera.near === near) return;
-    this.camera.near = near;
-    this.camera.updateProjectionMatrix();
-  }
-
   /** Your feet on the carrier (chair seat, or behind a platter on the snow). */
   private seatPosition(side: 1 | -1): void {
     const line = this.lineObj;
@@ -390,7 +381,6 @@ export class RideControls {
     const eye = new Vector3(0, STANDING_EYE - 0.7 * Math.max(0, crouch - 0.15), 0);
     if (sit) eye.lerp(new Vector3(0, sit.height + SEATED_EYE, sit.back - 0.05), sit.amount);
     eye.applyAxisAngle(UP, this.bodyYaw);
-    this.setNear(inside && this.skier.view === 'first-person' ? CABIN_NEAR : CAMERA.near);
     if (this.skier.view === 'first-person') {
       this.camera.position.copy(this.feet).add(eye);
       this.euler.set(this.look.pitch, this.look.yaw, 0);

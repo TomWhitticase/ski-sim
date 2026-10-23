@@ -32,7 +32,8 @@ const STATIONS = 64;
 
 const TOPSHEET: RGB = [0.05, 0.12, 0.32];
 const ACCENT: RGB = [0.95, 0.42, 0.08];
-const TIP: RGB = [0.92, 0.93, 0.95];
+/** Tip and tail: the accent orange, so the ends stand out against the snow. */
+const TIP: RGB = [0.95, 0.42, 0.08];
 const BASE: RGB = [0.04, 0.04, 0.05];
 const EDGE: RGB = [0.62, 0.64, 0.67];
 
@@ -140,6 +141,8 @@ const UNDERFOOT = skiProfile(DEFAULT_DIMENSIONS.tail / DEFAULT_DIMENSIONS.length
 interface SkiRig {
   group: Group;
   ski: Mesh;
+  /** The boot's cuff, hinged at the ankle, swung to follow the shin. */
+  cuff: Group;
 }
 
 /**
@@ -202,10 +205,11 @@ export class SkierModel {
         x: number,
         y: number,
         z: number,
+        parent: Group = group,
       ) => {
         const mesh = new Mesh(geometry, material);
-        mesh.position.set(x, y, z);
-        group.add(mesh);
+        mesh.position.set(x, y, z).sub(parent === group ? ORIGIN : CUFF_PIVOT);
+        parent.add(mesh);
         parts.push(mesh);
         return mesh;
       };
@@ -222,17 +226,29 @@ export class SkierModel {
       const bootBase = BOOT_SOLE;
       add(sole, binding, 0, bootBase, 0);
       add(lower, shell, 0, bootBase, 0);
-      add(upperCuff, cuff, 0, bootBase, 0);
-      add(strapGeometry, binding, 0, bootBase, 0);
+      // The cuff (with its strap and buckles) pivots on the ankle rivets, like a real boot.
+      const cuffGroup = new Group();
+      cuffGroup.position.copy(CUFF_PIVOT);
+      group.add(cuffGroup);
+      add(upperCuff, cuff, 0, bootBase, 0, cuffGroup);
+      add(strapGeometry, binding, 0, bootBase, 0, cuffGroup);
       for (const [y, z, tilt] of BOOT_BUCKLES) {
-        const b = add(buckleGeometry, buckle, side * 0.058, bootBase + y, z);
+        const onCuff = y > 0.18;
+        const b = add(
+          buckleGeometry,
+          buckle,
+          side * 0.058,
+          bootBase + y,
+          z,
+          onCuff ? cuffGroup : group,
+        );
         b.rotation.x = tilt;
       }
       for (const p of parts) p.castShadow = true;
       group.position.x = side * 0.11;
       group.name = side === -1 ? 'ski-left' : 'ski-right';
       this.root.add(group);
-      return { group, ski };
+      return { group, ski, cuff: cuffGroup };
     };
     this.skis = { left: makeSki(-1), right: makeSki(1) };
 
@@ -504,6 +520,15 @@ export class SkierModel {
       const knee = solveJoint(hip, ankles[i]!, THIGH, SHIN, KNEE_HINT);
       stretch(limb.thigh, hip, knee);
       stretch(limb.shin, knee, ankles[i]!);
+      // The cuff follows the shin's forward / back lean in the ski's frame (it's stiff
+      // sideways, so it only hinges fore and aft), within the boot's range of flex.
+      const rig = i === 0 ? this.skis.left : this.skis.right;
+      const shin = knee
+        .clone()
+        .applyMatrix4(inverse.copy(rig.group.matrix).invert())
+        .sub(CUFF_PIVOT);
+      const lean = Math.atan2(-shin.z, shin.y);
+      rig.cuff.rotation.x = -Math.min(Math.max(lean - CUFF_LEAN, -0.25), 0.55);
       limb.knee.position.copy(knee);
 
       // Arms: shoulder to hand, elbows out and back. Hands come in front in a tuck.
@@ -627,6 +652,11 @@ function poleGripGeometry(): BufferGeometry {
 /** Boot sole above the base of the ski. */
 const BOOT_SOLE = UNDERFOOT + 0.026;
 const ANKLE_HEIGHT = 0.2; // ankle joint above the base of the ski, inside the boot
+/** The cuff's hinge (the ankle rivets), in the ski's frame; the cuff's built-in lean. */
+const CUFF_PIVOT = new Vector3(0, ANKLE_HEIGHT, 0.03);
+const CUFF_LEAN = 0.18;
+const ORIGIN = new Vector3();
+const inverse = new Matrix4();
 const THIGH = 0.43;
 const SHIN = 0.42;
 const UPPER_ARM = 0.3;
