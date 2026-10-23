@@ -1,0 +1,11 @@
+{
+  "id": "jackson-hole",
+  "name": "Jackson Hole",
+  "country": "US",
+  "bounds": {
+    "south": 43.5661,
+    "west": -110.8959,
+    "north": 43.6255,
+    "east": -110.8035
+  }
+}

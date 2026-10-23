@@ -165,6 +165,16 @@ const VIEWS = [
   },
   { name: 'soelden', query: 'resort=soelden&at=46.9750,11.0200,2000&heading=240&pitch=-6' },
   { name: 'les-2-alpes', query: 'resort=les-2-alpes&at=45.0300,6.1100,2200&heading=150&pitch=-8' },
+  {
+    name: 'sella-ronda-sella',
+    query: 'resort=sella-ronda&at=46.5650,11.7800,2600&heading=120&pitch=-8',
+  },
+  { name: 'alpe-dhuez', query: 'resort=alpe-dhuez&at=45.0750,6.0400,2300&heading=70&pitch=-8' },
+  { name: 'vail', query: 'resort=vail&at=39.6550,-106.3700,3000&heading=180&pitch=-10' },
+  {
+    name: 'jackson-hole',
+    query: 'resort=jackson-hole&at=43.5800,-110.7900,2500&heading=270&pitch=-6',
+  },
   // Snow parks: VT Park's halfpipe from below and the side, and Open Park's meandering lines.
   { name: 'park-halfpipe', query: 'at=45.27925,6.57367,2511&heading=136&pitch=-4' },
   { name: 'park-halfpipe-side', query: 'at=45.27908,6.57497,2544&heading=226&pitch=-18' },

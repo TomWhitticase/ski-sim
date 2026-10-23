@@ -1,0 +1,11 @@
+{
+  "id": "vail",
+  "name": "Vail",
+  "country": "US",
+  "bounds": {
+    "south": 39.5439,
+    "west": -106.4191,
+    "north": 39.6566,
+    "east": -106.2752
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "id": "alpe-dhuez",
+  "name": "Alpe d'Huez",
+  "country": "FR",
+  "bounds": {
+    "south": 45.0323,
+    "west": 6.0128,
+    "north": 45.1855,
+    "east": 6.1596
+  }
+}

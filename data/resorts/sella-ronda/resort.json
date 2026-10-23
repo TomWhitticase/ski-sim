@@ -1,0 +1,11 @@
+{
+  "id": "sella-ronda",
+  "name": "Sella Ronda",
+  "country": "IT",
+  "bounds": {
+    "south": 46.4012,
+    "west": 11.6266,
+    "north": 46.6285,
+    "east": 12.0006
+  }
+}
