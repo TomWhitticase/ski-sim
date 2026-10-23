@@ -4,6 +4,7 @@ import { RESTAURANT_COLOUR, drawBorders, drawRestaurantIcon } from './map-icons'
 import { type PisteRecord, pisteColour, pisteTitle } from '../pistes/pistes';
 import type { Pose } from '../nav/pose';
 import type { Extent } from '../resort/manifest';
+import { classifyPress, pinchScale, PRESS } from '../controls/touch-input';
 
 export interface WorldMapData {
   resortName: string;
@@ -40,7 +41,8 @@ const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCa
 /**
  * Fullscreen resort map: pan (drag), zoom (wheel), hover for coordinates and elevation,
  * right click anywhere or pick a place from the list to teleport, left click to drop a guide
- * marker (shown in the world and on the minimap; click it again to remove it).
+ * marker (shown in the world and on the minimap; click it again to remove it). By touch:
+ * drag to pan, pinch to zoom, tap for the marker, touch and hold to teleport.
  */
 export class WorldMap {
   isOpen = false;
@@ -59,7 +61,22 @@ export class WorldMap {
   private mpp = 8;
   private player: Pose = { east: 0, north: 0, altitude: 0, heading: 0, pitch: 0 };
   private hoverPlace: Place | null = null;
-  private drag: { x: number; y: number; east: number; north: number; moved: boolean } | null = null;
+  private drag: {
+    x: number;
+    y: number;
+    east: number;
+    north: number;
+    moved: boolean;
+    at: number;
+    touch: boolean;
+  } | null = null;
+  /** Fingers (or the mouse) on the map, by pointer id. */
+  private readonly pointers = new Map<number, { x: number; y: number }>();
+  /** Two fingers: the zoom and spread they started at, and the ground under their middle. */
+  private pinch: { mpp: number; spread: number; east: number; north: number } | null = null;
+  /** A pinch or a long press has used this gesture: lifting the fingers does nothing. */
+  private gestureUsed = false;
+  private longPress = 0;
   private frameRequested = false;
   /** The guide marker, if one is placed. */
   marker: { east: number; north: number } | null = null;
@@ -96,6 +113,7 @@ export class WorldMap {
     this.canvas.addEventListener('pointerdown', this.onPointerDown);
     this.canvas.addEventListener('pointermove', this.onPointerMove);
     this.canvas.addEventListener('pointerup', this.onPointerUp);
+    this.canvas.addEventListener('pointercancel', this.onPointerCancel);
     this.canvas.addEventListener('pointerleave', () => (this.cursorInfo.hidden = true));
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('resize', () => this.isOpen && this.requestDraw());
@@ -547,20 +565,77 @@ export class WorldMap {
 
   private readonly onPointerDown = (e: PointerEvent) => {
     this.canvas.setPointerCapture(e.pointerId);
+    this.pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
+    clearTimeout(this.longPress);
+    if (this.pointers.size === 2) {
+      // A second finger: pinch zoom about the middle of the two.
+      const [a, b] = [...this.pointers.values()] as [
+        { x: number; y: number },
+        { x: number; y: number },
+      ];
+      const [east, north] = this.toGround((a.x + b.x) / 2, (a.y + b.y) / 2);
+      this.pinch = { mpp: this.mpp, spread: Math.hypot(a.x - b.x, a.y - b.y), east, north };
+      this.drag = null;
+      this.gestureUsed = true;
+      this.cursorInfo.hidden = true;
+      return;
+    }
+    if (this.pointers.size > 2) return;
+    this.gestureUsed = false;
+    const touch = e.pointerType !== 'mouse';
     this.drag = {
       x: e.offsetX,
       y: e.offsetY,
       east: this.centerEast,
       north: this.centerNorth,
       moved: false,
+      at: performance.now(),
+      touch,
     };
+    if (touch) {
+      // Touch and hold: teleport there (the readout says so while you hold).
+      this.updateCursorInfo(e.offsetX, e.offsetY);
+      this.longPress = window.setTimeout(() => {
+        const drag = this.drag;
+        if (!drag || drag.moved || this.pointers.size !== 1) return;
+        this.gestureUsed = true;
+        navigator.vibrate?.(15);
+        this.teleportTo(drag.x, drag.y);
+      }, PRESS.longMs);
+    }
   };
 
   private readonly onPointerMove = (e: PointerEvent) => {
+    if (this.pointers.has(e.pointerId))
+      this.pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
+    if (this.pinch && this.pointers.size >= 2) {
+      const [a, b] = [...this.pointers.values()] as [
+        { x: number; y: number },
+        { x: number; y: number },
+      ];
+      const mx = (a.x + b.x) / 2;
+      const my = (a.y + b.y) / 2;
+      this.mpp = pinchScale(
+        this.pinch.mpp,
+        this.pinch.spread,
+        Math.hypot(a.x - b.x, a.y - b.y),
+        MIN_MPP,
+        MAX_MPP,
+      );
+      // Keep the ground that was under the fingers' middle under it (zoom and pan at once).
+      this.centerEast = this.pinch.east - (mx - this.canvas.clientWidth / 2) * this.mpp;
+      this.centerNorth = this.pinch.north + (my - this.canvas.clientHeight / 2) * this.mpp;
+      this.clampCenter();
+      this.requestDraw();
+      return;
+    }
     if (this.drag) {
       const dx = e.offsetX - this.drag.x;
       const dy = e.offsetY - this.drag.y;
-      if (Math.hypot(dx, dy) > CLICK_SLOP) this.drag.moved = true;
+      if (Math.hypot(dx, dy) > (this.drag.touch ? PRESS.slop : CLICK_SLOP)) {
+        this.drag.moved = true;
+        clearTimeout(this.longPress);
+      }
       if (this.drag.moved) {
         this.centerEast = this.drag.east - dx * this.mpp;
         this.centerNorth = this.drag.north + dy * this.mpp;
@@ -568,23 +643,32 @@ export class WorldMap {
         this.requestDraw();
       }
     }
-    this.updateCursorInfo(e.offsetX, e.offsetY);
+    if (e.pointerType === 'mouse' || this.drag) this.updateCursorInfo(e.offsetX, e.offsetY);
+  };
+
+  private readonly onPointerCancel = (e: PointerEvent) => {
+    this.pointers.delete(e.pointerId);
+    clearTimeout(this.longPress);
+    this.drag = null;
+    this.pinch = null;
+    this.cursorInfo.hidden = true;
   };
 
   private readonly onPointerUp = (e: PointerEvent) => {
+    this.pointers.delete(e.pointerId);
+    if (this.pointers.size < 2) this.pinch = null;
+    clearTimeout(this.longPress);
     const drag = this.drag;
     this.drag = null;
-    if (!drag || drag.moved) return;
+    if (drag?.touch) this.cursorInfo.hidden = true;
+    if (!drag || this.gestureUsed) return;
+    const travel = Math.hypot(e.offsetX - drag.x, e.offsetY - drag.y);
+    const press = drag.moved ? 'drag' : classifyPress(performance.now() - drag.at, travel, true);
+    if (press === 'drag') return;
     const [east, north] = this.toGround(e.offsetX, e.offsetY);
     if (!this.inMap(east, north)) return;
-    if (e.button === 2) {
-      this.onTeleport({
-        east,
-        north,
-        altitude: this.data.groundHeight(east, north), // grounded by the handler
-        heading: this.player.heading,
-        pitch: 0,
-      });
+    if (e.button === 2 || (drag.touch && press === 'long-press')) {
+      this.teleportTo(e.offsetX, e.offsetY);
       return;
     }
     if (e.button !== 0) return;
@@ -592,13 +676,28 @@ export class WorldMap {
     let next: { east: number; north: number } | null = { east, north };
     if (this.marker) {
       const [mx, my] = this.toScreen(this.marker.east, this.marker.north);
-      if (Math.hypot(e.offsetX - mx, e.offsetY - (my - 14)) < 16) next = null;
+      const reach = drag.touch ? 24 : 16;
+      if (Math.hypot(e.offsetX - mx, e.offsetY - (my - 14)) < reach) next = null;
     }
     this.marker = next;
     this.onMarker(next);
     this.requestDraw();
-    this.updateCursorInfo(e.offsetX, e.offsetY);
+    if (!drag.touch) this.updateCursorInfo(e.offsetX, e.offsetY);
   };
+
+  /** Teleport to the ground under screen point (x, y), if it's on the map. */
+  private teleportTo(x: number, y: number): void {
+    const [east, north] = this.toGround(x, y);
+    if (!this.inMap(east, north)) return;
+    this.cursorInfo.hidden = true;
+    this.onTeleport({
+      east,
+      north,
+      altitude: this.data.groundHeight(east, north), // grounded by the handler
+      heading: this.player.heading,
+      pitch: 0,
+    });
+  }
 
   private updateCursorInfo(x: number, y: number): void {
     const [east, north] = this.toGround(x, y);
@@ -611,8 +710,14 @@ export class WorldMap {
     this.canvas.style.cursor = 'crosshair';
     const { lat, lon } = this.data.toLatLon(east, north);
     const elevation = Math.round(this.data.groundHeight(east, north)).toLocaleString('en-GB');
-    info.textContent = `${lat.toFixed(5)}°, ${lon.toFixed(5)}°\n${elevation} m · left click: marker · right click: teleport`;
-    info.style.transform = `translate(${x + 16}px, ${y + 16}px)`;
+    const how = this.drag?.touch
+      ? 'hold: teleport · tap: marker'
+      : 'left click: marker · right click: teleport';
+    info.textContent = `${lat.toFixed(5)}°, ${lon.toFixed(5)}°\n${elevation} m · ${how}`;
+    // Above a finger (which hides what's under it), beside a mouse pointer.
+    info.style.transform = this.drag?.touch
+      ? `translate(calc(${x}px - 50%), ${y - 90}px)`
+      : `translate(${x + 16}px, ${y + 16}px)`;
     info.hidden = false;
   }
 }

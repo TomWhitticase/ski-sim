@@ -240,7 +240,7 @@ export class GliderControls {
   update(dt: number, input: Input): boolean {
     const headingBefore = this.state.heading;
     this.look.apply(input);
-    const turn = (input.down('KeyA') ? 1 : 0) - (input.down('KeyD') ? 1 : 0);
+    const turn = input.turn;
     this.airTime += dt;
     const touched = stepGlider(
       this.state,

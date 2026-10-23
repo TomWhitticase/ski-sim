@@ -176,7 +176,7 @@ export class Hud {
     el.innerHTML =
       `<span class="lab">Fly speed</span><b>${Math.round(speed * 3.6)}<span class="unit"> km/h</span></b>` +
       `<span class="bar"><i style="width:${width}%"></i></span>` +
-      '<span class="lab">Scroll to change</span>';
+      '<span class="lab desktop-only">Scroll to change</span>';
     if (changed) {
       el.classList.add('bump');
       clearTimeout(this.bumpTimer);
@@ -191,7 +191,9 @@ export class Hud {
   setFlyKeys(state: 'body' | 'free' | null): void {
     this.flyKeys.hidden = state === null;
     if (state === null) return;
-    const key = (k: string, text: string) => `<span><kbd>${k}</kbd>${text}</span>`;
+    // Tappable on a touchscreen (`data-key`: main.ts does what the key does).
+    const key = (k: string, text: string) =>
+      `<span data-key="Key${k}"><kbd>${k}</kbd>${text}</span>`;
     this.flyKeys.innerHTML =
       state === 'body'
         ? key('F', 'Back to your skier') + key('R', 'Ski from here')

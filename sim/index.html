@@ -2,7 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#0b1018" />
     <title>ski-sim</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
@@ -10,6 +17,31 @@
     <canvas id="scene"></canvas>
 
     <div id="labels"></div>
+
+    <!-- Touch play (controls/touch-controls.ts), under the HUD so its tappable prompts win:
+         the stick and look pad, pause, context buttons and the tools row. -->
+    <div id="touch" class="glass-dark">
+      <div id="touch-pad"></div>
+      <div id="touch-stick" aria-hidden="true"><i></i></div>
+      <button id="touch-pause" class="touch-tool glass" type="button" aria-label="Pause">
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.4"
+          stroke-linecap="round"
+        >
+          <path d="M9 5v14M15 5v14" />
+        </svg>
+      </button>
+      <div id="touch-tools"></div>
+      <div id="touch-buttons"></div>
+      <p id="rotate-hint" class="glass">
+        <span>Turn your phone sideways for the best view</span>
+        <button type="button" aria-label="Dismiss">✕</button>
+      </p>
+    </div>
 
     <!-- In the world: dark glass (theme.css). Everything here ignores the mouse. -->
     <div id="hud" class="glass-dark">
@@ -47,7 +79,10 @@
     <div id="crosshair"></div>
     <!-- Just loaded: the world, and one click to capture the mouse. -->
     <button id="click-to-play" class="glass-dark" type="button" aria-label="Click to play">
-      <span class="glass"><kbd>Click</kbd> to play</span>
+      <span class="glass"
+        ><kbd><span class="desktop-only">Click</span><span class="touch-only">Tap</span></kbd> to
+        play</span
+      >
     </button>
     <div id="sky-flash"></div>
 
@@ -75,7 +110,11 @@
           >
         </div>
         <ul class="map-places"></ul>
-        <p class="map-hint">
+        <p class="map-hint touch-only">
+          Pinch to zoom · drag to pan · tap: guide marker (tap it again to remove) · touch and hold,
+          or pick a place: teleport
+        </p>
+        <p class="map-hint desktop-only">
           Scroll to zoom · drag to pan · left click: guide marker (click it again to remove) · right
           click or pick a place: teleport · M / Esc to close
         </p>
@@ -258,6 +297,23 @@
             <p>Keyboard and mouse</p>
           </header>
           <div class="modal-body controls-sections">
+            <section class="touch-only">
+              <h3>Touch</h3>
+              <dl class="controls">
+                <dt>Left thumb</dt>
+                <dd>Stick: steer; forward skates, back ploughs (flies, drives, speed bar)</dd>
+                <dt>Right side</dt>
+                <dd>Drag to look around</dd>
+                <dt>Buttons</dt>
+                <dd>Jump, tuck and stop; flips in the air; up, down and speed when flying</dd>
+                <dt>Prompts</dt>
+                <dd>Tap "Ride …" to board a lift</dd>
+                <dt>Tools</dt>
+                <dd>Pause, map, fly, paraglider, snowmobile, view, labels, fullscreen</dd>
+                <dt>Map</dt>
+                <dd>Pinch to zoom, tap for a marker, touch and hold to go there</dd>
+              </dl>
+            </section>
             <section>
               <h3>Getting around</h3>
               <dl class="controls">

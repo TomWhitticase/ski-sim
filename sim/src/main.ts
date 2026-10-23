@@ -20,6 +20,8 @@ import { GliderControls } from './controls/glider-controls';
 import { SnowmobileControls } from './controls/snowmobile-controls';
 import { SLED_LAYOUT } from './controls/snowmobile-model';
 import { Input } from './controls/input';
+import { TouchControls } from './controls/touch-controls';
+import { detectTouch } from './controls/touch-input';
 import { cameraSettings, loadCamera, saveCamera } from './controls/camera-settings';
 import { SettingsMenu } from './ui/settings-menu';
 import { WaypointMarker } from './ui/waypoint-marker';
@@ -45,6 +47,7 @@ import {
 } from './resort/manifest';
 import { createNormalTexture } from './terrain/normals';
 import { AdaptiveResolution } from './render/adaptive-resolution';
+import { qualityFor } from './render/quality';
 import { Terrain } from './terrain/terrain';
 import { createTerrainMaterial } from './terrain/terrain-material';
 import { buildPlaces, groundedPose, liftTypeName, type Place } from './nav/places';
@@ -142,6 +145,24 @@ function migrateStorage(): void {
 async function main(): Promise<void> {
   migrateStorage();
   const params = new URLSearchParams(location.search);
+  // Phones and tablets play by touch (on-screen stick and buttons); a mouse or keyboard
+  // switches to those as soon as it's used. The menus follow too (`body.touch`).
+  const input = new Input($('#scene'));
+  let act: (code: string, shift?: boolean) => void = () => {};
+  let toggleAllLabels = () => {};
+  const touch = new TouchControls(
+    $('#touch'),
+    input,
+    { key: (code) => act(code), labels: () => toggleAllLabels() },
+    detectTouch({
+      coarse: matchMedia('(pointer: coarse)').matches,
+      anyFine: matchMedia('(any-pointer: fine)').matches,
+      maxTouchPoints: navigator.maxTouchPoints,
+      override: params.get('touch'),
+    }),
+  );
+  // Set once, from the device it started on: phones get lighter rendering.
+  const quality = qualityFor(touch.kind === 'touch', window.devicePixelRatio);
   // Ski areas come from the pipeline's index.
   const resorts = await fetchJson<{ resorts: ResortEntry[] }>(`${DATA_URL}resorts.json`)
     .then((r) => r.resorts)
@@ -169,7 +190,7 @@ async function main(): Promise<void> {
     }
     return m;
   };
-  let play: (choice: StartChoice) => void = () => {};
+  let play: (choice: StartChoice, auto?: boolean) => void = () => {};
   let load: (id: string) => void = () => {};
   const chosen = new Promise<string>((resolve) => (load = resolve));
   let loaded = false;
@@ -197,7 +218,7 @@ async function main(): Promise<void> {
       // Another area: a fresh page that loads it straight away, at the chosen start.
       location.href = resortLink(id, _choice?.name ?? null, host);
     },
-    onPlay: (choice) => play(choice),
+    onPlay: (choice, auto) => play(choice, auto),
   });
   failLoad = (message) => menu.failed(message);
   menu.setResorts(resorts, suggested);
@@ -249,7 +270,7 @@ async function main(): Promise<void> {
   loadCamera(localStorage);
   const settingsMenu = new SettingsMenu($('#opt-camera'), () => saveCamera(localStorage));
   $('#open-settings').addEventListener('click', () => settingsMenu.open());
-  loadDisplay(localStorage);
+  loadDisplay(localStorage, touch.kind === 'touch' ? { glass: 'light' } : {});
   applyDisplay();
   window.addEventListener('resize', () => applyDisplay());
   // World switches (1–4, V, K) do nothing until a map is loaded (they're disabled till then).
@@ -325,8 +346,14 @@ async function main(): Promise<void> {
   const railContact: RailContact = { dirX: 0, dirZ: 0, offset: 0, grade: 0 };
 
   const canvas = $<HTMLCanvasElement>('#scene');
-  const renderer = new WebGPURenderer({ canvas, antialias: true, reversedDepthBuffer: true });
-  const resolution = new AdaptiveResolution(Math.min(window.devicePixelRatio, 2));
+  // WebGPU where there is one, WebGL 2 otherwise (most phones): three picks the backend.
+  const renderer = new WebGPURenderer({
+    canvas,
+    antialias: quality.antialias,
+    reversedDepthBuffer: true,
+    forceWebGL: params.get('webgl') === '1',
+  });
+  const resolution = new AdaptiveResolution(quality.maxPixelRatio, quality.minPixelRatio);
   renderer.setPixelRatio(resolution.ratio);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = ACESFilmicToneMapping;
@@ -345,7 +372,12 @@ async function main(): Promise<void> {
   if (manifest.timezone) SIM_DAY.utcOffsetHours = manifest.timezone.utcOffsetHours;
   const clock = loadTime(localStorage, SIM_DAY.startTime);
   const { lat: originLat, lon: originLon } = manifest.origin;
-  const environment = new Environment(scene, simDate(clock.seconds), originLat, originLon);
+  const environment = new Environment(scene, simDate(clock.seconds), originLat, originLon, {
+    mapSize: quality.shadowMapSize,
+    cascades: quality.shadowCascades,
+    distance: quality.shadowDistance,
+  });
+  const forestDistance = FOREST_DRAW_DISTANCE * quality.forestDistance;
   const timeMenu = new TimeMenu(
     $('#opt-time'),
     clock,
@@ -398,10 +430,10 @@ async function main(): Promise<void> {
         cellSize: nearCover.cellSize,
         width: nearCover.width,
         height: nearCover.height,
-        canopyFade: [FOREST_DRAW_DISTANCE * 0.55, FOREST_DRAW_DISTANCE],
+        canopyFade: [forestDistance * 0.55, forestDistance],
       },
     }),
-    TERRAIN.near,
+    { ...TERRAIN.near, lodDistance: TERRAIN.near.lodDistance * quality.terrainLod },
   );
   const farTerrain = new Terrain(
     far,
@@ -414,7 +446,11 @@ async function main(): Promise<void> {
         height: farCover.height,
       },
     }),
-    { ...TERRAIN.far, skip: near.extent },
+    {
+      ...TERRAIN.far,
+      lodDistance: TERRAIN.far.lodDistance * quality.terrainLod,
+      skip: near.extent,
+    },
   );
   const restaurants = features.restaurants ?? [];
   scene.add(
@@ -436,6 +472,7 @@ async function main(): Promise<void> {
           { cover: (e, n) => nearCover.tree(e, n), ground: (e, n) => near.sample(e, n) },
           { treeLine: treeMeta.treeLine, height: treeMeta.height },
           near.extent,
+          quality.forestDistance,
         );
   if (forest) scene.add(forest.root);
 
@@ -446,7 +483,6 @@ async function main(): Promise<void> {
     minZ: -farExtent.north + 500,
     maxZ: -farExtent.south - 500,
   };
-  const input = new Input(canvas);
   const fly = new FlyControls(camera, snowHeight, bounds);
   const ski = new SkiControls(
     camera,
@@ -618,6 +654,16 @@ async function main(): Promise<void> {
   // Piste colours are drawn while chosen (3) and the HUD is shown (H hides them too).
   let pisteColours = prefs.pistes;
   const applyPisteColours = () => (pisteTint.value = pisteColours && hudShown ? 1 : 0);
+  // Touch's labels button: lift, peak and restaurant names on or off together.
+  toggleAllLabels = () => {
+    const kinds = ['lift', 'peak', 'restaurant'] as const;
+    const on = !kinds.some((k) => labels.isVisible(k));
+    for (const k of kinds) {
+      labels.setVisible(k, on);
+      showToggle(k, on, true);
+    }
+    savePrefs();
+  };
   const togglePisteColours = () => {
     pisteColours = !pisteColours;
     applyPisteColours();
@@ -925,7 +971,7 @@ async function main(): Promise<void> {
     localStorage.setItem(MODE_KEY, mode);
   };
   const openMap = () => {
-    if (document.pointerLockElement) document.exitPointerLock();
+    input.unlock();
     worldMap.open(currentPose());
     document.body.classList.add('map-open');
   };
@@ -934,7 +980,8 @@ async function main(): Promise<void> {
     document.body.classList.remove('map-open');
     // Closing from a click or key press counts as a user gesture, so pointer lock (and
     // audio, if the map was opened from the main menu before pressing Start) is allowed.
-    if (resumeFlying) {
+    // On a touchscreen ✕ goes straight back to the game too: there's no Esc to pause with.
+    if (resumeFlying || input.touch) {
       sound.start();
       void input.lock();
     }
@@ -967,7 +1014,7 @@ async function main(): Promise<void> {
   // Ask before leaving instead. (On macOS Ctrl+W does nothing, so skip the prompt.)
   if (!/Mac|iPhone|iPad/.test(navigator.userAgent)) {
     window.addEventListener('beforeunload', (e) => {
-      if (input.locked) e.preventDefault();
+      if (input.locked && !input.touch) e.preventDefault();
     });
   }
   window.addEventListener('pagehide', persistPose);
@@ -983,28 +1030,37 @@ async function main(): Promise<void> {
     // Esc still closes the map from its search box.
     const typing = e.target instanceof HTMLInputElement && !NON_TEXT_INPUTS.has(e.target.type);
     if (typing && !(e.code === 'Escape' && worldMap.isOpen)) return;
+    if (e.code === 'F3') {
+      e.preventDefault();
+      debug.hidden = !debug.hidden;
+      return;
+    }
+    if (!e.repeat) act(e.code, e.shiftKey);
+  });
+  /** What a key does in game; the touch buttons and tappable prompts call it too. */
+  act = (code, shift = false) => {
     // G / T / O / N open their Options tab (or close the hub if it's already on it).
-    const tab = !e.repeat && !worldMap.isOpen ? hubKeys[e.code] : undefined;
+    const tab = !worldMap.isOpen ? hubKeys[code] : undefined;
     if (tab) {
-      if (document.pointerLockElement) document.exitPointerLock();
+      input.unlock();
       tab.toggle();
       return;
     }
     if (document.querySelector('dialog[open]')) return; // a menu dialog has the keyboard
-    if (e.code === 'KeyM' && e.shiftKey && !e.repeat && !worldMap.isOpen) {
+    if (code === 'KeyM' && shift && !worldMap.isOpen) {
       // Shift+M: mark where you are now (e.g. to come back to it with J).
       const { east, north } = currentPose();
       setWaypoint({ east, north });
-    } else if (e.code === 'KeyM' && !e.repeat) {
+    } else if (code === 'KeyM') {
       if (worldMap.isOpen) closeMap(true);
       else openMap();
-    } else if (e.code === 'Escape' && worldMap.isOpen) {
+    } else if (code === 'Escape' && worldMap.isOpen) {
       closeMap(false);
-    } else if (e.code === 'KeyJ' && !e.repeat && !worldMap.isOpen && waypoint.current) {
+    } else if (code === 'KeyJ' && !worldMap.isOpen && waypoint.current) {
       // Jump to the guide marker, facing the way you were going.
       const w = waypoint.current;
       teleport({ ...w, altitude: 0, heading: currentPose().heading, pitch: 0 });
-    } else if (e.code === 'KeyE' && !e.repeat && !worldMap.isOpen) {
+    } else if (code === 'KeyE' && !worldMap.isOpen) {
       if (mode === 'ride') {
         setMode('ski'); // step off (or jump!) where you are
       } else if (mode !== 'glide' && mode !== 'sled') {
@@ -1012,7 +1068,7 @@ async function main(): Promise<void> {
         const near = lifts.boardingNear(p.x, p.z);
         if (near) boardLift(near.line, near.down);
       }
-    } else if (e.code === 'KeyF' && !e.repeat && !worldMap.isOpen) {
+    } else if (code === 'KeyF' && !worldMap.isOpen) {
       // F: out of your body to fly, and back into it; with no body to go back to, land.
       if (mode === 'fly') {
         if (body) returnToBody();
@@ -1020,34 +1076,31 @@ async function main(): Promise<void> {
       } else if (mode !== 'ride') {
         setMode('fly'); // not off a lift: you'd leave your body hanging on the chair
       }
-    } else if (e.code === 'KeyR' && !e.repeat && !worldMap.isOpen && mode === 'fly') {
+    } else if (code === 'KeyR' && !worldMap.isOpen && mode === 'fly') {
       setMode('ski'); // your skier comes to the ground below you
-    } else if (e.code === 'KeyP' && !e.repeat && !worldMap.isOpen) {
+    } else if (code === 'KeyP' && !worldMap.isOpen) {
       // Deploy the paraglider (keeping your momentum), or drop it and ski.
       setMode(mode === 'glide' ? 'ski' : 'glide');
-    } else if (e.code === 'KeyB' && !e.repeat && !worldMap.isOpen && mode !== 'ride') {
+    } else if (code === 'KeyB' && !worldMap.isOpen && mode !== 'ride') {
       // Get on a snowmobile (keeping your momentum), or step off it onto your skis.
       setMode(mode === 'sled' ? 'ski' : 'sled');
-    } else if (e.code === 'KeyV' && !e.repeat && mode !== 'fly') {
+    } else if (code === 'KeyV' && mode !== 'fly') {
       // Flying is always a free camera: there's no first or third person.
       setView(view === 'first-person' ? 'chase' : 'first-person', true);
-    } else if (e.code === 'F3') {
-      e.preventDefault();
-      debug.hidden = !debug.hidden;
-    } else if ((e.code === 'Digit1' || e.code === 'Numpad1') && !e.repeat) {
+    } else if (code === 'Digit1' || code === 'Numpad1') {
       toggleLabels('lift');
-    } else if ((e.code === 'Digit2' || e.code === 'Numpad2') && !e.repeat) {
+    } else if (code === 'Digit2' || code === 'Numpad2') {
       toggleLabels('peak');
-    } else if ((e.code === 'Digit3' || e.code === 'Numpad3') && !e.repeat) {
+    } else if (code === 'Digit3' || code === 'Numpad3') {
       togglePisteColours();
-    } else if ((e.code === 'Digit4' || e.code === 'Numpad4') && !e.repeat) {
+    } else if (code === 'Digit4' || code === 'Numpad4') {
       toggleLabels('restaurant');
-    } else if (e.code === 'KeyH' && !e.repeat) {
+    } else if (code === 'KeyH') {
       toggleHud();
-    } else if (e.code === 'KeyK' && !e.repeat) {
+    } else if (code === 'KeyK') {
       toggleSound();
     }
-  });
+  };
   /** Start (or restart) at a ski village: on your skis in front of its main lift. */
   const startAt = (base: NonNullable<StartChoice>) => {
     if (mode !== 'ski') setMode('ski');
@@ -1066,13 +1119,14 @@ async function main(): Promise<void> {
     speedReset = true;
     persistPose();
   };
-  play = (choice) => {
+  play = (choice, auto = false) => {
     sound.start(); // audio may only start from a user gesture
     if (choice) startAt(choice);
     // Straight from loading there's no click to capture the mouse with: the world shows,
-    // with "Click to play" until the first click (or Enter).
+    // with "Click to play" until the first click (or Enter). On a touchscreen, "Tap to
+    // play" unless this came from a tap (Resume, a start point), so sound can start.
     if (!input.locked) document.body.classList.add('entering');
-    void input.lock();
+    if (!input.touch || !auto) void input.lock();
   };
   const enter = () => {
     sound.start();
@@ -1133,16 +1187,22 @@ async function main(): Promise<void> {
   };
   const prompt = $('#prompt');
   let promptText = '';
+  // On a touchscreen the prompts name no keys: the ride and step-off are buttons (the
+  // prompt itself, or the lift's context buttons).
   const updatePrompt = () => {
     let text = '';
+    /** The key the prompt offers: shown as a keycap, or (touch) tap the prompt for it. */
+    let key: string | null = null;
+    const tap = input.touch;
     if (mode === 'ride') {
       if (ride.phase === 'waiting') {
-        const ff = ride.fastForward ? ' · hold W to fast-forward' : '';
-        text = `Waiting for ${ride.name} · ${formatWait(ride.departsIn)}${ff} · E to step away`;
+        const ff = ride.fastForward && !tap ? ' · hold W to fast-forward' : '';
+        const away = tap ? '' : ' · E to step away';
+        text = `Waiting for ${ride.name} · ${formatWait(ride.departsIn)}${ff}${away}`;
       } else {
         const ff = ride.fastForward ? ' · hold W to fast-forward' : '';
         const end = ride.down ? 'bottom' : 'top';
-        text = `${ride.name}${ff} · S to skip to the ${end} · E to jump off`;
+        text = tap ? ride.name : `${ride.name}${ff} · S to skip to the ${end} · E to jump off`;
       }
     } else if (mode !== 'glide' && mode !== 'sled') {
       const p = whereAmI();
@@ -1150,28 +1210,41 @@ async function main(): Promise<void> {
       if (near) {
         const l = lifts.lines[near.line]!;
         const vertical = `${Math.round(l.lift.vertical)} m ${near.down ? 'down' : 'up'}`;
-        text =
-          !near.down && l.inLoadingZone(p) && lifts.steppedOff !== near.line
-            ? `${l.name} loading point · wait here to be picked up (or press E)`
-            : `E — ride ${l.name}${near.down ? ' down' : ''} (${liftTypeName(l.lift.type)}, ${vertical})`;
+        if (!near.down && l.inLoadingZone(p) && lifts.steppedOff !== near.line) {
+          text = tap
+            ? `${l.name} loading point · wait here, or tap to board`
+            : `${l.name} loading point · wait here to be picked up (or press E)`;
+          if (tap) key = 'KeyE';
+        } else {
+          key = 'KeyE';
+          text = `${tap ? 'Ride' : 'ride'} ${l.name}${near.down ? ' down' : ''} (${liftTypeName(l.lift.type)}, ${vertical})`;
+        }
       } else if (mode === 'ski' && sled.canRemount(p)) {
-        text = 'B — get back on the snowmobile';
+        key = 'KeyB';
+        text = `${tap ? 'Get' : 'get'} back on the snowmobile`;
       }
     }
-    if (text !== promptText) {
-      promptText = text;
-      // "E — ride …" shows its key as a keycap.
-      const key = /^([A-Z]) — (.*)$/.exec(text);
-      if (key) {
+    const shown = `${key}|${text}`;
+    if (shown !== promptText) {
+      promptText = shown;
+      prompt.dataset.key = key ?? '';
+      if (!key) delete prompt.dataset.key;
+      // "E — ride …" shows its key as a keycap; on a touchscreen the prompt is the button.
+      if (key && !tap) {
         const kbd = document.createElement('kbd');
-        kbd.textContent = key[1]!;
-        prompt.replaceChildren(kbd, key[2]!);
+        kbd.textContent = key.slice(3);
+        prompt.replaceChildren(kbd, text);
       } else {
         prompt.textContent = text;
       }
       prompt.hidden = !text;
     }
   };
+  // Tappable HUD: the prompt and fly mode's ways out do what their key does.
+  $('#hud').addEventListener('click', (e) => {
+    const el = (e.target as HTMLElement).closest<HTMLElement>('[data-key]');
+    if (el?.dataset.key && input.touch) act(el.dataset.key);
+  });
 
   /** Tracks, spray and sound from what the skis are doing this frame. */
   const updateSnowFx = (dt: number, airSpeed: number) => {
@@ -1358,6 +1431,12 @@ async function main(): Promise<void> {
     worldMap.setPlayers(dots);
     minimap.draw(east, north, controls().heading);
     updatePrompt();
+    touch.update({
+      mode,
+      airborne: mode === 'ski' && ski.airborne,
+      tucked: mode === 'ski' && ski.tucked,
+      fastForward: ride.fastForward,
+    });
     labels.update(camera);
     waypoint.update(camera, here);
 

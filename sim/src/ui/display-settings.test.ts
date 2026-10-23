@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_DISPLAY, sanitizeDisplay, uiScale } from './display-settings';
+import { DEFAULT_DISPLAY, loadDisplay, sanitizeDisplay, uiScale } from './display-settings';
 
 describe('display settings', () => {
   it('falls back to defaults for missing or invalid values', () => {
@@ -23,5 +23,18 @@ describe('display settings', () => {
     expect(uiScale(2160, 1)).toBe(1.3);
     expect(uiScale(600, 1)).toBe(0.85);
     expect(uiScale(900, 1.2)).toBe(1.2);
+  });
+
+  it('lets a phone go smaller, never a desktop window', () => {
+    expect(uiScale(390, 1, 844)).toBe(0.7); // landscape phone
+    expect(uiScale(844, 1, 390)).toBe(0.94); // portrait phone
+    expect(uiScale(600, 1, 1000)).toBe(0.85);
+  });
+
+  it('starts a device on its own defaults until something is saved', () => {
+    const none = { getItem: () => null };
+    expect(loadDisplay(none, { glass: 'light' }).glass).toBe('light');
+    const saved = { getItem: () => JSON.stringify({ glass: 'full', uiScale: 1 }) };
+    expect(loadDisplay(saved, { glass: 'light' }).glass).toBe('full');
   });
 });

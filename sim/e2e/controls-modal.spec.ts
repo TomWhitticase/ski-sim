@@ -8,7 +8,7 @@ test('controls modal opens from the main menu, in sections, and closes with ✕ 
   await expect(modal).toBeHidden();
   await page.locator('#open-controls').click();
   await expect(modal).toBeVisible();
-  await expect(modal.locator('h3')).toHaveText([
+  await expect(modal.locator('h3:visible')).toHaveText([
     'Getting around',
     'Ski',
     'Fly',

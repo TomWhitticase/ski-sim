@@ -4,15 +4,30 @@ import { cameraSettings } from './camera-settings';
  * Keyboard and mouse state shared by the fly and ski controllers. Keys only register
  * while the pointer is locked to the canvas; mouse motion, wheel and key presses are
  * accumulated between frames and cleared by endFrame().
+ *
+ * Touch play (`touch-controls.ts`) drives the same state: on-screen buttons hold keys
+ * (`hold`), the thumbstick sets `stickX`/`stickY` (read through `turn`, `forward` and
+ * `throttle`) and look drags add to the mouse motion. There's no pointer lock on a
+ * touchscreen, so `lock()` there just starts playing.
  */
 export class Input {
   mouseX = 0;
   mouseY = 0;
   wheel = 0;
+  /** The touch thumbstick, -1..1: x right, y forward. 0 when it isn't held. */
+  stickX = 0;
+  stickY = 0;
+  /** Touch controls are in use (no pointer lock; `locked` means playing). */
+  touch = false;
 
   private readonly keys = new Set<string>();
+  /** Keys held by on-screen buttons and by the stick. */
+  private readonly held = new Set<string>();
+  private readonly stickHeld = new Set<string>();
   /** Keys pressed since the last frame, latched so taps shorter than a frame still count. */
   private readonly pressed = new Set<string>();
+  /** Playing on a touchscreen (the stand-in for pointer lock). */
+  private playing = false;
 
   constructor(private readonly element: HTMLElement) {
     document.addEventListener('mousemove', this.onMouseMove);
@@ -23,11 +38,16 @@ export class Input {
     window.addEventListener('blur', this.release);
   }
 
+  /** Playing: the mouse is captured, or (touch) the game isn't paused. */
   get locked(): boolean {
-    return document.pointerLockElement === this.element;
+    return document.pointerLockElement === this.element || this.playing;
   }
 
   async lock(): Promise<void> {
+    if (this.touch) {
+      this.setPlaying(true);
+      return;
+    }
     try {
       // Raw mouse input (no OS acceleration) feels closest to a game.
       await this.element.requestPointerLock({ unadjustedMovement: true });
@@ -40,8 +60,55 @@ export class Input {
     }
   }
 
+  /** Pause: release the mouse, or stop touch play. */
+  unlock(): void {
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.setPlaying(false);
+  }
+
   down(...codes: string[]): boolean {
-    return codes.some((c) => this.keys.has(c));
+    return codes.some((c) => this.keys.has(c) || this.held.has(c) || this.stickHeld.has(c));
+  }
+
+  /** An on-screen button holds `code` down (or lets it go), like a key. */
+  hold(code: string, on: boolean): void {
+    if (on && !this.held.has(code)) this.pressed.add(code);
+    if (on) this.held.add(code);
+    else this.held.delete(code);
+  }
+
+  /** A tap of `code`: pressed this frame, never held. */
+  tap(code: string): void {
+    this.pressed.add(code);
+  }
+
+  /** The keys the stick holds this frame (`stickKeys`). */
+  setStickKeys(codes: readonly string[]): void {
+    for (const c of codes) if (!this.stickHeld.has(c)) this.pressed.add(c);
+    this.stickHeld.clear();
+    for (const c of codes) this.stickHeld.add(c);
+  }
+
+  /** A look drag on a touchscreen, in pixels (scaled like mouse motion). */
+  look(dx: number, dy: number): void {
+    if (!this.locked) return;
+    this.mouseX += dx;
+    this.mouseY += dy;
+  }
+
+  /** Steering, -1..1: +1 is full left (A), -1 full right (D), the stick anywhere between. */
+  get turn(): number {
+    return clamp1((this.down('KeyA') ? 1 : 0) - (this.down('KeyD') ? 1 : 0) - this.stickX);
+  }
+
+  /** Forward (W, stick up) to back (S, stick down), -1..1. */
+  get forward(): number {
+    return clamp1((this.down('KeyW') ? 1 : 0) - (this.down('KeyS') ? 1 : 0) + this.stickY);
+  }
+
+  /** Throttle 0..1: W, or the stick pushed forward. */
+  get throttle(): number {
+    return Math.max(this.down('KeyW') ? 1 : 0, Math.min(1, this.stickY));
   }
 
   /** Pressed at some point since the previous frame (even if already released). */
@@ -82,14 +149,29 @@ export class Input {
   };
 
   private readonly onLockChange = () => {
+    // The real thing replaces touch play (a tablet's mouse was clicked to capture it).
+    if (document.pointerLockElement === this.element) this.playing = false;
     if (!this.locked) this.release();
   };
 
+  private setPlaying(on: boolean): void {
+    if (on === this.playing) return;
+    this.playing = on;
+    // Everything listening for pointer lock (menus, HUD) hears about touch play too.
+    document.dispatchEvent(new Event('pointerlockchange'));
+  }
+
   private readonly release = () => {
     this.keys.clear();
+    this.held.clear();
+    this.stickHeld.clear();
     this.pressed.clear();
+    this.stickX = 0;
+    this.stickY = 0;
   };
 }
+
+const clamp1 = (v: number) => Math.max(-1, Math.min(1, v));
 
 /** Yaw/pitch mouse look shared by both controllers. Yaw 0 faces north; positive turns left. */
 export class Look {

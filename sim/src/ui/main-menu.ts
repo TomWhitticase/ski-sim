@@ -26,8 +26,11 @@ export interface MenuHandlers {
   onSelect: (resortId: string) => void;
   /** Load a ski area (a fresh page if one's already loaded), starting at `choice`. */
   onLoad: (resortId: string, choice: StartChoice, options: { host: boolean }) => void;
-  /** The loaded area is ready and you pressed Start (or Resume, or picked a new start). */
-  onPlay: (choice: StartChoice) => void;
+  /**
+   * The loaded area is ready and you pressed Start (or Resume, or picked a new start);
+   * `auto` when it's just finished loading (no tap or click to start with).
+   */
+  onPlay: (choice: StartChoice, auto?: boolean) => void;
 }
 
 /** A menu screen something else opens and closes (the Multiplayer screen). */
@@ -48,6 +51,13 @@ const TIPS = [
   'E at a lift’s bottom station rides it; hold W to fast-forward.',
   'H hides everything for full immersion.',
   'P opens a paraglider, even mid-air; B brings a snowmobile.',
+];
+const TOUCH_TIPS = [
+  'Left thumb steers: push forward to skate, pull back to snowplough.',
+  'Drag on the right half of the screen to look around.',
+  'On the map, touch and hold anywhere to go there.',
+  'Stop with the stick pushed sideways is a hockey stop.',
+  'The paraglider opens even mid-air; the snowmobile comes to you.',
 ];
 
 /**
@@ -219,7 +229,8 @@ export class MainMenu {
     this.screens.reset('loading');
     const where = this.loadChoice?.name ?? (this.hasSaved ? 'Where you left off' : 'Resort start');
     this.$('#loading-where').textContent = `${this.name(resortId)} · ${where}`;
-    this.$('.loading-tip').textContent = `Tip · ${TIPS[Math.floor(Math.random() * TIPS.length)]}`;
+    const tips = document.body.classList.contains('touch') ? TOUCH_TIPS : TIPS;
+    this.$('.loading-tip').textContent = `Tip · ${tips[Math.floor(Math.random() * tips.length)]}`;
     this.progress('Starting…', 0);
     this.render();
   }
@@ -242,7 +253,7 @@ export class MainMenu {
   ready(): void {
     this.phase = 'ready';
     document.body.classList.add('world');
-    this.start();
+    this.start(true);
   }
 
   /** Loading failed: say why; the button tries again. */
@@ -496,7 +507,7 @@ export class MainMenu {
   }
 
   /** Into the world once it's ready (or, after an error, the button tries again). */
-  private start(): void {
+  private start(auto = false): void {
     if (this.phase === 'error') {
       location.reload();
       return;
@@ -505,7 +516,7 @@ export class MainMenu {
     this.started = true;
     this.screens.reset('pause');
     this.render();
-    this.handlers.onPlay(this.loadChoice);
+    this.handlers.onPlay(this.loadChoice, auto);
   }
 
   private async quit(): Promise<void> {

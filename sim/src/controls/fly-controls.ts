@@ -63,8 +63,8 @@ export class FlyControls {
       this.speed = Math.min(Math.max(this.speed * factor, FLY.minSpeed), FLY.maxSpeed);
     }
 
-    const forward = (input.down('KeyW') ? 1 : 0) - (input.down('KeyS') ? 1 : 0);
-    const strafe = (input.down('KeyD') ? 1 : 0) - (input.down('KeyA') ? 1 : 0);
+    const forward = input.forward;
+    const strafe = -input.turn;
     const lift = (input.down('Space') ? 1 : 0) - (input.down('ShiftLeft', 'ShiftRight') ? 1 : 0);
 
     const yaw = this.look.yaw;

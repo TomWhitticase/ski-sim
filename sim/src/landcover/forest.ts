@@ -98,12 +98,17 @@ export class Forest {
   private readonly box = new Box3();
   private dirty = true;
   private readonly bounds: { tx0: number; tx1: number; ty0: number; ty1: number };
+  /** How far trees are drawn (m): `FOREST_DRAW_DISTANCE` × the quality's scale. */
+  readonly drawDistance: number;
 
   constructor(
     private readonly source: TreeSource,
     private readonly params: TreeParams,
     extent: Extent,
+    /** × every detail level's distance (lighter on phones; `render/quality.ts`). */
+    private readonly distanceScale = 1,
   ) {
+    this.drawDistance = FOREST_DRAW_DISTANCE * distanceScale;
     this.bounds = {
       tx0: Math.floor(extent.west / TILE),
       tx1: Math.floor(extent.east / TILE),
@@ -127,7 +132,7 @@ export class Forest {
       mesh.receiveShadow = true;
       mesh.matrixAutoUpdate = false;
       this.root.add(mesh);
-      return { mesh, geometry, attribute: attr, distance };
+      return { mesh, geometry, attribute: attr, distance: distance * distanceScale };
     });
   }
 
@@ -137,7 +142,7 @@ export class Forest {
    */
   update(camera: Camera): void {
     this.frame++;
-    const reach = FOREST_DRAW_DISTANCE;
+    const reach = this.drawDistance;
     const eye = camera.position;
     const east = eye.x;
     const north = -eye.z;
@@ -224,7 +229,12 @@ export class Forest {
    */
   showOnly(level: number | null): void {
     this.lods.forEach((lod, i) => {
-      lod.distance = level === null ? LODS[i]!.distance : i === level ? FOREST_DRAW_DISTANCE : 0;
+      lod.distance =
+        level === null
+          ? LODS[i]!.distance * this.distanceScale
+          : i === level
+            ? this.drawDistance
+            : 0;
     });
     this.dirty = true;
   }

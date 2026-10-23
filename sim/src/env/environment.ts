@@ -14,7 +14,6 @@ import {
 import { type SunPosition, sunPosition } from './sun-position';
 
 const RAD = Math.PI / 180;
-const SHADOW_DISTANCE = 30_000;
 
 /** Unit vector toward the sun in world axes (x east, y up, z south). */
 export function sunDirection({ azimuth, elevation }: SunPosition): Vector3 {
@@ -78,6 +77,8 @@ export class Environment {
     time: Date,
     private readonly lat: number,
     private readonly lon: number,
+    /** Shadow budget (`render/quality.ts`): map size, cascades, how far they reach (m). */
+    shadows = { mapSize: 2048, cascades: 3, distance: 30_000 },
   ) {
     this.sun = sunPosition(time, lat, lon);
 
@@ -92,11 +93,11 @@ export class Environment {
     sky.frustumCulled = false;
     scene.add(sky);
 
-    // Cascaded shadow maps: sharp shadows close up, coarser out to SHADOW_DISTANCE.
+    // Cascaded shadow maps: sharp shadows close up, coarser out to `shadows.distance`.
     // Light direction is target - position, so the target sits at the origin.
     const sunLight = this.sunLight;
     sunLight.castShadow = true;
-    sunLight.shadow.mapSize.set(2048, 2048);
+    sunLight.shadow.mapSize.set(shadows.mapSize, shadows.mapSize);
     sunLight.shadow.bias = -0.0003;
     sunLight.shadow.normalBias = 1.5;
     // Each cascade clones this camera; its depth range must span lightMargin plus the
@@ -104,8 +105,8 @@ export class Environment {
     sunLight.shadow.camera.near = 1;
     sunLight.shadow.camera.far = 80_000;
     sunLight.shadow.shadowNode = new CSMShadowNode(sunLight, {
-      cascades: 3,
-      maxFar: SHADOW_DISTANCE,
+      cascades: shadows.cascades,
+      maxFar: shadows.distance,
       mode: 'practical',
       // Ridges well outside the view still cast long shadows into it.
       lightMargin: 6000,

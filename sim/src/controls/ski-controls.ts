@@ -256,7 +256,7 @@ export class SkiControls {
 
   update(dt: number, input: Input): void {
     this.look.apply(input, (80 * Math.PI) / 180);
-    const turn = (input.down('KeyA') ? 1 : 0) - (input.down('KeyD') ? 1 : 0);
+    const turn = input.turn;
     const pivot = input.down('KeyS');
     const lean = (input.down('BracketLeft') ? 1 : 0) - (input.down('BracketRight') ? 1 : 0);
     if (this.crashed) {

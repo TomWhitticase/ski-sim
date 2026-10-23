@@ -39,11 +39,19 @@ export function sanitizeDisplay(raw: unknown): DisplaySettings {
   return { glass, uiScale: scale };
 }
 
-export function loadDisplay(storage: Pick<Storage, 'getItem'>): DisplaySettings {
+/**
+ * The saved settings, or the defaults with `device` on top (phones start on the lighter
+ * glass) when nothing's been saved yet.
+ */
+export function loadDisplay(
+  storage: Pick<Storage, 'getItem'>,
+  device: Partial<DisplaySettings> = {},
+): DisplaySettings {
   try {
+    const saved: unknown = JSON.parse(storage.getItem(KEY) ?? 'null');
     return Object.assign(
       displaySettings,
-      sanitizeDisplay(JSON.parse(storage.getItem(KEY) ?? 'null')),
+      sanitizeDisplay(saved ?? { ...DEFAULT_DISPLAY, ...device }),
     );
   } catch {
     return Object.assign(displaySettings, DEFAULT_DISPLAY);
@@ -57,9 +65,12 @@ export function saveDisplay(storage: Pick<Storage, 'setItem'>): void {
 /**
  * The UI's scale: 1 at a 900 px tall window, growing and shrinking with it (within
  * 0.85-1.3) so it reads the same on a laptop and a 4K screen, times the player's choice.
+ * A phone (either side under 500 px) may go down to 0.7, so a landscape phone's 390 px
+ * of height still fits the menus.
  */
-export function uiScale(windowHeight: number, choice: number): number {
-  const auto = Math.min(1.3, Math.max(0.85, windowHeight / 900));
+export function uiScale(windowHeight: number, choice: number, windowWidth = Infinity): number {
+  const floor = Math.min(windowWidth, windowHeight) < 500 ? 0.7 : 0.85;
+  const auto = Math.min(1.3, Math.max(floor, windowHeight / 900));
   return Math.round(auto * choice * 100) / 100;
 }
 
@@ -67,7 +78,7 @@ export function uiScale(windowHeight: number, choice: number): number {
 export function applyDisplay(root: HTMLElement = document.documentElement): void {
   root.style.setProperty(
     '--ui-scale',
-    String(uiScale(window.innerHeight, displaySettings.uiScale)),
+    String(uiScale(window.innerHeight, displaySettings.uiScale, window.innerWidth)),
   );
   root.dataset.glass = displaySettings.glass;
 }

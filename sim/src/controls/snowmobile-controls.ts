@@ -346,8 +346,8 @@ export class SnowmobileControls {
     this.still = 0;
     const yawBefore = this.state.yaw;
     this.look.apply(input);
-    const steer = (input.down('KeyA') ? 1 : 0) - (input.down('KeyD') ? 1 : 0);
-    const want = input.down('KeyW') ? 1 : 0;
+    const steer = input.turn;
+    const want = input.throttle;
     this.throttle += (want - this.throttle) * Math.min(1, THROTTLE_RATE * dt);
     if (this.throttle < 0.01) this.throttle = 0;
 
