@@ -344,8 +344,10 @@ function buildTerminal(
       signY = rail + 0.9;
     }
     if (t.hut) {
-      const hu = Math.max(at - 1.5, 0.5);
-      operatorCabin(b, hu, hu + 3, -w - 3.2, -w - 0.4, trim, paintwork);
+      // Centred on the (un)loading point, within the cleared hall (L + 0.8 in front).
+      const length = Math.min(OPERATOR_CABIN_LENGTH, L + 0.6 - 0.5);
+      const hu = Math.min(Math.max(at - length / 2, 0.5), L + 0.6 - length);
+      operatorCabin(b, hu, hu + length, -w - 3.2, -w - 0.4, trim, paintwork);
     }
     const boardW = Math.min(9, hoodFront + hoodBack - 2.5);
     if (t.end === 'bottom') {
@@ -436,7 +438,13 @@ function buildTerminal(
   return b;
 }
 
-/** A lift operator's cabin: light walls, a glass band all round, a flat roof. */
+const OPERATOR_CABIN_LENGTH = 4.6;
+
+/**
+ * A lift operator's cabin between `v0` (the back) and `v1` (the side facing the lift):
+ * light walls, a long window looking out over the line where the operator sits, a
+ * smaller one at each end, a door at the back, and a flat roof with eaves.
+ */
 function operatorCabin(
   b: TerminalBuilder,
   u0: number,
@@ -446,8 +454,24 @@ function operatorCabin(
   walls: RGB,
   roof: RGB,
 ) {
-  b.box(u0, u1, v0, v1, -0.8, 2.6, walls === DARK_STEEL ? CABIN_WALL : walls, true);
-  b.box(u0 - 0.03, u1 + 0.03, v0 - 0.03, v1 + 0.03, 1.1, 2.15, GLASS);
+  const wall = walls === DARK_STEEL ? CABIN_WALL : walls;
+  b.box(u0, u1, v0, v1, -0.8, 2.6, wall, true);
+  // Window to the lift: most of the front, from desk height up, with a frame round it.
+  b.box(u0 + 0.3, u1 - 0.3, v1 - 0.02, v1 + 0.05, 0.95, 2.2, DARK_STEEL);
+  b.box(u0 + 0.38, u1 - 0.38, v1 + 0.03, v1 + 0.07, 1.03, 2.12, GLAZING);
+  // End windows, looking up and down the line.
+  for (const [ua, ub] of [
+    [u0 - 0.05, u0 + 0.02],
+    [u1 - 0.02, u1 + 0.05],
+  ] as const) {
+    b.box(ua, ub, v1 - 1.4, v1 - 0.3, 1.1, 2.1, GLAZING);
+  }
+  // Door at the back (decorative): a panel standing proud of the wall, a handle, a step.
+  const dc = (u0 + u1) / 2;
+  b.box(dc - 0.5, dc + 0.5, v0 - 0.05, v0 + 0.02, 0, 2.1, DARK_STEEL);
+  b.box(dc - 0.44, dc + 0.44, v0 - 0.08, v0 - 0.03, 0.06, 2.04, roof);
+  b.box(dc + 0.28, dc + 0.36, v0 - 0.13, v0 - 0.07, 1.0, 1.06, STEEL);
+  b.box(dc - 0.6, dc + 0.6, v0 - 0.45, v0, -0.3, 0.15, CONCRETE);
   b.box(u0 - 0.35, u1 + 0.35, v0 - 0.35, v1 + 0.35, 2.6, 2.85, roof);
 }
 
