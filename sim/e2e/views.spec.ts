@@ -169,6 +169,14 @@ const VIEWS = [
     name: 'sella-ronda-sella',
     query: 'resort=sella-ronda&at=46.5650,11.7800,2600&heading=120&pitch=-8',
   },
+  {
+    name: 'kitzbuehel-hahnenkamm',
+    query: 'resort=kitzbuehel&at=47.4500,12.3700,1900&heading=240&pitch=-8',
+  },
+  {
+    name: 'st-moritz-corvatsch',
+    query: 'resort=st-moritz&at=46.4600,9.8500,3200&heading=210&pitch=-10',
+  },
   { name: 'alpe-dhuez', query: 'resort=alpe-dhuez&at=45.0750,6.0400,2300&heading=70&pitch=-8' },
   { name: 'vail', query: 'resort=vail&at=39.6550,-106.3700,3000&heading=180&pitch=-10' },
   {

@@ -1,0 +1,11 @@
+{
+  "id": "kitzbuehel",
+  "name": "Kitzbühel",
+  "country": "AT",
+  "bounds": {
+    "south": 47.292,
+    "west": 12.2789,
+    "north": 47.4909,
+    "east": 12.4894
+  }
+}

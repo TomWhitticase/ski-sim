@@ -1,11 +1,11 @@
 {
   "id": "st-moritz",
-  "name": "St. Moritz",
+  "name": "St. Moritz – Engadin",
   "country": "CH",
   "bounds": {
-    "south": 46.4679,
-    "west": 9.7543,
+    "south": 46.395,
+    "west": 9.735,
     "north": 46.6312,
-    "east": 9.9782
+    "east": 10.025
   }
 }
