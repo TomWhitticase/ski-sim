@@ -1,0 +1,5 @@
+# Wrangler's bundler (esbuild) and local runtime (workerd) ship native binaries that
+# install via build scripts.
+allowBuilds:
+  esbuild: true
+  workerd: true

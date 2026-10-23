@@ -1,0 +1,23 @@
+// The resort data server: a Worker in front of a private R2 bucket.
+//
+// Cost guard (see infra/README.md): the bucket has no public URL, so every read goes
+// through this Worker, and on the Workers Free plan a Worker stops at 100,000 requests a
+// day (error 1027 until midnight UTC) instead of billing. That caps R2 reads at ~3 M a
+// month, under R2's 10 M free Class B operations. Deploy with infra/setup.sh, which also
+// checks the account is still on the Free plan.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "ski-sim-data",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  // Served at https://ski-sim-data.<account subdomain>.workers.dev only: no routes, no
+  // custom domain, no per-version preview URLs (each would be another way in).
+  "workers_dev": true,
+  "preview_urls": false,
+  "r2_buckets": [{ "binding": "DATA", "bucket_name": "ski-sim-data" }],
+  "vars": {
+    // Pages origin and local dev servers allowed to fetch the data (CORS).
+    "ALLOWED_ORIGINS": "https://tomwhitticase.github.io"
+  },
+  "observability": { "enabled": false }
+}
