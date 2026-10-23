@@ -136,8 +136,14 @@ class TerminalBuilder {
     y1 = clearOfGround(y1);
     const g = new BoxGeometry(Math.abs(v1 - v0), y1 - y0, Math.abs(u1 - u0)).toNonIndexed();
     const centre = this.world((u0 + u1) / 2, (v0 + v1) / 2, (y0 + y1) / 2);
-    // Box local x → v, local z → u.
-    const basis = new Matrix4().makeBasis(this.v, new Vector3(0, 1, 0), this.u);
+    // Box local x → ±v, local z → u. The uphill track (+v) is left of the line at some
+    // terminals and right at others; a mirrored basis would turn the box inside out (its
+    // outside faces culled), so x takes whichever of ±v keeps it right-handed. The box is
+    // centred, so either gives the same shape.
+    const up = new Vector3(0, 1, 0);
+    const x = this.v.clone();
+    if (x.dot(new Vector3().crossVectors(up, this.u)) < 0) x.negate();
+    const basis = new Matrix4().makeBasis(x, up, this.u);
     g.applyMatrix4(basis.setPosition(centre));
     paint(g, colour);
     this.parts.push(g);

@@ -26,7 +26,36 @@ const terminal = (kind: Terminal['kind'], extra: Partial<Terminal> = {}): Termin
   ...extra,
 });
 
+/** Signed volume of a mesh: positive when its triangles wind outwards (front faces out). */
+function signedVolume(t: Terminal): number {
+  const { mesh } = createTerminals([{ terminal: t, rail: 4 }], () => 2000);
+  const p = mesh.geometry.getAttribute('position');
+  let v = 0;
+  for (let i = 0; i < p.count; i += 3) {
+    const [ax, ay, az] = [p.getX(i), p.getY(i) - 2000, p.getZ(i)];
+    const [bx, by, bz] = [p.getX(i + 1), p.getY(i + 1) - 2000, p.getZ(i + 1)];
+    const [cx, cy, cz] = [p.getX(i + 2), p.getY(i + 2) - 2000, p.getZ(i + 2)];
+    v += (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6;
+  }
+  return v;
+}
+
 describe('createTerminals', () => {
+  // The uphill track is to the left of the line at some terminals and to the right at
+  // others. A station built in a mirrored frame turns inside out: the renderer culls its
+  // outside faces, so walls vanish from some angles and you see the far walls' insides.
+  it.each(['chair', 'gondola', 'cabin', 'drag'] as const)(
+    '%s stations face outwards whichever side the uphill track is on',
+    (kind) => {
+      for (const extra of [{}, { detachable: false }]) {
+        const right = signedVolume(terminal(kind, { ...extra, across: [1, 0] }));
+        const left = signedVolume(terminal(kind, { ...extra, across: [-1, 0] }));
+        expect(right).toBeGreaterThan(0);
+        expect(left).toBeCloseTo(right, 1);
+      }
+    },
+  );
+
   it('never puts a face level with the snow on the pad (no z-fighting)', () => {
     const terminals = [
       terminal('chair'),
