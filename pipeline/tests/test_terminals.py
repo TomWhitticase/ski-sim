@@ -106,11 +106,16 @@ def test_buildings_are_cut_only_where_and_as_high_as_lifts_need():
     assert 9 in ids  # untouched
     pieces = [b for b in out if b["id"] // 100 == 8]
     raised = [b for b in pieces if b.get("raised")]
-    # The block stays above the walkway tunnel, but the station and the rope corridor
-    # clear its full height: no archway with storeys over the hall.
+    # The block stays above the walkway tunnel, and above the station: it sits in the
+    # building's ground floor.
     assert raised and min(b["base"] for b in raised) >= 2000 + WALK_HEIGHT
     hall = hall_polygon(terms[0])
-    assert all(Polygon(b["footprint"]).intersection(hall).area < 0.5 for b in pieces)
+    over = [b for b in raised if Polygon(b["footprint"]).intersection(hall).area > 0.5]
+    assert over and min(b["base"] for b in over) >= 2000 + terms[0]["roofTop"]
+    # Nothing at ground level inside the hall.
+    assert all(
+        Polygon(b["footprint"]).intersection(hall).area < 0.5 for b in pieces if not b.get("raised")
+    )
     # No slivers left beside a cut.
     assert all(not Polygon(b["footprint"]).buffer(-1.2).is_empty for b in pieces)
     assert all(len(b["footprint"]) <= 12 for b in pieces)  # clean, square-cornered cuts

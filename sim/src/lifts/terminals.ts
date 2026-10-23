@@ -1,3 +1,4 @@
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   BoxGeometry,
@@ -23,7 +24,6 @@ const GLASS: RGB = [0.12, 0.16, 0.22];
 /** Station glazing: lighter than a window at night, reflecting the sky. */
 const GLAZING: RGB = [0.3, 0.4, 0.5];
 const TIMBER: RGB = [0.38, 0.25, 0.15];
-const RUBBER: RGB = [0.1, 0.1, 0.11];
 const WHEEL: RGB = [0.15, 0.15, 0.17];
 const DARK_STEEL: RGB = [0.2, 0.22, 0.25];
 const CABIN_WALL: RGB = [0.9, 0.9, 0.88];
@@ -120,7 +120,10 @@ class TerminalBuilder {
       .setY(this.origin.y + y);
   }
 
-  /** Axis-aligned (in terminal frame) box. `solid` adds it as a collision obstacle. */
+  /**
+   * Axis-aligned (in terminal frame) box. `solid` adds it as a collision obstacle;
+   * `round` rounds its edges (m), keeping square corners in plan over square walls.
+   */
   box(
     u0: number,
     u1: number,
@@ -130,10 +133,15 @@ class TerminalBuilder {
     y1: number,
     colour: RGB,
     solid = false,
+    round = 0,
   ) {
     y0 = clearOfGround(y0);
     y1 = clearOfGround(y1);
-    const g = new BoxGeometry(Math.abs(v1 - v0), y1 - y0, Math.abs(u1 - u0)).toNonIndexed();
+    const g = (
+      round > 0
+        ? new RoundedBoxGeometry(Math.abs(v1 - v0), y1 - y0, Math.abs(u1 - u0), 2, round)
+        : new BoxGeometry(Math.abs(v1 - v0), y1 - y0, Math.abs(u1 - u0))
+    ).toNonIndexed();
     const centre = this.world((u0 + u1) / 2, (v0 + v1) / 2, (y0 + y1) / 2);
     // Box local x → ±v, local z → u. The uphill track (+v) is left of the line at some
     // terminals and right at others; a mirrored basis would turn the box inside out (its
@@ -271,7 +279,7 @@ function paint(g: BufferGeometry, colour: RGB) {
  * Build one terminal. `rail` is the haul rope's height above the pad inside the station.
  * Layouts (all from the same few parameters, so they fit any lift):
  * - detachable chair: one moulded hood over the bullwheel and the slow section, on
- *   columns between the tracks, with a loading carpet, gate and glazed operator's cabin;
+ *   columns between the tracks, with a glazed operator's cabin;
  * - fixed-grip chair: the bullwheel in the open on a column, under a small drive lid;
  * - gondola / cable car: a glazed hall on a dark plinth under a rounded roof that
  *   overhangs the open line end, the drive housing visible over the bullwheel, and a door
@@ -328,10 +336,6 @@ function buildTerminal(
       for (const v of [-r, r])
         b.box(1, hoodFront - 1, v - 0.15, v + 0.15, rail + 0.15, rail + 0.4, STEEL);
       signY = (y0 + roofTop) / 2;
-      if (t.end === 'bottom') {
-        // Loading carpet up to the loading point, on the uphill track.
-        b.box(t.load - 7, t.load - 0.3, r - 1.4, r + 1.4, -0.3, 0.12, RUBBER);
-      }
     } else {
       // Fixed grip: the bullwheel out in the open on a single column, the drive (or
       // tension) unit a small housing over its hub.
@@ -403,8 +407,9 @@ function buildTerminal(
     // Steel portal round the open end, where the cabins leave.
     for (const v of [-w + 0.2, w - 0.2])
       b.box(L - 0.5, L + 0.1, v - 0.3, v + 0.3, 0, roofY, DARK_STEEL);
-    // Roof: a rounded hood over the hall, overhanging the open end and the door side.
-    b.hood(-B - 0.6, L + 2.5, w + 0.6, roofY, roofTop + 0.3, paintwork, 0.92, 0.4);
+    // Roof: a slab with rounded edges over the hall, overhanging every wall (the hall is
+    // square-cornered, so the roof is too) and the open end most.
+    b.box(-B - 0.6, L + 2.5, -w - 0.6, w + 0.6, roofY, roofTop + 0.3, paintwork, false, 0.35);
     b.box(-B + 0.5, L - 0.5, -(r + 0.6), r + 0.6, rail + 0.2, rail + 0.5, STEEL); // rail beam
     // Drive housing over the bullwheel, seen through the open end.
     b.box(-1.2, 1.2, -1.2, 1.2, rail + 0.5, Math.min(rail + 2.2, roofY - 0.2), paintwork);

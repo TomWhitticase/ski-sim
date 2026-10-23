@@ -366,9 +366,16 @@ def choose_entrances(terminals: list[dict], buildings: list[dict]) -> None:
 # --- Volumetric building cuts -----------------------------------------------------------
 
 NO_FLOOR = -1e9
-# Halls and the rope corridor clear a building's full height: a station or a line roofed
-# over by the storeys above it read as an archway or tunnel through the block.
+# Out on the line the rope corridor clears a building's full height (a cabin vanishing
+# into a tunnel through a block looks wrong). A station hall, and the rope inside it, only
+# clear what the station needs: storeys above stay, so it sits in the building's ground
+# floor like real resort stations.
 NO_CEILING = 1e9
+HALL_HEADROOM = 0.6
+# Room left round the carriers (m): below the lowest point (skis, cabin floor) and beside
+# the widest (an 8-seat chair, a cabin) as they swing.
+CARRIER_CLEARANCE = 1.5
+CARRIER_HALF_WIDTH = {"chair": 0.25, "gondola": 1.3, "cabin": 2.6, "drag": 0.6}
 # Leftover building pieces narrower than this are dropped (slices beside a cut), and a
 # cut building keeping less than MIN_KEPT of its footprint goes altogether: what's left of
 # a small building beside a station reads as a stray wall, not a building.
@@ -376,13 +383,13 @@ MIN_PIECE_WIDTH = 5.0
 MIN_KEPT = 0.35
 
 
-def cut_volumes(
-    lifts: list[dict], terminals: list[dict]
-) -> list[tuple[Polygon, float, float, str]]:
-    """Spaces lifts need: (footprint, from height, to height, what)."""
+def cut_volumes(lifts: list[dict], terminals: list[dict]) -> list[tuple]:
+    """Spaces lifts need: (footprint, from height, to height, what[, floor plane]). A
+    cable piece's floor plane, when given, is the sloping height below which buildings
+    stay (`_plane_roof`); `from height` is its lowest point."""
     cuts = []
     for t in terminals:
-        cuts.append((hall_polygon(t), NO_FLOOR, NO_CEILING, "hall"))
+        cuts.append((hall_polygon(t), NO_FLOOR, t["pad"] + t["roofTop"] + HALL_HEADROOM, "hall"))
         side = t.get("entrance")
         if side:
             cuts.append(
@@ -393,7 +400,9 @@ def cut_volumes(
         if kind is None:
             continue
         s = lift["supports"]
-        width = lift["gauge"] / 2 + 2.2
+        half = CARRIER_HALF_WIDTH[kind] * ((lift.get("occupancy") or 4) if kind == "chair" else 1)
+        width = lift["gauge"] / 2 + half + CARRIER_CLEARANCE
+        depth = HANG_DEPTH[kind] + CARRIER_CLEARANCE
         for a, b in zip(s, s[1:], strict=False):
             ax, ay, bx, by = a["east"], a["north"], b["east"], b["north"]
             span = math.hypot(bx - ax, by - ay)
@@ -421,8 +430,18 @@ def cut_volumes(
                     ]
                 ).buffer(width, cap_style="flat")
                 hs = [rope(d) for d in (d0, d1, level_a, level_b) if d0 <= d <= d1]
-                low = NO_FLOOR if kind == "drag" else min(hs) - HANG_DEPTH[kind] - 0.5
-                cuts.append((piece, low, NO_CEILING, "cable"))
+                low = NO_FLOOR if kind == "drag" else min(hs) - depth
+                in_station = d1 <= level_a + 1e-6 or d0 >= level_b - 1e-6
+                ceiling = max(hs) + 1.5 if in_station else NO_CEILING
+                # What's left below follows the rope down the slope, not 4 m steps: the
+                # floor as a plane (point, direction, height there, gradient along it).
+                floor = None
+                if kind != "drag" and not in_station:
+                    ux, uy = (bx - ax) / span, (by - ay) / span
+                    x0, y0 = ax + ux * d0, ay + uy * d0
+                    grade = (rope(d1) - rope(d0)) / (d1 - d0)
+                    floor = (x0, y0, ux, uy, rope(d0) - depth, grade)
+                cuts.append((piece, low, ceiling, "cable", floor))
     return cuts
 
 
@@ -489,6 +508,50 @@ def _clip_roof(roof: dict | None, piece: Polygon) -> dict | None:
     return {**roof, "faces": faces} if faces else None
 
 
+def _plane_height(floor: tuple, e: float, n: float) -> float:
+    x0, y0, ux, uy, z0, grade = floor
+    return z0 + grade * ((e - x0) * ux + (n - y0) * uy)
+
+
+def _plane_roof(q: Polygon, floor: tuple) -> tuple[float, dict | None]:
+    """A piece's top and roof so it slopes with a cable cut's floor plane: the renderer's
+    roof model (height falling off linearly from a ridge line) with the ridge across the
+    line at the piece's highest point. Returns (lowest height, roof or None if level)."""
+    x0, y0, ux, uy, _, _ = floor
+    pts = np.asarray(q.exterior.coords)[:-1]
+    heights = [_plane_height(floor, e, n) for e, n in pts]
+    lo, hi = min(heights), max(heights)
+    if hi - lo < 0.05:
+        return lo, None
+    along = [(e - x0) * ux + (n - y0) * uy for e, n in pts]
+    s_hi = along[int(np.argmax(heights))]
+    span = max(along) - min(along)
+    ce, cn = x0 + ux * s_hi, y0 + uy * s_hi
+    ridge = [
+        [round(ce - uy * 1000, 2), round(cn + ux * 1000, 2)],
+        [round(ce + uy * 1000, 2), round(cn - ux * 1000, 2)],
+    ]
+    face = np.round(pts, 2).tolist()
+    return lo, {
+        "ridge": ridge,
+        "halfWidth": round(span, 3),
+        "rise": round(hi - lo, 3),
+        "faces": [face],
+    }
+
+
+def _height_at(b: dict, e: float, n: float) -> float:
+    """A building's top at a point (mirrors the sim's roofHeight)."""
+    roof = b.get("roof")
+    if not roof:
+        return b["top"]
+    (ax, ay), (bx, by) = roof["ridge"]
+    length = math.hypot(bx - ax, by - ay)
+    d = abs((bx - ax) * (ay - n) - (ax - e) * (by - ay)) / length
+    k = 1 - d / roof["halfWidth"]
+    return b["top"] + roof["rise"] * (k if roof.get("eaves") else max(0.0, k))
+
+
 def cut_buildings(
     buildings: list[dict], cuts: list[tuple], halls: list[tuple[Polygon, float]] = ()
 ):
@@ -497,11 +560,12 @@ def cut_buildings(
     A building mostly inside a station hall (`halls`) and not much taller than it *is*
     the station: it's replaced by the generated terminal. Otherwise each building is
     split: what's outside a cut stays as it was; inside it, anything below the cut's
-    floor stays (flat-topped) and anything above its ceiling stays as a raised piece
-    (keeping its original roof), unless it would be a sliver thinner than MIN_SLAB. Halls
-    and the rope corridor have no ceiling, so they leave a notch, never an archway; only
-    a walkway can pass under a building. Pieces narrower than MIN_PIECE_WIDTH go, and so
-    does a cut building left with under MIN_KEPT of its footprint.
+    floor stays (flat-topped, or sloping with the rope under a cable cut that has a floor
+    plane) and anything above its ceiling stays as a raised piece (keeping its original
+    roof), unless it would be a sliver thinner than MIN_SLAB. Out on the line the rope
+    corridor has no ceiling, so it leaves a notch, not a tunnel; storeys over a station
+    hall stay. Pieces narrower than MIN_PIECE_WIDTH go, and so does a cut building left
+    with under MIN_KEPT of its footprint.
     """
     from shapely.strtree import STRtree
 
@@ -527,7 +591,8 @@ def cut_buildings(
             ]
             touched = False
             for i in tree.query(polygon):
-                shape, z0, z1, _ = cuts[int(i)]
+                shape, z0, z1 = cuts[int(i)][:3]
+                floor = cuts[int(i)][4] if len(cuts[int(i)]) > 4 else None
                 margin_shape = shape.buffer(CUT_MARGIN, join_style=2)
                 next_pieces = []
                 for p in pieces:
@@ -540,9 +605,13 @@ def cut_buildings(
                     for q in _polygons(p["polygon"].difference(margin_shape)):
                         next_pieces.append({**p, "polygon": q, "roof": _clip_roof(p["roof"], q)})
                     for q in _polygons(inside):
-                        if z0 > p["base"] + 1.0:  # below the cut: flat-topped stub
+                        if z0 > p["base"] + 1.0:  # below the cut: a stub
                             stub_top = min(p["top"], z0)
                             roof = _clip_roof(p["roof"], q) if z0 >= p_top else None
+                            if floor is not None and roof is None:
+                                lo, sloped = _plane_roof(q, floor)
+                                if sloped and lo + sloped["rise"] <= p["top"]:
+                                    stub_top, roof = lo, sloped
                             next_pieces.append({**p, "polygon": q, "top": stub_top, "roof": roof})
                         if z1 < p["top"] and p_top - z1 >= MIN_SLAB:  # above it: raised
                             next_pieces.append(
@@ -565,8 +634,10 @@ def cut_buildings(
                 if p["polygon"].area >= 4
                 and not p["polygon"].buffer(-MIN_PIECE_WIDTH / 2, join_style=2).is_empty
             ]
-            ground = [p for p in kept if not p["raised"]]
-            if sum(p["polygon"].area for p in ground) < MIN_KEPT * polygon.area:
+            from shapely.ops import unary_union
+
+            left = unary_union([p["polygon"] for p in kept]).area if kept else 0.0
+            if left < MIN_KEPT * polygon.area:
                 stats["removedAsSliver"] = stats.get("removedAsSliver", 0) + 1
                 continue
             for k, p in enumerate(kept):
@@ -597,8 +668,17 @@ def conflicts(buildings: list[dict], cuts: list[tuple]) -> list[str]:
         polygon = Polygon(b["footprint"]).buffer(0)
         lo, hi = b["base"], _full_top(b)
         for i in tree.query(polygon):
-            shape, z0, z1, what = cuts[int(i)]
-            if min(hi, z1) - max(lo, z0) > 0.05 and polygon.intersection(shape).area > 0.05:
-                bad[what] = bad.get(what, 0) + 1
-                break
+            shape, z0, z1, what = cuts[int(i)][:4]
+            floor = cuts[int(i)][4] if len(cuts[int(i)]) > 4 else None
+            overlap = polygon.intersection(shape)
+            if min(hi, z1) - max(lo, z0) <= 0.05 or overlap.area <= 0.05:
+                continue
+            if floor is not None and lo < z0:
+                # A sloping cut: only an intrusion where the building's top rises above
+                # the floor plane (checked at the overlap's corners).
+                pts = [c for g in _polygons(overlap) for c in np.asarray(g.exterior.coords)]
+                if all(_height_at(b, e, n) <= _plane_height(floor, e, n) + 0.05 for e, n in pts):
+                    continue
+            bad[what] = bad.get(what, 0) + 1
+            break
     return [f"{n} buildings intrude on lift {what} space" for what, n in bad.items()]
