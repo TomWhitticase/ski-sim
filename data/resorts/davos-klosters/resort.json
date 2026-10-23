@@ -1,0 +1,11 @@
+{
+  "id": "davos-klosters",
+  "name": "Davos Klosters",
+  "country": "CH",
+  "bounds": {
+    "south": 46.735,
+    "west": 9.7726,
+    "north": 46.92,
+    "east": 9.965
+  }
+}

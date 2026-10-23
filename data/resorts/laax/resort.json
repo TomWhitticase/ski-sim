@@ -1,0 +1,11 @@
+{
+  "id": "laax",
+  "name": "Flims Laax Falera",
+  "country": "CH",
+  "bounds": {
+    "south": 46.7875,
+    "west": 9.1311,
+    "north": 46.8969,
+    "east": 9.3152
+  }
+}

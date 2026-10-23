@@ -183,6 +183,14 @@ const VIEWS = [
     name: 'jackson-hole',
     query: 'resort=jackson-hole&at=43.5800,-110.7900,2500&heading=270&pitch=-6',
   },
+  {
+    name: 'jungfrau-grindelwald',
+    query: 'resort=jungfrau&at=46.6147,8.0368,1563&heading=18&pitch=-8',
+  },
+  { name: 'laax-flims', query: 'resort=laax&at=46.8298,9.2962,1599&heading=290&pitch=-8' },
+  { name: 'davos', query: 'resort=davos-klosters&at=46.7978,9.8089,2039&heading=124&pitch=-8' },
+  { name: 'saas-fee', query: 'resort=saas-fee&at=46.1166,7.9326,2282&heading=196&pitch=-8' },
+  { name: 'engelberg', query: 'resort=engelberg-titlis&at=46.8117,8.4152,1558&heading=5&pitch=-8' },
   // Lift stations up close: a detachable chair's hood, a fixed-grip bullwheel, a gondola hall.
   {
     name: 'station-chair-detachable',

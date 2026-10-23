@@ -1,0 +1,11 @@
+{
+  "id": "jungfrau",
+  "name": "Jungfrau: Grindelwald, Wengen, Mürren",
+  "country": "CH",
+  "bounds": {
+    "south": 46.5314,
+    "west": 7.8117,
+    "north": 46.6898,
+    "east": 8.1117
+  }
+}

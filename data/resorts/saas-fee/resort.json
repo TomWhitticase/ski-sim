@@ -1,0 +1,11 @@
+{
+  "id": "saas-fee",
+  "name": "Saas-Fee",
+  "country": "CH",
+  "bounds": {
+    "south": 46.0374,
+    "west": 7.8682,
+    "north": 46.1303,
+    "east": 7.9653
+  }
+}
