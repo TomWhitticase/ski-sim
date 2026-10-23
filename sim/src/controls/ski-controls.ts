@@ -229,16 +229,24 @@ export class SkiControls {
    * Pose the skier riding a lift: `crouch` ~0.6 seated on a chair, ~0.15 standing.
    * In a cabin the skis and poles are stowed, and `sit` seats you on a bench.
    */
-  showRiding(feet: Vector3, yaw: number, crouch: number, cabin?: { sit?: Stance['sit'] }): void {
+  /** Pose the skier on a lift. `sit`: on a chair or bench; `stowed`: skis in a cabin rack. */
+  showRiding(
+    feet: Vector3,
+    yaw: number,
+    crouch: number,
+    { sit, stowed = false }: { sit?: Stance['sit']; stowed?: boolean } = {},
+  ): void {
     this.skier.visible = true;
     this.model.setOpacity(1);
-    this.model.setFirstPerson(this.view === 'first-person', (cabin?.sit?.amount ?? 0) > 0.5);
-    this.model.setStowed(!!cabin);
+    this.model.setFirstPerson(this.view === 'first-person', (sit?.amount ?? 0) > 0.5);
+    this.model.setStowed(stowed);
     this.skier.position.copy(feet);
     this.skier.quaternion.setFromAxisAngle(UP, yaw);
     RIDING_STANCE.crouch = crouch;
-    RIDING_STANCE.poleSweep = crouch > 0.5 ? 1.1 : 0.4;
-    RIDING_STANCE.sit = cabin?.sit;
+    // Seated, the poles hang down beside the skis; standing, they trail behind.
+    const seated = (sit?.amount ?? 0) > 0.5;
+    RIDING_STANCE.poleSweep = seated ? -0.25 : crouch > 0.5 ? 1.1 : 0.4;
+    RIDING_STANCE.sit = sit;
     this.model.apply(RIDING_STANCE, UP);
   }
 

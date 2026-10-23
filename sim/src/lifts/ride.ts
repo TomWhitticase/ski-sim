@@ -18,6 +18,13 @@ const CABIN_BLEND = 1.8;
 /** Seated on a cabin bench: hips above the bench top, and behind the feet (m). */
 const HIP_ABOVE_SEAT = 0.1;
 const SEAT_REACH = 0.42;
+/**
+ * On a chair, from the feet (resting on the footrest, ahead of the seat): hips on the
+ * cushion and behind the feet (m). The cushion top is 0.5 m above the feet.
+ */
+const CHAIR_HIP = 0.6;
+const CHAIR_FEET_AHEAD = 0.3;
+const CHAIR_HIP_BACK = 0.48;
 /** Seated eye above the hips; standing eye above the feet (m). */
 const SEATED_EYE = 0.7;
 const STANDING_EYE = 1.62;
@@ -344,7 +351,11 @@ export class RideControls {
     const { kind, hang } = line.op;
     const local = new Vector3();
     if (kind === 'chair') {
-      local.set(line.seats * 0.25 - 0.35, -(floorBelowGrip(kind, line.seats, hang) + 0.5), -0.12);
+      local.set(
+        line.seats * 0.25 - 0.35,
+        -(floorBelowGrip(kind, line.seats, hang) + 0.5),
+        -0.12 - CHAIR_FEET_AHEAD,
+      );
     } else {
       const { platter } = this.lifts.platterPose(this.gripPos, this.travel, side);
       this.seat.set(platter.x, this.skier.groundAt(platter.x, platter.z), platter.z);
@@ -364,10 +375,17 @@ export class RideControls {
           : 0.15;
     const inside = this.cabin !== null && (this.phase === 'boarding' || this.phase === 'riding');
     const bench = inside ? backBench(this.cabin!) : null;
+    const onChair = kind === 'chair' && this.phase !== 'waiting';
     const sit = bench
       ? { amount: this.sit, height: bench.top + HIP_ABOVE_SEAT, back: SEAT_REACH }
-      : undefined;
-    this.skier.showRiding(this.feet, this.bodyYaw, crouch, inside ? { sit } : undefined);
+      : onChair
+        ? {
+            amount: this.phase === 'riding' ? 1 : this.blend * this.blend * (3 - 2 * this.blend),
+            height: CHAIR_HIP,
+            back: CHAIR_HIP_BACK,
+          }
+        : undefined;
+    this.skier.showRiding(this.feet, this.bodyYaw, crouch, { sit, stowed: inside });
     // Eye above the feet, or (seated) above the hips on the bench, in the body's frame.
     const eye = new Vector3(0, STANDING_EYE - 0.7 * Math.max(0, crouch - 0.15), 0);
     if (sit) eye.lerp(new Vector3(0, sit.height + SEATED_EYE, sit.back - 0.05), sit.amount);

@@ -1,3 +1,4 @@
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   BoxGeometry,
   BufferAttribute,
@@ -6,12 +7,17 @@ import {
   CylinderGeometry,
   DoubleSide,
   Euler,
+  ExtrudeGeometry,
   Group,
+  LatheGeometry,
+  Matrix4,
   Mesh,
   MeshStandardNodeMaterial,
   Quaternion,
+  Shape,
   SphereGeometry,
   TorusGeometry,
+  Vector2,
   Vector3,
 } from 'three/webgpu';
 
@@ -170,10 +176,10 @@ export class SkierModel {
     const skiMat = new MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.3 });
     const binding = mat(0x2b2d31, 0.45, 0.3);
     const bindingMetal = mat(0xb8bcc2, 0.35, 0.8);
-    const shell = mat(0x1f2124, 0.45);
+    const shell = mat(0x30353b, 0.35, 0.1);
     const cuff = mat(0xe8590c, 0.45);
     const buckle = mat(0xced4da, 0.3, 0.8);
-    const glove = mat(0x212529, 0.7);
+    const glove = mat(0x353a40, 0.85);
     const poleShaft = mat(0xadb5bd, 0.3, 0.8);
     const poleGrip = mat(0x212529, 0.8);
 
@@ -181,10 +187,11 @@ export class SkierModel {
     const toe = new BoxGeometry(0.068, 0.045, 0.085);
     const heel = new BoxGeometry(0.07, 0.06, 0.11);
     const brake = new BoxGeometry(0.115, 0.008, 0.012);
-    const sole = new BoxGeometry(0.105, 0.03, 0.31);
-    const lower = new BoxGeometry(0.105, 0.11, 0.27);
-    const upperCuff = new BoxGeometry(0.11, 0.17, 0.15);
-    const buckleGeometry = new BoxGeometry(0.115, 0.012, 0.03);
+    const sole = bootPiece(BOOT_SOLE_PROFILE, 0.1, 0.004);
+    const lower = bootPiece(BOOT_SHELL_PROFILE, 0.104, 0.012);
+    const upperCuff = bootPiece(BOOT_CUFF_PROFILE, 0.112, 0.012);
+    const strapGeometry = bootPiece(BOOT_STRAP_PROFILE, 0.118, 0.004);
+    const buckleGeometry = new BoxGeometry(0.03, 0.012, 0.04);
 
     const makeSki = (side: -1 | 1): SkiRig => {
       const group = new Group();
@@ -209,15 +216,17 @@ export class SkierModel {
       add(heel, binding, 0, top + 0.042, 0.19);
       add(brake, bindingMetal, 0, top + 0.02, 0.13);
       this.skiParts.push(...parts);
-      // Boot: sole, lower shell, then a forward-leaning cuff with buckles.
+      // Boot (side profiles extruded across, edges rounded): a rubber sole with toe and
+      // heel lugs, the shell round the foot, a forward-leaning cuff with a power strap,
+      // and buckles on the outside of the instep and cuff.
       const bootBase = BOOT_SOLE;
-      add(sole, shell, 0, bootBase + 0.015, 0);
-      add(lower, shell, 0, bootBase + 0.085, 0.015);
-      const c = add(upperCuff, cuff, 0, bootBase + 0.215, 0.045);
-      c.rotation.x = -0.25; // forward lean
-      for (const y of [0.12, 0.19, 0.26]) {
-        const b = add(buckleGeometry, buckle, 0, bootBase + y, -0.02 + (y - 0.12) * 0.35);
-        b.rotation.x = -0.25;
+      add(sole, binding, 0, bootBase, 0);
+      add(lower, shell, 0, bootBase, 0);
+      add(upperCuff, cuff, 0, bootBase, 0);
+      add(strapGeometry, binding, 0, bootBase, 0);
+      for (const [y, z, tilt] of BOOT_BUCKLES) {
+        const b = add(buckleGeometry, buckle, side * 0.058, bootBase + y, z);
+        b.rotation.x = tilt;
       }
       for (const p of parts) p.castShadow = true;
       group.position.x = side * 0.11;
@@ -345,9 +354,26 @@ export class SkierModel {
     for (let i = 0; i < 2; i++) {
       const pole = new Group();
       put(pole, new Mesh(new CylinderGeometry(0.009, 0.006, 1.15, 6), poleShaft), 0, -0.575, 0);
-      put(pole, new Mesh(new CylinderGeometry(0.016, 0.014, 0.13, 8), poleGrip), 0, 0.02, 0);
+      put(pole, new Mesh(poleGripGeometry(), poleGrip), 0, 0, 0);
       put(pole, new Mesh(new CylinderGeometry(0.045, 0.045, 0.006, 12), poleGrip), 0, -1.05, 0);
-      put(pole, new Mesh(new BoxGeometry(0.075, 0.1, 0.07), glove), 0, 0.035, 0);
+      // Wrist strap: a loop from the top of the grip, round the back of the glove.
+      const strap = put(pole, new Mesh(new TorusGeometry(0.04, 0.006, 4, 16, Math.PI), poleGrip));
+      strap.position.set(0, 0.07, 0.03);
+      strap.rotation.set(0, Math.PI / 2, -Math.PI / 2);
+      // Gloved fist round the grip: palm and fingers, thumb over the top, cuff to the wrist.
+      const fist = put(pole, new Mesh(new SphereGeometry(1, 14, 10), glove), 0, 0.03, -0.006);
+      fist.scale.set(0.036, 0.052, 0.04);
+      for (let k = 0; k < 4; k++) {
+        // Knuckle ridges across the front of the fingers.
+        const knuckle = put(pole, new Mesh(new SphereGeometry(0.0125, 8, 6), glove));
+        knuckle.position.set(0, 0.06 - k * 0.02, -0.034);
+      }
+      const thumb = put(pole, new Mesh(new CapsuleGeometry(0.013, 0.03, 4, 8), glove));
+      thumb.position.set(0, 0.078, -0.012);
+      thumb.rotation.x = -1.1;
+      const gauntlet = put(pole, new Mesh(new CylinderGeometry(0.04, 0.034, 0.08, 12), glove));
+      gauntlet.position.set(0, 0.07, 0.05);
+      gauntlet.rotation.x = 0.95;
       this.root.add(pole);
       this.poles.push(pole);
     }
@@ -504,6 +530,98 @@ export class SkierModel {
       pole.rotation.set(-stance.poleSweep, 0, side * 0.12 + stance.lean * 0.6);
     });
   }
+}
+
+/**
+ * Boot side profiles as (z, y): z along the ski (-z = toe), y up from the boot's sole.
+ * A Mondopoint ~27 shell is ~31 cm long.
+ */
+const BOOT_SOLE_PROFILE: [number, number][] = [
+  [-0.156, 0],
+  [0.156, 0],
+  [0.156, 0.03],
+  [0.12, 0.03],
+  [0.118, 0.024],
+  [-0.12, 0.024],
+  [-0.122, 0.03],
+  [-0.156, 0.03],
+];
+const BOOT_SHELL_PROFILE: [number, number][] = [
+  [-0.15, 0.022],
+  [0.15, 0.022],
+  [0.152, 0.07],
+  [0.135, 0.12],
+  [0.09, 0.15],
+  [0.05, 0.155],
+  [-0.03, 0.14],
+  [-0.08, 0.11],
+  [-0.12, 0.085],
+  [-0.148, 0.06],
+];
+const BOOT_CUFF_PROFILE: [number, number][] = [
+  [-0.035, 0.12],
+  [0.12, 0.1],
+  [0.135, 0.16],
+  [0.105, 0.34],
+  [-0.06, 0.345],
+  [-0.075, 0.25],
+];
+const BOOT_STRAP_PROFILE: [number, number][] = [
+  [-0.062, 0.3],
+  [0.112, 0.3],
+  [0.106, 0.335],
+  [-0.066, 0.337],
+];
+/** Buckles on the outside: two over the instep, two up the cuff (y, z, tilt). */
+const BOOT_BUCKLES: [number, number, number][] = [
+  [0.11, -0.085, 0.6],
+  [0.14, -0.035, 0.35],
+  [0.21, -0.055, -0.15],
+  [0.27, -0.065, -0.15],
+];
+
+/** A boot part: `profile` extruded `width` across the ski, centred, edges rounded. */
+function bootPiece(profile: [number, number][], width: number, round: number): BufferGeometry {
+  const shape = new Shape(profile.map(([z, y]) => new Vector2(z, y)));
+  const g = new ExtrudeGeometry(shape, {
+    depth: width - 2 * round,
+    bevelEnabled: round > 0,
+    bevelThickness: round,
+    bevelSize: round * 0.8,
+    bevelSegments: 2,
+    curveSegments: 4,
+  });
+  // Shape (x, y) → skier (z, y); the extrusion runs along -x, so the basis keeps its
+  // handedness (faces stay outward). Centred across the ski.
+  g.applyMatrix4(
+    new Matrix4()
+      .makeBasis(new Vector3(0, 0, 1), new Vector3(0, 1, 0), new Vector3(-1, 0, 0))
+      .setPosition(width / 2 - round, 0, 0),
+  );
+  // Smooth across the rounded edges (the bevels make the corners soft, not sharp).
+  g.deleteAttribute('normal');
+  g.deleteAttribute('uv');
+  const smooth = mergeVertices(g, 1e-4);
+  smooth.computeVertexNormals();
+  return smooth;
+}
+
+/** Moulded pole grip: a finger-shaped barrel flaring to a rounded cap at the top. */
+function poleGripGeometry(): BufferGeometry {
+  const profile = [
+    [0, -0.06],
+    [0.011, -0.06],
+    [0.016, -0.045],
+    [0.0175, -0.02],
+    [0.016, 0.01],
+    [0.0175, 0.04],
+    [0.019, 0.07],
+    [0.024, 0.08],
+    [0.022, 0.09],
+    [0.012, 0.097],
+    [0, 0.098],
+  ].map(([r, y]) => new Vector2(r, y));
+  return new LatheGeometry(profile, 14);
 }
 
 /** Boot sole above the base of the ski. */
