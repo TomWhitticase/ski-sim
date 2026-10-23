@@ -1,3 +1,4 @@
+import pytest
 from shapely.geometry import box
 
 from ski_sim_pipeline.config import Extent, GeoPoint
@@ -66,3 +67,31 @@ def test_a_neighbours_link_into_our_summit_station_is_theirs():
         elements, frame, Extent(-5000, 5000, -5000, 5000), lambda e, n: 0 * e + 2000, [], t
     )
     assert [x["name"] for x in lifts] == ["ours"]
+
+
+def _way(lonlats, **tags):
+    return {"type": "way", "tags": tags, "geometry": [{"lon": x, "lat": y} for x, y in lonlats]}
+
+
+def test_own_extent_holds_our_lifts_and_runs_whole_but_not_neighbours_or_long_routes():
+    from ski_sim_pipeline.territory import own_extent
+
+    frame = LocalFrame(GeoPoint(45.0, 6.0))
+    bounds = Extent(west=-2000, east=2000, south=-2000, north=2000)
+
+    ll = frame.to_lonlat
+    area = Territory(bounds, [], [])
+    lifts = [
+        _way([ll(0, 0), ll(5000, 0)], aerialway="chair_lift"),  # bottom ours, top far east
+        _way([ll(-9000, 0), ll(-7000, 0)], aerialway="chair_lift"),  # someone else's
+    ]
+    runs = [
+        _way([ll(0, 1000), ll(0, 1500), ll(0, 3000)], **{"piste:type": "downhill"}),
+        _way([ll(0, 0), ll(0, -1000), ll(0, -30000)], **{"piste:type": "nordic"}),
+    ]
+    got = own_extent(lifts, runs, frame, area)
+    assert got.east == pytest.approx(5000, abs=1)  # the lift's top, beyond the bounds
+    assert got.north == pytest.approx(3000, abs=1)  # the run's end, beyond the bounds
+    assert got.west == pytest.approx(0, abs=1)  # not the neighbour's lift
+    assert got.south == pytest.approx(0, abs=1)  # not the 30 km nordic loop
+    assert own_extent([], [], frame, area) is None

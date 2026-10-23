@@ -23,6 +23,7 @@ from shapely.ops import split
 
 from .config import Area, Extent
 from .frame import LocalFrame
+from .territory import lift_is_ours
 
 log = logging.getLogger(__name__)
 
@@ -168,12 +169,9 @@ def extract_lifts(
         if not _inside(extent, points):
             log.info("Skipping lift %s (%s): outside terrain extent", tags.get("name"), el["id"])
             continue
-        if area is not None and not any(area.contains(e, n) for e, n in points[[0, -1]]):
-            log.info("Skipping lift %s (%s): outside the resort", tags.get("name"), el["id"])
-            continue
-        neighbours = getattr(area, "neighbours", None)
-        if neighbours is not None and any(neighbours(e, n) for e, n in points[[0, -1]]):
-            log.info("Skipping lift %s (%s): a neighbour's station", tags.get("name"), el["id"])
+        ends = [tuple(p) for p in points[[0, -1]]]
+        if area is not None and not lift_is_ours(ends, area):
+            log.info("Skipping lift %s (%s): not the resort's", tags.get("name"), el["id"])
             continue
         length = float(np.sum(np.hypot(*np.diff(points, axis=0).T)))
         if length < MIN_LIFT_LENGTH:

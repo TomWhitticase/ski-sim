@@ -26,7 +26,7 @@ from . import (
     territory,
 )
 from . import bases as base_finder
-from .config import Area, ResortConfig, load_resort
+from .config import Area, Extent, ResortConfig, load_resort
 from .export import write_heightmap
 from .frame import LocalFrame
 from .grid import (
@@ -45,6 +45,10 @@ log = logging.getLogger(__name__)
 MANIFEST_VERSION = 9  # with the sim's SUPPORTED_VERSION; see CLAUDE.md "Changing the pipeline"
 LANDMARK_SEARCH_RADIUS = 30.0  # OSM summit nodes are often a few metres off the true top
 LANDMARK_TOLERANCE = 15.0
+# The near terrain holds every lift and run of the resort with this much to spare, found
+# by surveying OSM this far beyond the configured box.
+EDGE_MARGIN = 1000.0  # m
+SURVEY_PAD = 10_000.0  # m
 SIM_DAY = datetime(2026, 2, 15, 12, tzinfo=UTC)  # the sim's day (SIM_DAY in sim/src/config.ts)
 
 
@@ -416,10 +420,58 @@ def write_resort_index(out_root: Path) -> Path:
     return path
 
 
+def cover_own_features(
+    cfg: ResortConfig, frame: LocalFrame, path: Path, raw_root: Path
+) -> ResortConfig:
+    """The config with its near terrain grown, if needed, to hold every lift and run of
+    ours whole plus `EDGE_MARGIN`: `bounds` is only a starting box, and anything crossing
+    the terrain's edge would lose its lift or be cut off."""
+    e = cfg.near.extent
+    survey = Extent(
+        west=e.west - SURVEY_PAD,
+        east=e.east + SURVEY_PAD,
+        south=e.south - SURVEY_PAD,
+        north=e.north + SURVEY_PAD,
+    )
+    lonlat = frame.bounds_in("EPSG:4326", survey)
+    area = territory.from_osm(osm.fetch_ski_areas(lonlat, raw_root), frame, cfg.area or e)
+    own = territory.own_extent(
+        osm.fetch_lifts(lonlat, raw_root), osm.fetch_pistes(lonlat, raw_root), frame, area
+    )
+    if own is None:
+        return cfg
+    need = Extent(
+        west=own.west - EDGE_MARGIN,
+        east=own.east + EDGE_MARGIN,
+        south=own.south - EDGE_MARGIN,
+        north=own.north + EDGE_MARGIN,
+    )
+    if (
+        need.west >= e.west
+        and need.east <= e.east
+        and need.south >= e.south
+        and need.north <= e.north
+    ):
+        return cfg
+    grown = load_resort(path, cover=need)
+    g = grown.near.extent
+    log.info(
+        "Near terrain grown to hold the resort's lifts and runs (+%.0f m): "
+        "west %.0f, east %.0f, south %.0f, north %.0f m",
+        EDGE_MARGIN,
+        e.west - g.west,
+        g.east - e.east,
+        e.south - g.south,
+        g.north - e.north,
+    )
+    return grown
+
+
 def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     """Source caches under `raw_root` are shared across resorts."""
     cfg = load_resort(resort_dir / "resort.json")
     frame = LocalFrame(cfg.origin)
+    cfg = cover_own_features(cfg, frame, resort_dir / "resort.json", raw_root)
     out_dir = out_root / cfg.id
     out_dir.mkdir(parents=True, exist_ok=True)
 

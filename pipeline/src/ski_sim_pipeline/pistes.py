@@ -30,6 +30,7 @@ from shapely.ops import substring, unary_union
 from .config import Area, Extent
 from .frame import LocalFrame
 from .grid import Grid
+from .territory import piste_is_ours
 
 log = logging.getLogger(__name__)
 
@@ -194,10 +195,8 @@ def collect(
         )
         if not inside.any():
             continue
-        if area is not None:
-            ours = [area.contains(e, n) for e, n in pts]
-            if sum(ours) * 2 < len(ours):
-                continue
+        if area is not None and not piste_is_ours([tuple(p) for p in pts], area):
+            continue
 
         name = _name(tags)
         difficulty = _difficulty(tags, run_type)

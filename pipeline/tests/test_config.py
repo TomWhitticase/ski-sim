@@ -88,3 +88,17 @@ def test_time_zone_comes_from_the_country_or_the_config(tmp_path):
     utah = {"south": 40.6, "west": -111.6, "north": 40.7, "east": -111.4}
     path.write_text(json.dumps({**base, "country": "US", "bounds": utah}))
     assert utc_offset_hours(load_resort(path).timezone) == -7
+
+
+def test_cover_grows_the_near_extent_but_never_shrinks_it(tmp_path):
+    from ski_sim_pipeline.config import Extent
+
+    path = tmp_path / "resort.json"
+    bounds = {"south": 45.2, "west": 6.5, "north": 45.3, "east": 6.6}
+    path.write_text(json.dumps({"id": "x", "name": "X", "country": "FR", "bounds": bounds}))
+    e = load_resort(path).near.extent
+    grown = load_resort(path, cover=Extent(west=e.west, east=e.east + 2500, south=0, north=0))
+    g = grown.near.extent
+    assert g.east == e.east + 3000  # snapped out to the next kilometre
+    assert (g.west, g.south, g.north) == (e.west, e.south, e.north)
+    assert grown.far.extent.east == g.east + 55_000  # the horizon follows

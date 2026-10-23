@@ -144,11 +144,12 @@ def _layer(raw: dict, defaults: dict) -> TerrainLayerConfig:
     )
 
 
-def load_resort(path: Path) -> ResortConfig:
+def load_resort(path: Path, cover: Extent | None = None) -> ResortConfig:
     """Load a resort config. Only `id`, `name`, `country` and `bounds` (lat/lon box of the
     ski area) are required; origin, terrain extents and sources, spawn and minimap are
     derived when absent. Landmarks are optional: without them, summit validation uses
-    every OSM peak with a published elevation in the area."""
+    every OSM peak with a published elevation in the area. The near extent is grown to
+    include `cover` (local metres): the build passes the resort's own lifts and runs."""
     from .frame import LocalFrame
 
     raw = json.loads(path.read_text())
@@ -183,6 +184,18 @@ def load_resort(path: Path) -> ResortConfig:
                 "east": _snap(max(xs), step, True),
                 "south": _snap(min(ys), step, False),
                 "north": _snap(max(ys), step, True),
+            },
+        }
+    if cover is not None:
+        step = float(near_raw.get("cellSize", DEFAULT_NEAR_CELL)) * 250
+        ext = near_raw["extent"]
+        near_raw = {
+            **near_raw,
+            "extent": {
+                "west": min(ext["west"], _snap(cover.west, step, False)),
+                "east": max(ext["east"], _snap(cover.east, step, True)),
+                "south": min(ext["south"], _snap(cover.south, step, False)),
+                "north": max(ext["north"], _snap(cover.north, step, True)),
             },
         }
     # The sim uploads the near grid as a texture (typically max 8192 px a side):

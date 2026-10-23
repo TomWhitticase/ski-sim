@@ -47,6 +47,12 @@ def fetch_features(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[di
     return _query(query, cache_dir, "lifts and buildings")
 
 
+def fetch_lifts(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict]:
+    """Aerialways only (ways, with geometry): cheap over a wide box, unlike buildings."""
+    query = f'[out:json][timeout:180];way["aerialway"]({_bbox(lonlat_bounds)});out tags geom;'
+    return _query(query, cache_dir, "lifts")
+
+
 def fetch_peaks(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict]:
     """Named peak nodes within the bounds."""
     query = f'[out:json][timeout:180];node["natural"="peak"]["name"]({_bbox(lonlat_bounds)});out;'
