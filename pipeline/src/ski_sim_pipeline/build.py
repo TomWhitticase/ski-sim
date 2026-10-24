@@ -15,6 +15,7 @@ from rasterio.warp import Resampling
 from . import (
     approach,
     borders,
+    crossings,
     features,
     grading,
     landcover,
@@ -182,6 +183,16 @@ def build_features(
     )
     if steep:
         log.warning("Steep station exits: %s", ", ".join(steep[:12]))
+
+    # Lifts that cross pass cleanly over each other (after the approaches, which set the
+    # towers by the stations; crossings there are left alone).
+    cross = crossings.separate(lifts, ground)
+    log.info(
+        "Lift crossings: %d, %d lifted apart, %d unresolved",
+        cross["crossings"],
+        cross["lifted"],
+        cross["unresolved"],
+    )
 
     # Entrances, then cut buildings only as much as lifts need (3D volumes).
     terminals.choose_entrances(terms, buildings)
