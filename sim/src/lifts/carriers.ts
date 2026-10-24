@@ -94,6 +94,11 @@ function bar(
 const BAR_UP = 0.62;
 const FOOTREST_DOWN = 0.2;
 
+/** Centre of seat `i` (0 = the -x end) across a chair for `seats` people (m). */
+export function chairSeatX(seats: number, i: number): number {
+  return (i + 0.5 - seats / 2) * 0.5;
+}
+
 /**
  * Detachable chair for `seats` people, seat `hang` m below the cable: the grip, a hanger
  * down behind the back, a tubular frame (back, seat rails, armrests) drawn as joined
@@ -145,7 +150,7 @@ export function chairGeometry(seats: number, hang: number): BufferGeometry {
     ),
   );
   for (let i = 0; i < seats; i++) {
-    const x = -W / 2 + 0.25 + i * 0.5;
+    const x = chairSeatX(seats, i);
     parts.push(part(new RoundedBoxGeometry(0.49, 0.09, 0.52, 1, 0.03), SEAT, [x, y, -0.02]));
     parts.push(
       part(

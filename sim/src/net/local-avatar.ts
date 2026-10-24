@@ -1,4 +1,4 @@
-import { Quaternion, Vector3 } from 'three/webgpu';
+import { Matrix4, Quaternion, Vector3 } from 'three/webgpu';
 
 import type { FlyControls } from '../controls/fly-controls';
 import type { GliderControls } from '../controls/glider-controls';
@@ -18,6 +18,9 @@ export interface AvatarSources {
 
 const UP = new Vector3(0, 1, 0);
 const q = new Quaternion();
+const gripInverse = new Matrix4();
+const gripQ = new Quaternion();
+const local = new Vector3();
 
 /**
  * Flying out of body: the frozen skier is the avatar (standing still, so it isn't
@@ -60,6 +63,18 @@ export function sampleAvatar(mode: AvatarMode, src: AvatarSources, out: PlayerSt
     put(SLOT.velocity, mode === 'ski' ? src.ski.velocity : src.ride.velocity);
     putRotation(root.quaternion);
     putModel(src.ski.model);
+    if (mode === 'ride' && src.ride.onCarrier) {
+      // Where you sit on the carrier, so others draw you on theirs (not interpolated).
+      const ride = src.ride;
+      out.flags |= Flag.OnCarrier;
+      pose[SLOT.carrier] = ride.line;
+      pose[SLOT.carrier + 1] = ride.carrier;
+      pose[SLOT.carrier + 2] = ride.seat;
+      gripInverse.copy(ride.gripMatrix).invert();
+      put(SLOT.carrier + 3, local.copy(root.position).applyMatrix4(gripInverse));
+      gripQ.setFromRotationMatrix(ride.gripMatrix).invert();
+      putRotation(gripQ.multiply(root.quaternion));
+    }
   } else if (mode === 'glide') {
     const g = src.glider;
     put(SLOT.position, g.position);

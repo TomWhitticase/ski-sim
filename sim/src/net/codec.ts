@@ -20,11 +20,16 @@ export const SLOT = {
   stance: 13, // STANCE_SLOTS values (see stanceToSlots)
   extra: 37, // glider bank / sled steer, sled suspension travel
   spirit: 39, // out of body (Flag.Spirit): where you're flying, x, y, z from the body (m), and yaw
+  // On a lift (Flag.OnCarrier): lift line, carrier and seat indices, then the feet in the
+  // carrier's grip frame (m). `rotation` is then relative to the grip too, so receivers
+  // put the rider on their own copy of the carrier (the lift clock is shared).
+  carrier: 43,
 } as const;
 const STANCE_SLOTS = 24;
-export const POSE_LENGTH = SLOT.spirit + 4;
+export const POSE_LENGTH = SLOT.carrier + 6;
 
-type Kind = 'linear' | 'angle' | 'unit';
+/** `index` slots are whole numbers that never blend (the nearer sample's wins). */
+type Kind = 'linear' | 'angle' | 'unit' | 'index';
 interface SlotFormat {
   kind: Kind;
   /** int16 steps per unit. */
@@ -41,6 +46,8 @@ FORMATS[SLOT.stance + 16] = { kind: 'angle', scale: 10_000 }; // polePhase
 FORMATS.push(linear(2000), linear(2000));
 // Flying out of body: 1 m steps reach ±32 km from the body, enough for any resort.
 FORMATS.push(linear(1), linear(1), linear(1), { kind: 'angle', scale: 10_000 });
+for (let i = 0; i < 3; i++) FORMATS.push({ kind: 'index', scale: 1 });
+for (let i = 0; i < 3; i++) FORMATS.push(linear(2000));
 
 export const Flag = {
   /** Skis and poles stowed (in a cabin, on a sled). */
@@ -49,6 +56,8 @@ export const Flag = {
   HasGrip: 4,
   /** Out of body: the state is your frozen skier, and `SLOT.spirit` is where you fly. */
   Spirit: 8,
+  /** On a lift's carrier, placed by `SLOT.carrier`. */
+  OnCarrier: 16,
 } as const;
 
 export interface PlayerState {
@@ -207,6 +216,7 @@ export function blendPose(a: Float32Array, b: Float32Array, t: number, out: Floa
   for (let i = 0; i < POSE_LENGTH; i++) {
     const f = FORMATS[i]!;
     if (f.kind === 'angle') out[i] = a[i]! + wrapAngle(b[i]! - a[i]!) * t;
+    else if (f.kind === 'index') out[i] = t < 0.5 ? a[i]! : b[i]!;
     else out[i] = a[i]! + (b[i]! - a[i]!) * t;
   }
   // Quaternions q and -q are the same rotation: blend toward whichever is nearer.
@@ -221,6 +231,15 @@ export function blendPose(a: Float32Array, b: Float32Array, t: number, out: Floa
   }
   len = Math.sqrt(len) || 1;
   for (let k = 0; k < 4; k++) out[r + k] = out[r + k]! / len;
+}
+
+/** Both on the same carrier, or neither on one: safe to blend between. */
+export function sameCarrier(a: PlayerState, b: PlayerState): boolean {
+  const on = a.flags & Flag.OnCarrier;
+  if (on !== (b.flags & Flag.OnCarrier)) return false;
+  if (!on) return true;
+  const c = SLOT.carrier;
+  return a.pose[c] === b.pose[c] && a.pose[c + 1] === b.pose[c + 1];
 }
 
 function wrapAngle(a: number): number {

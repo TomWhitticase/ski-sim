@@ -3,8 +3,9 @@ import type { PerspectiveCamera, Scene, Vector3 } from 'three/webgpu';
 import { DAY_SECONDS, type TimeOfDay } from '../env/time-of-day';
 import { MultiplayerMenu } from '../ui/multiplayer-menu';
 import { activity } from '../ui/party-hud';
-import type { PlayerState } from './codec';
-import { playerColour, RemotePlayers } from './remote-players';
+import type { OtherRider } from '../lifts/ride';
+import { Flag, type PlayerState, SLOT } from './codec';
+import { type CarrierFrame, playerColour, RemotePlayers } from './remote-players';
 import {
   cleanName,
   inviteLink,
@@ -29,6 +30,8 @@ export interface MultiplayerSim {
   /** Container for the floating name tags (shares the labels layer). */
   tags: HTMLElement;
   groundHeight: (x: number, z: number) => number;
+  /** Where a lift's carrier is, to seat other riders on it. */
+  carrierFrame: CarrierFrame;
   /** Your own avatar, as others should see it. */
   sample(out: PlayerState): void;
   /** The lift clock (shared: guests follow the host's). */
@@ -82,7 +85,7 @@ export class Multiplayer {
     autoHost = false,
   ) {
     this.name = loadName(localStorage);
-    this.remote = new RemotePlayers(sim.scene, sim.tags, sim.groundHeight);
+    this.remote = new RemotePlayers(sim.scene, sim.tags, sim.groundHeight, sim.carrierFrame);
     this.menu = menu;
     menu.actions = {
       host: () => void this.start('host', makeRoomCode()),
@@ -169,6 +172,25 @@ export class Multiplayer {
       dots: this.remote.dots,
       modes: this.remote.modes,
     };
+  }
+
+  /**
+   * Other players on a carrier, by their latest state, and whether each keeps their seat
+   * if you chose the same one (the lower player number does; the host is 0).
+   */
+  ridersOn(line: number, carrier: number): OtherRider[] {
+    const s = this.session;
+    if (!s) return [];
+    const out: OtherRider[] = [];
+    const self = s.self ?? Infinity;
+    for (const p of s.players.values()) {
+      const state = p.interp.latest;
+      if (!state || !(state.flags & Flag.OnCarrier) || p.player === s.self) continue;
+      const c = SLOT.carrier;
+      if (state.pose[c] !== line || state.pose[c + 1] !== carrier) continue;
+      out.push({ seat: state.pose[c + 2]!, wins: p.player < self });
+    }
+    return out;
   }
 
   /** Host changed the time of day: tell guests straight away. */

@@ -5,14 +5,9 @@ import { FLY } from '../config';
 import { type Input, Look } from '../controls/input';
 import type { SkiControls } from '../controls/ski-controls';
 import { CabinView } from './cabin-view';
-import {
-  backBench,
-  type CabinLayout,
-  cabinLayout,
-  CHAIR_SEAT_HEIGHT,
-  floorBelowGrip,
-} from './carriers';
+import { backBench, type CabinLayout, cabinLayout, CHAIR_SEAT_HEIGHT } from './carriers';
 import { type LiftLine, type LiftSystem, nextDeparture } from './lift-system';
+import { type Carrier, chooseSeat, SEAT_REACH, seatCount, seatSpot } from './seats';
 
 const UP = new Vector3(0, 1, 0);
 const FAST_FORWARD = 8;
@@ -23,17 +18,23 @@ const BOARD_BLEND = 0.5;
 const CABIN_BLEND = 1.8;
 /** Seated on a cabin bench: hips above the bench top, and behind the feet (m). */
 const HIP_ABOVE_SEAT = 0.1;
-const SEAT_REACH = 0.42;
 /**
  * On a chair, from the feet (resting on the footrest, ahead of the seat): hips on the
  * cushion and behind the feet (m). The cushion top is `CHAIR_SEAT_HEIGHT` above the feet.
  */
 const CHAIR_HIP = CHAIR_SEAT_HEIGHT + HIP_ABOVE_SEAT;
-const CHAIR_FEET_AHEAD = 0.3;
 const CHAIR_HIP_BACK = 0.48;
 /** Seated eye above the hips; standing eye above the feet (m). */
 const SEATED_EYE = 0.7;
 const STANDING_EYE = 1.62;
+/** Shuffling along to another seat (m/s). */
+const SHUFFLE_SPEED = 0.8;
+
+/** Someone else on a carrier: their seat, and whether they keep it if you both chose it. */
+export interface OtherRider {
+  seat: number;
+  wins: boolean;
+}
 
 export type RidePhase = 'waiting' | 'boarding' | 'riding';
 
@@ -57,6 +58,13 @@ export class RideControls {
   down = false;
   /** Hold W to run the lift clock faster (off in multiplayer, where the clock is shared). */
   fastForward = true;
+  /** Your place on the carrier (`seats.ts`): others riding it take the rest. */
+  seat = 0;
+  /** Who else is on a carrier (multiplayer), so you take a free seat. */
+  others: ((line: number, carrier: number) => OtherRider[]) | null = null;
+  /** Your seat's spot in the grip frame, sliding over when you change seats. */
+  private readonly spot = new Vector3();
+  private readonly spotTarget = new Vector3();
   readonly velocity = new Vector3();
   private blend = 0;
   private moved = false;
@@ -66,7 +74,7 @@ export class RideControls {
   private readonly gripQ = new Quaternion();
   private readonly travel = new Vector3();
   private readonly feet = new Vector3();
-  private readonly seat = new Vector3();
+  private readonly seatAt = new Vector3();
   private readonly lastFeet = new Vector3();
   private readonly euler = new Euler(0, 0, 0, 'YXZ');
   private bodyYaw = 0;
@@ -113,6 +121,16 @@ export class RideControls {
     const line = this.lineObj;
     if (line.tracks) return nextDeparture(line.op, this.lifts.time);
     return line.nextToLoad(this.lifts.time, this.down).inSeconds;
+  }
+
+  /** On (or getting onto) a carrier, moving with it: `grip` is where it is. */
+  get onCarrier(): boolean {
+    return (this.phase === 'boarding' || this.phase === 'riding') && !this.skipped;
+  }
+
+  /** The carrier's grip (world), as of the last update. */
+  get gripMatrix(): Matrix4 {
+    return this.grip;
   }
 
   /** How far from the loading point you are (m, for tower clacks): 0 until riding. */
@@ -185,6 +203,7 @@ export class RideControls {
       this.grip.decompose(this.gripPos, this.gripQ, new Vector3());
       this.travel.set(0, 0, -1).applyQuaternion(this.gripQ);
       const yaw = new Euler().setFromQuaternion(this.gripQ, 'YXZ').y;
+      this.keepSeat(dt);
       if (this.cabin) {
         this.lifts.hidden = [this.line, this.carrier];
         this.cabinView.show(`${line.op.kind}-${line.seats}-${line.op.hang}`, this.cabin, this.grip);
@@ -194,10 +213,10 @@ export class RideControls {
         if (this.phase === 'boarding') {
           this.blend = Math.min(1, this.blend + dt / BOARD_BLEND);
           const k = this.blend * this.blend * (3 - 2 * this.blend);
-          this.feet.copy(this.blendFrom).lerp(this.seat, k);
+          this.feet.copy(this.blendFrom).lerp(this.seatAt, k);
           if (this.blend >= 1) this.phase = 'riding';
         } else {
-          this.feet.copy(this.seat);
+          this.feet.copy(this.seatAt);
         }
         this.bodyYaw = yaw;
       }
@@ -280,6 +299,10 @@ export class RideControls {
     this.moved = false;
     this.skipped = false;
     this.phase = 'boarding';
+    const taken = this.others?.(this.line, carrier).map((o) => o.seat) ?? [];
+    this.seat = chooseSeat(seatCount(this.carrierShape), taken);
+    seatSpot(this.carrierShape, this.seat, this.spot);
+    this.spotTarget.copy(this.spot);
     if (this.cabin) {
       // Where you're standing, in the cabin's frame as it arrives.
       this.lifts.carrierMatrix(this.line, carrier, this.grip);
@@ -287,6 +310,30 @@ export class RideControls {
       this.lookFrom = this.look.yaw;
       this.sit = 0;
     }
+  }
+
+  private get carrierShape(): Carrier {
+    const line = this.lineObj;
+    return { kind: line.op.kind, seats: line.seats, hang: line.op.hang, cabin: this.cabin };
+  }
+
+  /**
+   * Someone who keeps their seat sat down in yours (you boarded together, or they did
+   * before you heard of them): move to a free one, sliding along the bench.
+   */
+  private keepSeat(dt: number): void {
+    const others = this.others?.(this.line, this.carrier) ?? [];
+    if (others.some((o) => o.wins && o.seat === this.seat)) {
+      this.seat = chooseSeat(
+        seatCount(this.carrierShape),
+        others.map((o) => o.seat),
+      );
+      seatSpot(this.carrierShape, this.seat, this.spotTarget);
+    }
+    const gap = this.spot.distanceTo(this.spotTarget);
+    const step = SHUFFLE_SPEED * dt;
+    if (gap <= step) this.spot.copy(this.spotTarget);
+    else this.spot.lerp(this.spotTarget, step / gap);
   }
 
   /** S: off at the unloading point (top, or bottom riding down), as if you'd ridden it. */
@@ -311,9 +358,7 @@ export class RideControls {
     const c = this.cabin!;
     const bench = backBench(c);
     const door = new Vector3(c.w / 2 - 0.4, c.floor, 0);
-    const spot = bench
-      ? new Vector3(-c.w / 4, c.floor, bench.z - SEAT_REACH)
-      : new Vector3(-c.w / 6, c.floor, -c.d / 2 + 0.8);
+    const spot = this.spot;
     let k = 1;
     if (this.phase === 'boarding') {
       this.blend = Math.min(1, this.blend + dt / CABIN_BLEND);
@@ -344,21 +389,12 @@ export class RideControls {
 
   /** Your feet on the carrier (chair seat, or behind a platter on the snow). */
   private seatPosition(side: 1 | -1): void {
-    const line = this.lineObj;
-    const { kind, hang } = line.op;
-    const local = new Vector3();
-    if (kind === 'chair') {
-      local.set(
-        line.seats * 0.25 - 0.35,
-        -floorBelowGrip(kind, line.seats, hang),
-        -0.12 - CHAIR_FEET_AHEAD,
-      );
-    } else {
+    if (this.lineObj.op.kind !== 'chair') {
       const { platter } = this.lifts.platterPose(this.gripPos, this.travel, side);
-      this.seat.set(platter.x, this.skier.groundAt(platter.x, platter.z), platter.z);
+      this.seatAt.set(platter.x, this.skier.groundAt(platter.x, platter.z), platter.z);
       return;
     }
-    this.seat.copy(local).applyQuaternion(this.gripQ).add(this.gripPos);
+    this.seatAt.copy(this.spot).applyQuaternion(this.gripQ).add(this.gripPos);
   }
 
   /** Pose the skier model and camera. */

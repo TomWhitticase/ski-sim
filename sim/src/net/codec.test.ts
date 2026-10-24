@@ -47,7 +47,7 @@ describe('state codec', () => {
     const { s } = sampleState();
     const buffer = encodeState(s);
     expect(buffer.byteLength).toBe(STATE_BYTES);
-    expect(STATE_BYTES).toBeLessThan(100); // ~1 kB/s per player at 12 Hz
+    expect(STATE_BYTES).toBeLessThan(120); // ~1.4 kB/s per player at 12 Hz
     const back = decodeState(buffer)!;
     expect(back.time).toBe(Math.round(s.time));
     expect(back.mode).toBe('sled');
