@@ -21,6 +21,7 @@ import numpy as np
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import split
 
+from . import rope
 from .config import Area, Extent
 from .frame import LocalFrame
 from .territory import lift_is_ours
@@ -38,21 +39,28 @@ class LiftProfile:
     min_clearance: float  # minimum cable height above the ground under either track
     max_span: float  # longest plausible distance between supports
     gauge: float  # distance between the up and down cables
+    #: Rope tension over weight per metre, H / w (m): a span of plan length L sags
+    #: L² / (8 · catenary) mid-span (`rope.py`). Cable car track ropes are tensioned
+    #: hardest, but their spans are so long they sag most in metres.
+    catenary: float
 
 
-_DRAG = LiftProfile(6, 4, 2.5, 120, 2.5)
+_DRAG = LiftProfile(6, 4, 2.5, 120, 2.5, 2000)
 LIFT_PROFILES = {
-    "cable_car": LiftProfile(25, 8, 15, 3000, 8),
+    # ~31 m over a 1 km span (3.1%), ~125 m over 2 km.
+    "cable_car": LiftProfile(25, 8, 15, 3000, 8, 4000),
     # Rope to ground: a chair's skis hang ~3.4 m below the rope and a gondola cabin's
     # floor ~5.7 m, so these leave ~3.5 m under them (real lines run higher over pistes).
-    "gondola": LiftProfile(14, 6, 9, 400, 6),
-    "mixed_lift": LiftProfile(13, 6, 9, 350, 6),
-    "chair_lift": LiftProfile(11, 5, 7, 300, 5),
+    # Sag: gondolas ~1.8% over 200 m, ~3.6% over 400 m; chairs ~1.1% over 100 m, ~3.4%
+    # over 300 m.
+    "gondola": LiftProfile(14, 6, 9, 400, 6, 1400),
+    "mixed_lift": LiftProfile(13, 6, 9, 350, 6, 1400),
+    "chair_lift": LiftProfile(11, 5, 7, 300, 5, 1100),
     "drag_lift": _DRAG,
     "t-bar": _DRAG,
     "j-bar": _DRAG,
     "platter": _DRAG,
-    "rope_tow": LiftProfile(1.5, 1.5, 0.5, 60, 1),
+    "rope_tow": LiftProfile(1.5, 1.5, 0.5, 60, 1, 2000),
 }
 
 SKIPPED_BUILDING_TYPES = {"ruins", "roof", "construction"}
@@ -95,17 +103,25 @@ def _fill_span(a: dict, b: dict, ground: GroundSampler, profile: LiftProfile, de
     t = np.linspace(0, 1, max(int(span / CABLE_SAMPLE_STEP), 2) + 1)[1:-1]
     east = a["east"] + (b["east"] - a["east"]) * t
     north = a["north"] + (b["north"] - a["north"]) * t
-    cable = a["top"] + (b["top"] - a["top"]) * t
+    # The rope sags between supports (`rope.py`): its low point mid-span sets the need.
+    cable = np.array([rope.at(a, b, float(x), profile.catenary) for x in t])
     # The carriers ride gauge/2 either side of the line: on a side slope the ground under
     # the uphill track is higher than under the centre, so take the highest of the three.
     ax, ay = -(b["north"] - a["north"]) / span, (b["east"] - a["east"]) / span
     half = profile.gauge / 2
     under = np.maximum.reduce([ground(east + ax * o, north + ay * o) for o in (-half, 0.0, half)])
     # The rope comes down to a station's platform, so near one the clearance needed
-    # tapers to the supports' own heights; elsewhere it's the profile's minimum.
+    # tapers to the supports' own heights; elsewhere it's the profile's minimum. The
+    # taper follows the rope's sag (down to the lower support's own clearance), or a low
+    # support would sprout a tower right beside it.
     ends = np.array([a["top"] - a["ground"], b["top"] - b["ground"]])
-    needed = np.minimum(profile.min_clearance, ends[0] + (ends[1] - ends[0]) * t)
+    taper = ends[0] + (ends[1] - ends[0]) * t
+    sagged = a["top"] + (b["top"] - a["top"]) * t - cable
+    needed = np.minimum(profile.min_clearance, np.maximum(taper - sagged, ends.min()))
     shortfall = needed - (cable - under)
+    # Inside a hall the rope runs level over the station's own pad: not a span to check.
+    start, end, _ = rope.free_span(a, b)
+    shortfall[(t * span < start) | (t * span > end)] = -1.0
 
     worst = int(np.argmax(shortfall))
     if shortfall[worst] <= 1e-6:
@@ -195,6 +211,7 @@ def extract_lifts(
                 "name": display_name(tags),
                 "type": kind,
                 "gauge": profile.gauge,
+                "catenary": profile.catenary,
                 "length": round(length, 1),
                 "vertical": round(supports[-1]["ground"] - supports[0]["ground"], 1),
                 "supports": [_round(s) for s in supports],

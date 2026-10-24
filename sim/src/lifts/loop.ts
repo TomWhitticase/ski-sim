@@ -1,5 +1,7 @@
 import { Vector3 } from 'three/webgpu';
 
+import { hangPoints } from './rope';
+
 /**
  * The haul rope's path for a lift with terminals: up the uphill track (side +1), round
  * the top bullwheel, down the downhill track, round the bottom bullwheel. Carriers
@@ -128,8 +130,31 @@ export interface TerminalFrame {
 }
 
 /**
+ * The rope out on the line between two station exits (world, cable height): the exits,
+ * the towers, and between each pair the points the rope sags through (`rope.ts`).
+ */
+export function linePoints(
+  from: Vector3,
+  supports: Vector3[],
+  to: Vector3,
+  catenary?: number | null,
+): { position: Vector3; support: boolean }[] {
+  const nodes = [from, ...supports, to];
+  const out: { position: Vector3; support: boolean }[] = [];
+  nodes.forEach((p, i) => {
+    if (i > 0) {
+      for (const q of hangPoints(nodes[i - 1]!, p, catenary))
+        out.push({ position: q, support: false });
+    }
+    out.push({ position: p.clone(), support: true });
+  });
+  return out;
+}
+
+/**
  * Corner points of the loop: `across` is the lift's right-hand vector (uphill track side),
- * `towers` the line supports between the stations (world, cable height).
+ * `towers` the line supports between the stations (world, cable height). Between supports
+ * the rope sags by the lift's `catenary` (straight without one).
  */
 export function loopCorners(
   bottom: TerminalFrame,
@@ -137,17 +162,28 @@ export function loopCorners(
   towers: Vector3[],
   across: Vector3,
   gauge: number,
+  catenary?: number | null,
 ): PathPoint[] {
   const r = gauge / 2;
   const off = (p: Vector3, side: number) => p.clone().addScaledVector(across, side * r);
   const pts: PathPoint[] = [];
   const add = (position: Vector3, inStation: boolean) => pts.push({ position, inStation });
+  const line = (side: number) => {
+    const from = side === 1 ? bottom : top;
+    const to = side === 1 ? top : bottom;
+    const between = side === 1 ? towers : [...towers].reverse();
+    const points = linePoints(
+      off(from.wheel, side).addScaledVector(from.dir, from.length),
+      between.map((t) => off(t, side)),
+      off(to.wheel, side).addScaledVector(to.dir, to.length),
+      catenary,
+    );
+    points.forEach((p, i) => add(p.position, i === 0 || i === points.length - 1));
+  };
 
   // Up: bottom station straight, the line, top station straight.
   add(off(bottom.wheel, 1), true);
-  add(off(bottom.wheel, 1).addScaledVector(bottom.dir, bottom.length), true);
-  for (const t of towers) add(off(t, 1), false);
-  add(off(top.wheel, 1).addScaledVector(top.dir, top.length), true);
+  line(1);
   add(off(top.wheel, 1), true);
   // Round the top bullwheel, behind it (away from the line).
   for (let k = 1; k < ARC_SEGMENTS; k++) {
@@ -162,9 +198,7 @@ export function loopCorners(
   }
   // Down.
   add(off(top.wheel, -1), true);
-  add(off(top.wheel, -1).addScaledVector(top.dir, top.length), true);
-  for (let i = towers.length - 1; i >= 0; i--) add(off(towers[i]!, -1), false);
-  add(off(bottom.wheel, -1).addScaledVector(bottom.dir, bottom.length), true);
+  line(-1);
   add(off(bottom.wheel, -1), true);
   for (let k = 1; k < ARC_SEGMENTS; k++) {
     const th = (Math.PI * k) / ARC_SEGMENTS;

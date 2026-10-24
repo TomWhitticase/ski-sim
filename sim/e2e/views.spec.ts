@@ -226,6 +226,17 @@ const VIEWS = [
   { name: 'station-gondola', query: 'at=45.27297,6.60583,2818&heading=118&pitch=-6' },
   // Lift crossings: one line passes over the other on a pair of taller towers.
   { name: 'crossing-moutiere', query: 'at=45.29289,6.56499,2134&heading=239&pitch=0' },
+  // Moraine's bottom station, set into a building in Val Thorens: the walkway to its door.
+  { name: 'station-moraine-bottom', query: 'at=45.287546,6.583018,2354&heading=76&pitch=-4' },
+  // Crossings beside a station (once left alone): Plein Sud over Cairn, Mont de la Chambre
+  // over Sunny Express, Chenus over Loze.
+  { name: 'crossing-plein-sud', query: 'at=45.298041,6.576651,2302&heading=45&pitch=-2' },
+  { name: 'crossing-chambre', query: 'at=45.319308,6.555960,2257&heading=45&pitch=-2' },
+  { name: 'crossing-chenus', query: 'at=45.413214,6.629542,1817&heading=45&pitch=-2' },
+  // Rope sag, side on: a long chairlift span (Becca, 195 m, 4.3 m of sag) and a gondola
+  // span (Télécabine d'Orelle, 306 m, 8.4 m), carriers riding down into the dip.
+  { name: 'lift-sag-chair', query: 'at=45.327757,6.560274,2402&heading=340&pitch=2' },
+  { name: 'lift-sag-gondola', query: 'at=45.239545,6.564279,2311&heading=114&pitch=3' },
   { name: 'tower-chair', query: 'at=45.33980,6.57504,2644&heading=297&pitch=2' },
   { name: 'tower-gondola', query: 'at=45.28142,6.59322,2528&heading=199&pitch=2' },
   // Snow parks: VT Park's halfpipe from below and the side, and Open Park's meandering lines.

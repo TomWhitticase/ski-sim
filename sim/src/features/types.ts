@@ -55,6 +55,11 @@ export interface Lift {
   type: string;
   /** Distance between the up and down cables (m). */
   gauge: number;
+  /**
+   * Rope tension over weight per metre (m): spans sag L² / (8 · catenary) mid-span
+   * (`lifts/rope.ts`). Absent in older builds, whose ropes are straight.
+   */
+  catenary?: number | null;
   length: number;
   vertical: number;
   /** Bottom station first. */

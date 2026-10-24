@@ -14,14 +14,17 @@ def flat(height: float):
 
 
 def test_short_lift_on_flat_ground_needs_no_extra_towers():
-    points = np.array([[0.0, 0.0], [200.0, 0.0]])
-    supports = place_supports(points, flat(2000), LIFT_PROFILES["chair_lift"])
+    # A drag: its rope, 4 m up at the stations, sags 100² / 16000 = 0.6 m, still well
+    # over its 2.5 m minimum. (A chair's 5 m station rope sagging at all would leave its
+    # skis too low: real ones have towers.)
+    points = np.array([[0.0, 0.0], [100.0, 0.0]])
+    supports = place_supports(points, flat(2000), LIFT_PROFILES["t-bar"])
     assert [s["kind"] for s in supports] == ["station", "station"]
-    assert supports[0]["top"] == 2005  # station cable height
+    assert supports[0]["top"] == 2004  # station cable height
 
 
 def test_osm_intermediate_nodes_become_towers():
-    points = np.array([[0.0, 0.0], [150.0, 0.0], [300.0, 0.0]])
+    points = np.array([[0.0, 0.0], [80.0, 0.0], [160.0, 0.0]])
     supports = place_supports(points, flat(2000), LIFT_PROFILES["chair_lift"])
     assert [s["kind"] for s in supports] == ["station", "tower", "station"]
     assert supports[1]["top"] == 2011

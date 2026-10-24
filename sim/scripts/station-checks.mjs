@@ -4,7 +4,7 @@
 
 // Per terminal kind, mirroring pipeline/approach.py (RAIL, MAX_EXIT_ANGLE, MIN_TOWER):
 /** Height of the rope above the pad where it leaves the station (m). */
-const EXIT_ROPE_HEIGHT = { chair: 2.35, gondola: 4.3, cabin: 7.45, drag: 4.0 };
+const EXIT_ROPE_HEIGHT = { chair: 2.83, gondola: 4.3, cabin: 7.45, drag: 4.0 };
 /** Steepest acceptable rope angle between the station exit and the next support. */
 const MAX_EXIT_ANGLE_DEG = { chair: 18, gondola: 18, cabin: 35, drag: 25 };
 /** Shortest buildable tower (top above ground, m). */
