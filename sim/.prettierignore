@@ -2,3 +2,4 @@ dist
 test-results
 playwright-report
 pnpm-lock.yaml
+e2e/fixtures

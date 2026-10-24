@@ -5,6 +5,7 @@ const LAYERS: Record<string, string> = {
   'terrain.far': 'Distant terrain',
   features: 'Lifts, pistes, buildings, peaks',
   landCover: 'Forests, rock, glaciers, lakes',
+  weather: 'Weather (when on)',
 };
 
 /** Options → Data & credits: every dataset the resort was built from, with its licence. */

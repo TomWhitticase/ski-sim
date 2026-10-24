@@ -126,6 +126,11 @@ export class RideControls {
     return line.nextToLoad(this.lifts.time, this.down).inSeconds;
   }
 
+  /** Inside a gondola or cable car cabin (out of the weather). */
+  get sheltered(): boolean {
+    return this.cabin !== null && (this.phase === 'boarding' || this.phase === 'riding');
+  }
+
   /** On (or getting onto) a carrier, moving with it: `grip` is where it is. */
   get onCarrier(): boolean {
     return (this.phase === 'boarding' || this.phase === 'riding') && !this.skipped;
@@ -409,7 +414,7 @@ export class RideControls {
         : kind === 'chair' && this.phase === 'boarding'
           ? 0.15 + 0.47 * this.blend
           : 0.15;
-    const inside = this.cabin !== null && (this.phase === 'boarding' || this.phase === 'riding');
+    const inside = this.sheltered;
     const bench = inside ? backBench(this.cabin!) : null;
     const onChair = kind === 'chair' && this.phase !== 'waiting';
     const sit = bench

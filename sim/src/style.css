@@ -3040,3 +3040,103 @@ body.touch .map-places {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Options → Weather (ui/weather-menu.ts). */
+.weather {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.weather-when {
+  display: flex;
+  gap: 10px;
+}
+
+.weather-input {
+  flex: none;
+  font-family: var(--font-mono);
+}
+
+.weather-summary {
+  margin: 0;
+  font: 600 16px var(--font-ui);
+}
+
+.weather-status {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.weather-status.error {
+  color: #c92a2a;
+}
+
+.weather-details {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 14px;
+  margin: 8px 0 0;
+  font-size: 12.5px;
+}
+
+.weather-details dt {
+  color: var(--muted);
+}
+
+.weather-details dd {
+  margin: 0;
+  font-family: var(--font-mono);
+}
+
+/* The day: one cell an hour, greyer the cloudier, a bar for what's falling. */
+.weather-hours {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  gap: 2px;
+}
+
+.weather-hour {
+  position: relative;
+  height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-chip);
+  background: color-mix(in srgb, #6b7380 calc(var(--cloud) * 100%), #3a9fe0);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.weather-hour.selected {
+  outline: 2px solid var(--fg);
+  outline-offset: -2px;
+}
+
+.weather-hour-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(var(--fall) * 75%);
+  background: #e4edf8;
+  box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.weather-hour.rain .weather-hour-bar {
+  background: #1c4f8a;
+}
+
+.weather-hour-label {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  font: 500 10px var(--font-mono);
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.weather-credit {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}

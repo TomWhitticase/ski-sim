@@ -8,7 +8,7 @@ import {
   WebGPURenderer,
 } from 'three/webgpu';
 
-import { CAMERA, DEFAULT_RESORT, FLY, SIM_DAY, simDate, TERRAIN } from './config';
+import { BLUEBIRD_DATE, CAMERA, DEFAULT_RESORT, FLY, SIM_DAY, simDate, TERRAIN } from './config';
 import { Sound } from './audio/sound';
 import {
   DRONE_OFF,
@@ -39,6 +39,10 @@ import { loadSetup, saveSetup, type SkiSetup } from './controls/ski-setup';
 import { daylight, Environment } from './env/environment';
 import { sunPosition } from './env/sun-position';
 import { dayPresets, formatRate, formatTime, loadTime, saveTime } from './env/time-of-day';
+import { CLEAR, describe as describeWeather, gustyWind } from './env/weather';
+import { WeatherState } from './env/weather-control';
+import { sunlitAt, WeatherFx } from './env/weather-fx';
+import { WEATHER_PROVENANCE, weatherHeights } from './env/weather-source';
 import { ObstacleIndex } from './features/obstacles';
 import { createBuildings } from './features/buildings';
 import { createRestaurants, terraceSolids } from './features/restaurants';
@@ -102,6 +106,7 @@ import {
 import { LAST_RESORT_KEY, MainMenu, type ResortEntry, type StartChoice } from './ui/main-menu';
 import { SkiSetupMenu } from './ui/ski-setup-menu';
 import { TimeMenu } from './ui/time-menu';
+import { WeatherMenu } from './ui/weather-menu';
 import { Minimap } from './ui/minimap';
 import { WorldMap } from './ui/world-map';
 import { SkyTransition } from './nav/sky-transition';
@@ -329,7 +334,7 @@ async function main(): Promise<void> {
   menu.loading(resortId);
   document.title = `${manifest.resort.name} · ski-sim`;
   // The data credits live in Options → Data & credits.
-  showCredits($('#opt-credits .modal-body'), manifest.provenance);
+  showCredits($('#opt-credits .modal-body'), [...manifest.provenance, WEATHER_PROVENANCE]);
   // Downloads are the first 80% of the bar; building the world is the rest.
   const downloads = new Downloads((fraction, bytes) =>
     menu.progress(`Downloading map data · ${formatBytes(bytes)}`, fraction * 0.8),
@@ -415,17 +420,21 @@ async function main(): Promise<void> {
     distance: quality.shadowDistance,
   });
   const forestDistance = FOREST_DRAW_DISTANCE * quality.forestDistance;
+  const presets = () => dayPresets((t) => sunPosition(simDate(t), originLat, originLon).elevation);
+  /** The clock was set (time menu, weather menu): move the sun, save, tell a party. */
+  const clockSet = () => {
+    environment.setTime(simDate(clock.seconds));
+    saveTime(localStorage, clock);
+    showClock();
+    timeMenu.sync(true);
+    multiplayer.clockChanged();
+  };
   const timeMenu = new TimeMenu(
     $('#opt-time'),
     clock,
-    dayPresets((t) => sunPosition(simDate(t), originLat, originLon).elevation),
+    presets(),
     () => environment.sun.elevation,
-    () => {
-      environment.setTime(simDate(clock.seconds));
-      saveTime(localStorage, clock);
-      showClock();
-      multiplayer.clockChanged();
-    },
+    clockSet,
   );
   // The time above the minimap (with the clock speed unless it's real time).
   const clockTime = $('#clock [data-time]');
@@ -439,6 +448,46 @@ async function main(): Promise<void> {
   showClock();
   // A guest's clock is the host's; keep their own for when they play alone again.
   window.addEventListener('pagehide', () => !multiplayer.isGuest && saveTime(localStorage, clock));
+
+  // Weather (C): Clear, Live or a past day from Open-Meteo. Picking a day moves the sim's
+  // date (the sun's path) too; nothing is fetched until the player turns it on.
+  const weather = new WeatherState({
+    resort: resortId,
+    lat: originLat,
+    lon: originLon,
+    elevations: weatherHeights(features.lifts),
+    zone: manifest.timezone?.name ?? null,
+    utcOffsetHours: manifest.timezone?.utcOffsetHours ?? 1,
+    defaultDate: BLUEBIRD_DATE,
+    setDate: (date, utcOffsetHours) => {
+      if (date === SIM_DAY.date && utcOffsetHours === SIM_DAY.utcOffsetHours) return;
+      SIM_DAY.date = date;
+      SIM_DAY.utcOffsetHours = utcOffsetHours;
+      environment.setTime(simDate(clock.seconds));
+      timeMenu.setPresets(presets());
+      timeMenu.sync(true);
+    },
+    setTime: (seconds, rate) => {
+      clock.set(seconds);
+      if (rate !== undefined) clock.rate = rate;
+      clockSet();
+    },
+    changed: () => {
+      weather.update(simDate(clock.seconds).getTime(), camera.position.y);
+      weatherMenu.sync(true);
+      multiplayer.weatherChanged();
+    },
+  });
+  const weatherMenu = new WeatherMenu(
+    $('#opt-weather'),
+    weather,
+    clock,
+    () => camera.position.y,
+    (seconds) => simDate(seconds).getTime(),
+    (choice) => weather.choose(choice),
+    clockSet,
+  );
+  const weatherFx = new WeatherFx(scene);
 
   menu.progress('Building terrain…', 0.82);
   await nextFrame();
@@ -757,6 +806,8 @@ async function main(): Promise<void> {
         timeMenu.sync(true);
         showClock();
       },
+      weather: () => weather.shared(),
+      followWeather: (w) => weather.follow(w),
       goTo: (at) => {
         if (!allowed('teleport')) return;
         // On the snow a few metres from them, looking their way.
@@ -782,6 +833,10 @@ async function main(): Promise<void> {
         timeMenu.setLocked(
           multiplayer.isGuest ? 'In a multiplayer game the host sets the time of day.' : null,
         );
+        weatherMenu.setLocked(
+          multiplayer.isGuest ? 'In a multiplayer game the host sets the weather.' : null,
+        );
+        if (!multiplayer.isGuest) weather.stopFollowing(); // your own weather again
         applyRules(); // a party's rules, or your own again
       },
       ownRules: () => ownRules,
@@ -794,6 +849,8 @@ async function main(): Promise<void> {
   );
 
   ride.others = (line, carrier) => multiplayer.ridersOn(line, carrier);
+  // The saved weather for this resort (a guest gets the host's instead, once connected).
+  weather.restore();
 
   party = {
     note: () =>
@@ -1155,6 +1212,7 @@ async function main(): Promise<void> {
   const hubKeys: Record<string, { toggle(): void }> = {
     KeyG: skiSetup,
     KeyT: timeMenu,
+    KeyC: weatherMenu,
     KeyO: settingsMenu,
     KeyN: multiplayer.menu,
   };
@@ -1177,7 +1235,7 @@ async function main(): Promise<void> {
   });
   /** What a key does in game; the touch buttons and tappable prompts call it too. */
   act = (code, shift = false) => {
-    // G / T / O / N open their Options tab (or close the hub if it's already on it).
+    // G / T / C / O / N open their Options tab (or close the hub if it's already on it).
     const tab = !worldMap.isOpen ? hubKeys[code] : undefined;
     if (tab) {
       input.unlock();
@@ -1307,12 +1365,17 @@ async function main(): Promise<void> {
       fly,
       environment,
       clock,
+      weather,
       multiplayer,
       forest,
       parks,
       groundHeight,
     });
   let last = performance.now();
+  /** Seconds of play, for gusts and passing clouds; when the weather was last worked out. */
+  let weatherClock = 0;
+  let weatherChecked = -1;
+  let weatherWind = 0;
   let lastX = fly.position.x;
   let lastY = fly.position.y;
   let lastZ = fly.position.z;
@@ -1434,7 +1497,7 @@ async function main(): Promise<void> {
     }
     spray.update(dt, snowHeight);
     trails.flush();
-    const levels = soundLevels(airSpeed, contact);
+    const levels = soundLevels(airSpeed, contact, weatherWind);
     if (mode === 'fly') levels.wind = 0; // the drone's camera hears its props, not the wind
     sound.update(levels);
     sound.setEngine(engineSound(sled.rpm, sled.throttle, mode === 'sled'));
@@ -1518,7 +1581,27 @@ async function main(): Promise<void> {
       showClock();
     }
     environment.update(camera);
-    sled.setDarkness(daylight(environment.sun.elevation).dark); // headlights at dusk
+    // The weather where the camera is: refreshed a few times a second, gusting every frame.
+    weatherClock += dt;
+    if (weather.day && weatherClock - weatherChecked > 0.25) {
+      weatherChecked = weatherClock;
+      weather.update(simDate(clock.seconds).getTime(), camera.position.y);
+      weatherMenu.sync();
+    }
+    const conditions = weather.day ? weather.conditions : CLEAR;
+    weatherWind = gustyWind(conditions, weatherClock);
+    environment.setWeather(conditions, sunlitAt(conditions.cloud, weatherClock));
+    const light = daylight(environment.sun.elevation);
+    weatherFx.update(
+      dt,
+      camera.position,
+      conditions,
+      weatherWind,
+      groundHeight(camera.position.x, camera.position.z),
+      (0.3 + 1.4 * light.day) * (1 + 0.3 * conditions.whiteout),
+      mode === 'ride' && ride.sheltered && view === 'first-person',
+    );
+    sled.setDarkness(light.dark); // headlights at dusk
     // A touch wider field of view at speed when skiing or sledding (settings: O).
     const fov =
       (view === 'first-person' ? cameraSettings.fovFirst : cameraSettings.fovThird) +
@@ -1642,7 +1725,8 @@ async function main(): Promise<void> {
             : mode === 'ski'
               ? `heading ${ski.heading.toFixed(1)}° · ski ${(ski.speed * 3.6).toFixed(0)} km/h${ski.airborne ? ' (air)' : ''} · ${ski.view}`
               : `heading ${fly.heading.toFixed(1)}° · drone speed ${fly.speed.toFixed(0)} m/s`,
-        `sun az ${environment.sun.azimuth.toFixed(1)}° el ${environment.sun.elevation.toFixed(1)}°`,
+        `sun az ${environment.sun.azimuth.toFixed(1)}° el ${environment.sun.elevation.toFixed(1)}° · ${SIM_DAY.date}`,
+        `weather ${weather.day ? describeWeather(weather.conditions) : 'off'}`,
       ].join('\n');
     }
 

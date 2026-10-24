@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+import { answer, SCENES, withWeather } from './weather-mock';
+
 // Fixed camera poses rendered to screenshots for visual review. Pose: lat,lon,altitude.
 const VIEWS = [
   { name: 'spawn', query: '' },
@@ -305,3 +307,34 @@ test('labels for places behind the camera stay hidden', async ({ page }) => {
   expect(shown).not.toContain('Rocher Blanc');
   expect(shown).not.toContain("Télécabine d'Orelle");
 });
+
+// Weather (C) set directly, Open-Meteo mocked (weather-mock.ts): clear, overcast, in
+// cloud, heavy snow, blizzard and rain at 11:00, from above Val Thorens and on skis on a
+// piste (the low altitude puts you on the snow). HUD and labels off: the scene alone.
+for (const [name, hours] of Object.entries(SCENES)) {
+  test(`weather-${name}`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+    await withWeather(page, '2023-01-15', (url) => answer(url, hours));
+    for (const [suffix, pose] of [
+      ['', 'at=45.2985,6.5830,2450&heading=215&pitch=5'],
+      ['-slope', 'at=45.2830,6.5760,2000&heading=27&pitch=-6'],
+    ] as const) {
+      if (suffix) await page.evaluate(() => localStorage.setItem('ski-sim.mode', 'ski'));
+      await page.goto(`/?resort=les-3-vallees&${pose}`);
+      await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 30, null, {
+        timeout: 90_000,
+      });
+      await page.evaluate(() => document.body.classList.add('flying'));
+      // The weather has arrived and the snow has filled its box.
+      await page.waitForFunction(
+        () =>
+          (window.__sim as unknown as { weather: { status: string } }).weather.status === 'ready',
+      );
+      await page.waitForTimeout(1200);
+      await page.screenshot({ path: `test-results/views/weather-${name}${suffix}.png` });
+    }
+    expect(errors).toEqual([]);
+  });
+}

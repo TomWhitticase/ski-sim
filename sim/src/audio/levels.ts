@@ -13,8 +13,22 @@ export interface SoundLevels {
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 
-export function soundLevels(airSpeed: number, contact: SnowContact | null): SoundLevels {
-  const wind = 0.04 + 0.5 * clamp01((airSpeed / 35) ** 2);
+/** The weather's wind (m/s, gusting) as a level: a breeze is faint, a gale roars. */
+export function weatherWindLevel(wind: number): number {
+  return 0.55 * clamp01(wind / 24) ** 1.5;
+}
+
+/**
+ * `airSpeed` is your speed through the air (m/s); `weatherWind` the weather's own wind
+ * (m/s, 0 with weather off). The two add like noise does (root sum of squares).
+ */
+export function soundLevels(
+  airSpeed: number,
+  contact: SnowContact | null,
+  weatherWind = 0,
+): SoundLevels {
+  const rushing = 0.04 + 0.5 * clamp01((airSpeed / 35) ** 2);
+  const wind = Math.min(0.75, Math.hypot(rushing, weatherWindLevel(weatherWind)));
   if (!contact || !contact.onSnow) return { wind, glide: 0, glidePitch: 800, skid: 0 };
   const moving = clamp01(contact.speed / 12);
   return {
