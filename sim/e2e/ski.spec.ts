@@ -25,7 +25,7 @@ const hudNumber = async (page: Page, field: string) =>
 test('F from flying puts you on the snow, standing still, then you ski off', async ({ page }) => {
   // Flying ~29 m above a 21° slope (ground ~2571 m), at speed.
   await start(page, SLOPE);
-  expect(await hudText(page, '[data-mode]')).toBe('FLY');
+  expect(await hudText(page, '[data-mode]')).toBe('DRONE');
   await page.keyboard.down('KeyW');
   await page.waitForTimeout(300);
   expect(await hudNumber(page, 'speed')).toBeGreaterThan(40); // flying fast
@@ -60,7 +60,7 @@ test('F from flying puts you on the snow, standing still, then you ski off', asy
 
   await page.keyboard.press('KeyF');
   await page.waitForTimeout(100);
-  expect(await hudText(page, '[data-mode]')).toBe('FLY');
+  expect(await hudText(page, '[data-mode]')).toBe('DRONE');
 });
 
 test('ski mode is remembered after a reload', async ({ page }) => {

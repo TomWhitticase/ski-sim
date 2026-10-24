@@ -10,7 +10,15 @@ import {
 
 import { CAMERA, DEFAULT_RESORT, FLY, SIM_DAY, simDate, TERRAIN } from './config';
 import { Sound } from './audio/sound';
-import { engineSound, liftHumLevel, railSound, soundLevels } from './audio/levels';
+import {
+  DRONE_OFF,
+  droneFalloff,
+  droneSound,
+  engineSound,
+  liftHumLevel,
+  railSound,
+  soundLevels,
+} from './audio/levels';
 import { FlyControls } from './controls/fly-controls';
 import { surfaceNormal } from './controls/ski-physics';
 import { skidAmount, sprayRate, trailWidth } from './fx/intensity';
@@ -1209,6 +1217,7 @@ async function main(): Promise<void> {
       lifts,
       ski,
       sled,
+      fly,
       environment,
       clock,
       multiplayer,
@@ -1339,9 +1348,15 @@ async function main(): Promise<void> {
     spray.update(dt, snowHeight);
     trails.flush();
     const levels = soundLevels(airSpeed, contact);
-    if (mode === 'fly') levels.wind = 0; // flying around is silent
+    if (mode === 'fly') levels.wind = 0; // the drone's camera hears its props, not the wind
     sound.update(levels);
     sound.setEngine(engineSound(sled.rpm, sled.throttle, mode === 'sled'));
+    sound.setDrone('own', mode === 'fly' ? droneSound(fly.currentVelocity.length()) : DRONE_OFF);
+    const otherDrone = multiplayer.nearestDrone(camera.position);
+    if (otherDrone) {
+      const buzz = droneSound(otherDrone.speed);
+      sound.setDrone('other', { ...buzz, level: buzz.level * droneFalloff(otherDrone.distance) });
+    } else sound.setDrone('other', DRONE_OFF);
     if (mode === 'sled' && sled.impact > 0) sound.thump(sled.impact);
     if (mode === 'ski' && ski.landingImpact > 0 && !ski.onRail) sound.thump(ski.landingImpact);
     // Rails: a clank as you get on (harder dropping onto it), then the grind.
@@ -1533,7 +1548,7 @@ async function main(): Promise<void> {
             ? `heading ${sled.sledHeading.toFixed(1)}° · sled ${(sled.speed * 3.6).toFixed(0)} km/h · ${Math.round(sled.rpm)} rpm${sled.airborne ? ' (air)' : ''}${sled.inPowder ? ' · powder' : ''}`
             : mode === 'ski'
               ? `heading ${ski.heading.toFixed(1)}° · ski ${(ski.speed * 3.6).toFixed(0)} km/h${ski.airborne ? ' (air)' : ''} · ${ski.view}`
-              : `heading ${fly.heading.toFixed(1)}° · fly speed ${fly.speed.toFixed(0)} m/s`,
+              : `heading ${fly.heading.toFixed(1)}° · drone speed ${fly.speed.toFixed(0)} m/s`,
         `sun az ${environment.sun.azimuth.toFixed(1)}° el ${environment.sun.elevation.toFixed(1)}°`,
       ].join('\n');
     }

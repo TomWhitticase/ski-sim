@@ -65,7 +65,7 @@ const metres = (m: number) => `${Math.round(m).toLocaleString('en-GB')} m`;
 const TIPS = [
   'M opens the map: right click anywhere to go there.',
   'Ctrl tucks; Shift ploughs; S with A or D is a hockey stop.',
-  'F flies out of your body; F again goes back to your skier.',
+  'F flies a drone while your skier waits; F again goes back to your skier.',
   'E at a lift’s bottom station rides it; hold W to fast-forward.',
   'H hides everything for full immersion.',
   'P opens a paraglider, even mid-air; B brings a snowmobile.',

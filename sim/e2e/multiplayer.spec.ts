@@ -124,8 +124,8 @@ test('host and guest see each other skiing, on the host clock', async ({ context
   await host.waitForTimeout(800);
   await host.screenshot({ path: 'test-results/views/multiplayer-host-view.png' });
 
-  // Other modes: the guest sees the host's snowmobile and paraglider; flying out of body
-  // from the wing, the paraglider waits where it was (with a see-through flyer).
+  // Other modes: the guest sees the host's snowmobile and paraglider; flying the drone
+  // from the wing, the paraglider waits where it was (and the drone flies).
   await host.keyboard.press('KeyV');
   for (const [key, mode, shot] of [
     ['KeyB', 'sled', 'sled'],
@@ -143,7 +143,7 @@ test('host and guest see each other skiing, on the host clock', async ({ context
       guest.evaluate(
         () =>
           (window.__sim as unknown as { scene: import('three').Scene }).scene.getObjectByName(
-            'pegman',
+            'drone',
           )?.visible ?? false,
       ),
     )
@@ -190,6 +190,105 @@ test('host and guest see each other skiing, on the host clock', async ({ context
   await guest.keyboard.press('KeyT');
   await expect(guest.locator('#opt-time input[name="time"]')).toBeEnabled();
 
+  expect(errors).toEqual([]);
+});
+
+test('a player flying the drone: others see it, tilting as it flies, and their skier holding the controller', async ({
+  context,
+}) => {
+  test.setTimeout(240_000);
+  const errors: string[] = [];
+  const host = await open(context, HOST_AT, errors);
+  await host.keyboard.press('KeyN');
+  const modal = host.locator('#mp-panel');
+  await setName(host, 'Alice');
+  await modal.locator('.mp-host').click();
+  await expect(modal.locator('.mp-code')).toHaveText(/^[A-Z2-9]{6}$/);
+  const code = (await modal.locator('.mp-code').textContent())!;
+  const guest = await open(context, `${GUEST_AT}&join=${code}`, errors);
+  await guest.keyboard.press('KeyN');
+  await setName(guest, 'Bob');
+  await expect(guest.locator('#mp-panel .mp-status')).toHaveText('Connected');
+  for (const page of [guest, host]) {
+    await page.locator('#menu-back').click();
+    await page.locator('#resume').click();
+  }
+  await expect.poll(() => sim(guest, (s) => s.multiplayer.debug.dots.length)).toBe(1);
+
+  // Alice flies her drone: it hovers ~6 m in front of Bob, a little left, facing him.
+  await host.keyboard.press('KeyF');
+  const bob = await sim(guest, (s) => s.ski.feet);
+  const place = (east: number, north: number, up: number, heading: number) =>
+    host.evaluate(
+      ({ feet, east, north, up, heading }) => {
+        const s = window.__sim as unknown as {
+          fly: { place: (p: object) => void; speed: number };
+        };
+        s.fly.speed = 8;
+        s.fly.place({
+          east: feet.x + east,
+          north: -feet.z + north,
+          altitude: feet.y + up,
+          heading,
+          pitch: 0,
+        });
+      },
+      { feet: bob, east, north, up, heading },
+    );
+  await place(6, 1.5, 1.2, 255);
+  type Scene = import('three').Scene;
+  const drone = () =>
+    guest.evaluate(() => {
+      const scene = (window.__sim as unknown as { scene: Scene }).scene;
+      const d = scene.getObjectByName('drone');
+      return d?.visible ? { pitch: d.children[0]!.rotation.x } : null;
+    });
+  await expect.poll(drone).not.toBeNull();
+  // Her skier stands holding the controller (the guest's copy of it).
+  const holding = () =>
+    guest.evaluate(() => {
+      const scene = (window.__sim as unknown as { scene: Scene }).scene;
+      const player = scene.children.find((o) => o.name.startsWith('player-'))!;
+      let shown = false;
+      player.traverse((o) => {
+        if (o.name === 'drone-controller' && o.visible && o.parent?.parent?.parent?.visible)
+          shown = true;
+      });
+      return shown;
+    });
+  await expect.poll(holding).toBe(true);
+  // The party card says what she's doing, and Bob can hear it.
+  await expect(guest.locator('#party')).toContainText('flying a drone');
+  const heard = () =>
+    guest.evaluate(() => {
+      const s = window.__sim as unknown as {
+        camera: import('three').Camera;
+        multiplayer: { nearestDrone: (p: unknown) => { distance: number } | null };
+      };
+      return s.multiplayer.nearestDrone(s.camera.position)?.distance ?? Infinity;
+    });
+  await expect.poll(heard).toBeLessThan(10);
+  await guest.waitForTimeout(500);
+  await guest.screenshot({ path: 'test-results/views/multiplayer-guest-drone.png' });
+
+  // Close up: the props spin, the lights glow.
+  await place(2, 0.3, 1.5, 230);
+  await guest.waitForTimeout(600);
+  await guest.screenshot({ path: 'test-results/views/multiplayer-guest-drone-close.png' });
+
+  // Flying north across Bob's view, nose down; level again when she stops.
+  await place(5, -4, 3.4, 0);
+  await guest.waitForTimeout(400);
+  await host.keyboard.down('KeyW');
+  await expect.poll(async () => (await drone())!.pitch).toBeLessThan(-0.12);
+  await guest.screenshot({ path: 'test-results/views/multiplayer-guest-drone-flying.png' });
+  await host.keyboard.up('KeyW');
+  await expect.poll(async () => Math.abs((await drone())!.pitch)).toBeLessThan(0.03);
+
+  // Back in her skier: the drone's gone and her hands are back on her poles.
+  await host.keyboard.press('KeyF');
+  await expect.poll(drone).toBeNull();
+  await expect.poll(holding).toBe(false);
   expect(errors).toEqual([]);
 });
 

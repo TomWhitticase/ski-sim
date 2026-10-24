@@ -11,7 +11,7 @@ export interface PartyMember {
   host: boolean;
   /** Metres from you; null if not seen yet (just joined, or another resort). */
   distance: number | null;
-  /** "skiing Cascades", "on a lift", "flying"… */
+  /** "skiing Cascades", "on a lift", "flying a drone"… */
   doing: string | null;
 }
 
@@ -25,7 +25,7 @@ export function distanceLabel(m: number): string {
 /** What a player's mode means in words (avatar modes from net/codec). */
 export function activity(mode: string, run: string | null): string {
   if (mode === 'ride') return 'on a lift';
-  if (mode === 'fly') return 'flying';
+  if (mode === 'fly') return 'flying a drone';
   if (mode === 'glide') return 'paragliding';
   if (mode === 'sled') return 'on a snowmobile';
   return run ? `skiing ${run}` : 'skiing';

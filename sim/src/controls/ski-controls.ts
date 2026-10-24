@@ -202,18 +202,20 @@ export class SkiControls {
 
   setActive(active: boolean): void {
     this.skier.visible = active;
+    if (active) this.model.setFlyingDrone(false);
     this.model.setOpacity(1);
     this.model.setStowed(false);
     this.applyView();
   }
 
   /**
-   * Out of body (fly mode): the skier stays where you left it, frozen in its last pose and
-   * drawn whole whatever the view, while you fly about without one.
+   * Out of body (flying the drone): the skier stays where you left it, standing with the
+   * drone's controller and drawn whole whatever the view, while you fly the drone.
    */
   showFrozen(): void {
     this.skier.visible = true;
     this.model.setFirstPerson(false);
+    this.model.setFlyingDrone(true);
   }
 
   setView(view: SkiCamera): void {

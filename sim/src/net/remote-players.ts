@@ -7,9 +7,8 @@ import {
   Vector3,
 } from 'three/webgpu';
 
-import { FLY } from '../config';
+import { Drone } from '../controls/drone-model';
 import { createGliderRig, type GliderRig, poseGlider } from '../controls/glider-controls';
-import { Pegman } from '../controls/pegman';
 import { SkierModel } from '../controls/ski-model';
 import { initialStance } from '../controls/ski-stance';
 import { createSnowmobile, type SnowmobileParts } from '../controls/snowmobile-model';
@@ -21,11 +20,6 @@ const TAG_DISTANCE = 4000;
 /** Tag height above the feet (m); a pilot's goes above the wing. */
 const TAG_HEIGHT = 2.4;
 const GLIDER_TAG_HEIGHT = 9;
-/** How see-through a player's flying figure is while their skier waits (out of body). */
-const SPIRIT_OPACITY = 0.4;
-/** The flying figure leans fully at this speed (the default fly speed × 3; m/s). */
-const PEGMAN_TOP_SPEED = FLY.speed * 3;
-const ZERO = new Vector3();
 const OCCLUSION_SAMPLES = 32;
 
 /** Tag and minimap colours, by player number. */
@@ -59,7 +53,7 @@ class RemoteAvatar {
   private skier?: SkierModel;
   private glider?: GliderRig;
   private sled?: { parts: SnowmobileParts; rider: SkierModel };
-  private pegman?: Pegman;
+  private drone?: Drone;
   private readonly up = new Vector3();
   private readonly position = new Vector3();
   private readonly velocity = new Vector3();
@@ -113,22 +107,21 @@ class RemoteAvatar {
     const skier = mode === 'ski' || mode === 'ride' ? (this.skier ??= this.addSkier()) : null;
     const glider = mode === 'glide' ? (this.glider ??= this.addGlider()) : null;
     const sled = mode === 'sled' ? (this.sled ??= this.addSled()) : null;
-    // Flying: the yellow figure; out of body, a see-through one beside their frozen skier.
+    // Flying: their drone. Out of body, their skier stands holding its controller.
     const spirit = (flags & Flag.Spirit) !== 0;
-    const pegman = mode === 'fly' || spirit ? (this.pegman ??= this.addPegman()) : null;
+    const drone = mode === 'fly' || spirit ? (this.drone ??= this.addDrone()) : null;
     if (this.skier) this.skier.root.visible = !!skier;
     if (this.glider) this.glider.root.visible = !!glider;
     if (this.sled) this.sled.parts.root.visible = !!sled;
-    if (pegman && spirit) {
+    if (drone && spirit) {
+      // Only its position is sent; the drone works out its velocity (to tilt) from that.
       this.spirit.fromArray(pose, SLOT.spirit).add(this.position);
-      pegman.setOpacity(SPIRIT_OPACITY);
-      pegman.update(dt, this.spirit, pose[SLOT.spirit + 3]!, ZERO, PEGMAN_TOP_SPEED);
-    } else if (pegman) {
+      drone.update(dt, this.spirit, pose[SLOT.spirit + 3]!);
+    } else if (drone) {
       const yaw = this.euler.setFromQuaternion(this.rotation, 'YXZ').y;
-      pegman.setOpacity(1);
-      pegman.update(dt, this.position, yaw, this.velocity, PEGMAN_TOP_SPEED);
+      drone.update(dt, this.position, yaw, this.velocity);
     } else {
-      this.pegman?.hide();
+      this.drone?.hide();
     }
 
     let tagHeight = TAG_HEIGHT;
@@ -136,10 +129,12 @@ class RemoteAvatar {
       skier.root.position.copy(this.position);
       skier.root.quaternion.copy(this.rotation);
       skier.setStowed((flags & Flag.Stowed) !== 0);
+      skier.setFlyingDrone(spirit);
       skier.apply(this.stance, this.up);
     } else if (glider) {
       const heading = this.euler.setFromQuaternion(this.rotation, 'YXZ').y;
       poseGlider(glider, this.position, heading, pose[SLOT.extra]!);
+      glider.pilot.setFlyingDrone(spirit);
       glider.pilot.apply(this.stance, this.up);
       tagHeight = GLIDER_TAG_HEIGHT;
     } else if (sled) {
@@ -150,9 +145,10 @@ class RemoteAvatar {
       parts.bars.rotation.y = steer * 0.8;
       for (const ski of parts.skis) ski.rotation.y = steer;
       parts.body.position.y = pose[SLOT.extra + 1]!;
+      rider.setFlyingDrone(spirit);
       rider.apply(this.stance, this.up);
     } else {
-      tagHeight = 0.6; // above the pegman's head (he hangs from the eye)
+      tagHeight = 0.5; // just above the drone
     }
     this.head.copy(this.position);
     this.head.y += tagHeight;
@@ -182,10 +178,15 @@ class RemoteAvatar {
     return { parts, rider };
   }
 
-  private addPegman(): Pegman {
-    const pegman = new Pegman();
-    this.root.add(pegman.root);
-    return pegman;
+  private addDrone(): Drone {
+    const drone = new Drone();
+    this.root.add(drone.root);
+    return drone;
+  }
+
+  /** Their drone, while they're flying one (and drawn). */
+  get flyingDrone(): Drone | null {
+    return this.drone?.root.visible ? this.drone : null;
   }
 
   dispose(): void {
@@ -225,10 +226,23 @@ export class RemotePlayers {
     return [...this.avatars.values()].filter((a) => a.visible).map((a) => a.state.mode);
   }
 
-  /** What a player is doing (avatar mode), if they've been seen. */
+  /** What a player is doing (avatar mode; 'fly' out of body too), if they've been seen. */
   modeOf(player: number): string | null {
     const a = this.avatars.get(player);
-    return a?.visible ? a.state.mode : null;
+    if (!a?.visible) return null;
+    return (a.state.flags & Flag.Spirit) !== 0 ? 'fly' : a.state.mode;
+  }
+
+  /** The nearest drone someone else is flying: how far it is from `from` (m) and its speed. */
+  nearestDrone(from: Vector3): { distance: number; speed: number } | null {
+    let best: { distance: number; speed: number } | null = null;
+    for (const a of this.avatars.values()) {
+      const drone = a.visible ? a.flyingDrone : null;
+      if (!drone) continue;
+      const distance = drone.root.position.distanceTo(from);
+      if (!best || distance < best.distance) best = { distance, speed: drone.speed };
+    }
+    return best;
   }
 
   /** Where a player is (world), if they've been seen. */

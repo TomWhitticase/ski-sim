@@ -21,7 +21,7 @@ export interface TouchState {
 }
 
 export interface TouchActions {
-  /** Do what a key does in game (`main.ts`): KeyM map, KeyF fly, KeyE ride... */
+  /** Do what a key does in game (`main.ts`): KeyM map, KeyF drone, KeyE ride... */
   key: (code: string) => void;
   /** Lift, peak and restaurant names on or off together. */
   labels: () => void;
@@ -49,7 +49,12 @@ const svg = (d: string) =>
 const ICONS = {
   pause: svg('<path d="M9 5v14M15 5v14"/>'),
   map: svg('<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>'),
-  fly: svg('<path d="M12 3v14"/><path d="M6 9l6-6 6 6"/><path d="M5 21h14"/>'),
+  // A quadcopter from above: four props on an X.
+  fly: svg(
+    '<path d="M8.5 8.5l7 7M15.5 8.5l-7 7"/><rect x="10" y="10" width="4" height="4" rx="1"/>' +
+      '<circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/>' +
+      '<circle cx="6" cy="18" r="3"/><circle cx="18" cy="18" r="3"/>',
+  ),
   glider: svg('<path d="M3 9c3-4 15-4 18 0"/><path d="M4 9l8 10 8-10M12 9v10"/>'),
   sled: svg('<path d="M3 17h13l3-3"/><path d="M5 17l2-5h7l3 2"/><path d="M10 12l1-3h3"/>'),
   view: svg(
@@ -78,7 +83,7 @@ const REPEAT_MS = 140;
 /**
  * Touch play: a virtual thumbstick where the left thumb lands, look-drag on the right half,
  * and context buttons for the current mode (dark glass, bottom right), plus pause and a row
- * of tools (map, fly, paraglider, snowmobile, view, labels, fullscreen). Everything goes
+ * of tools (map, drone, paraglider, snowmobile, view, labels, fullscreen). Everything goes
  * through `Input`, as the keyboard does, so the physics is the same.
  *
  * It also decides which controls are in use: touch on a phone or tablet (`body.touch`), and
@@ -291,7 +296,7 @@ export class TouchControls {
       },
       {
         id: 'fly',
-        label: 'Fly',
+        label: 'Drone',
         icon: ICONS.fly,
         press: () => this.actions.key('KeyF'),
         when: (st) => st.mode !== 'ride',

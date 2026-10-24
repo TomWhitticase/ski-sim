@@ -11,7 +11,7 @@ test('controls modal opens from the main menu, in sections, and closes with ✕ 
   await expect(modal.locator('h3:visible')).toHaveText([
     'Getting around',
     'Ski',
-    'Fly',
+    'Drone',
     'Paraglider',
     'Snowmobile',
     'View & sound',

@@ -292,7 +292,7 @@ test('touch: fly with up, down and speed buttons; the ways out are buttons too',
   await load(page, LAKE, 'fly');
   const fingers = await Fingers.on(page);
   await tapToPlay(page, fingers);
-  expect(await mode(page)).toBe('FLY');
+  expect(await mode(page)).toBe('DRONE');
   await expect(page.locator('[data-touch="up"]')).toBeVisible();
   await expect(page.locator('[data-touch="jump"]')).toBeHidden();
 

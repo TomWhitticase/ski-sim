@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { engineSound, railSound } from './levels';
+import { DRONE_HEARD_WITHIN, droneFalloff, droneSound, engineSound, railSound } from './levels';
 
 describe('engineSound', () => {
   it('is silent with the engine off', () => {
@@ -41,5 +41,34 @@ describe('railSound', () => {
     expect(board.grit).toBeCloseTo(1);
     expect(fifty.grit).toBeLessThan(0.1);
     expect(board.level).toBeGreaterThan(fifty.level);
+  });
+});
+
+describe('droneSound', () => {
+  it('buzzes at ~160 Hz hovering, rising with speed', () => {
+    const hover = droneSound(0);
+    expect(hover.frequency).toBeCloseTo(160, 0);
+    expect(hover.level).toBeGreaterThan(0);
+    let last = hover;
+    for (const speed of [5, 15, 30, 60, 300, 1500]) {
+      const s = droneSound(speed);
+      expect(s.frequency).toBeGreaterThan(last.frequency);
+      expect(s.level).toBeGreaterThanOrEqual(last.level);
+      last = s;
+    }
+    // Even flat out it's a buzz, not a whine.
+    expect(droneSound(1500).frequency).toBeLessThan(450);
+  });
+});
+
+describe('droneFalloff', () => {
+  it('is full close by, quieter further off, and silent past hearing range', () => {
+    expect(droneFalloff(0)).toBeCloseTo(1, 1);
+    expect(droneFalloff(3)).toBeCloseTo(droneFalloff(0), 1);
+    expect(droneFalloff(30)).toBeLessThan(0.25);
+    expect(droneFalloff(100)).toBeLessThan(droneFalloff(30));
+    expect(droneFalloff(100)).toBeGreaterThan(0);
+    expect(droneFalloff(DRONE_HEARD_WITHIN)).toBe(0);
+    expect(droneFalloff(5000)).toBe(0);
   });
 });

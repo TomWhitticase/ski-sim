@@ -24,10 +24,10 @@ export const SLOT = {
 const STANCE_SLOTS = 24;
 export const POSE_LENGTH = SLOT.spirit + 4;
 
-type Kind = 'linear' | 'angle' | 'unit';
+type Kind = 'linear' | 'angle' | 'unit' | 'sqrt';
 interface SlotFormat {
   kind: Kind;
-  /** int16 steps per unit. */
+  /** int16 steps per unit ('sqrt': per square root of a unit). */
   scale: number;
 }
 const linear = (scale: number): SlotFormat => ({ kind: 'linear', scale });
@@ -39,8 +39,10 @@ for (let i = 0; i < STANCE_SLOTS; i++) FORMATS.push(linear(2000)); // ±16 m or 
 FORMATS[SLOT.stance + 14] = { kind: 'angle', scale: 10_000 }; // skatePhase
 FORMATS[SLOT.stance + 16] = { kind: 'angle', scale: 10_000 }; // polePhase
 FORMATS.push(linear(2000), linear(2000));
-// Flying out of body: 1 m steps reach ±32 km from the body, enough for any resort.
-FORMATS.push(linear(1), linear(1), linear(1), { kind: 'angle', scale: 10_000 });
+// Flying the drone out of body: sent on a square-root scale, so it's ~2 cm steps hovering
+// beside the skier, ~35 cm a kilometre away, and reaches ±33 km, enough for any resort.
+const sqrt: SlotFormat = { kind: 'sqrt', scale: 180 };
+FORMATS.push(sqrt, sqrt, sqrt, { kind: 'angle', scale: 10_000 });
 
 export const Flag = {
   /** Skis and poles stowed (in a cabin, on a sled). */
@@ -74,7 +76,13 @@ export function writeState(view: DataView, offset: number, s: PlayerState): numb
   for (let i = 0; i < 3; i++, o += 4) view.setFloat32(o, s.pose[i]!);
   for (let i = 3; i < POSE_LENGTH; i++, o += 2) {
     const f = FORMATS[i]!;
-    const v = f.kind === 'angle' ? wrapAngle(s.pose[i]!) : s.pose[i]!;
+    const raw = s.pose[i]!;
+    const v =
+      f.kind === 'angle'
+        ? wrapAngle(raw)
+        : f.kind === 'sqrt'
+          ? Math.sign(raw) * Math.sqrt(Math.abs(raw))
+          : raw;
     view.setInt16(o, Math.max(-32767, Math.min(32767, Math.round(v * f.scale))));
   }
   return o;
@@ -86,7 +94,11 @@ export function readState(view: DataView, offset: number, out: PlayerState): num
   out.flags = view.getUint8(offset + 5);
   let o = offset + 6;
   for (let i = 0; i < 3; i++, o += 4) out.pose[i] = view.getFloat32(o);
-  for (let i = 3; i < POSE_LENGTH; i++, o += 2) out.pose[i] = view.getInt16(o) / FORMATS[i]!.scale;
+  for (let i = 3; i < POSE_LENGTH; i++, o += 2) {
+    const f = FORMATS[i]!;
+    const v = view.getInt16(o) / f.scale;
+    out.pose[i] = f.kind === 'sqrt' ? Math.sign(v) * v * v : v;
+  }
   return o;
 }
 
