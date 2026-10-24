@@ -3,7 +3,8 @@ sim shades the terrain with and places trees from.
 
 Each layer is the fraction of a cell covered by that class (WorldCover's 10 m classes
 averaged onto our grid). Tree cover is then cleared where trees can't stand: groomed
-pistes, lift corridors and stations, and buildings. The sim scatters individual trees
+pistes, lift corridors and stations, and buildings, with a narrow glade along off-piste
+routes. The sim scatters individual trees
 from the cleared tree cover; their positions, heights and species are synthetic (seeded
 per cell) and only the tree cover itself is data.
 """
@@ -44,6 +45,10 @@ FAR_SOURCE_RESOLUTION = 40.0
 # branches spread up to ~5 m from its trunk. Cable cars span high over the forest.
 CORRIDOR_HALF_WIDTH = {"chair": 14.0, "gondola": 14.0, "cabin": 5.0, "drag": 5.0}
 PISTE_MARGIN = 3.0
+# Off-piste routes (freeride itineraries, ski tours) keep their forest, but a skiable
+# line is cut through it, like a real tree run: a glade this far either side of the
+# route's line, not the full width of a groomed piste.
+ROUTE_HALF_WIDTH = 4.0
 BUILDING_MARGIN = 4.0
 STATION_MARGIN = 12.0
 
@@ -102,10 +107,17 @@ def clearings(
     lifts: list[dict],
     buildings: list[dict],
     terraces: list[list] | None = None,
+    routes: set[int] = frozenset(),
 ) -> np.ndarray:
     """True where trees must not stand: groomed pistes, lift lines and stations, buildings
-    and restaurant terraces (`terraces`: their rings)."""
+    and restaurant terraces (`terraces`: their rings), and a narrow glade along the line of
+    each off-piste route in `routes` (ROUTE_HALF_WIDTH)."""
     shapes = [geom.buffer(PISTE_MARGIN) for idx, geom, _, _ in piste_shapes if idx in groomed]
+    shapes += [
+        line.buffer(ROUTE_HALF_WIDTH)
+        for idx, _, is_area, line in piste_shapes
+        if idx in routes and not is_area and line is not None
+    ]
     for lift in lifts:
         kind = terminals.KIND.get(lift["type"])
         line = [(s["east"], s["north"]) for s in lift["supports"]]
@@ -166,6 +178,7 @@ def build(
     piste_shapes: list[tuple],
     groomed: set[int],
     features: dict,
+    routes: set[int] = frozenset(),
 ) -> tuple[dict, dict, object]:
     """Writes landcover-near.png / landcover-far.png. Returns the manifest entry, stats and
     a sampler of the (cleared) tree cover: `tree_cover(east, north)`."""
@@ -185,7 +198,7 @@ def build(
     stray |= slope_degrees(heights, cell) > MAX_TREE_SLOPE
     terraces = [r["terrace"]["ring"] for r in features.get("restaurants", []) if r["terrace"]]
     cleared = clearings(
-        grid, piste_shapes, groomed, features["lifts"], features["buildings"], terraces
+        grid, piste_shapes, groomed, features["lifts"], features["buildings"], terraces, routes
     )
     forest_before = float(tree.sum())
     tree[stray | cleared] = 0

@@ -566,6 +566,8 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         piste_shapes,
         {r["index"] for r in piste_runs if r["groomed"]},
         feature_data,
+        # Skiable off-piste routes (not walking ones) get a glade through any forest.
+        {r["index"] for r in piste_runs if not r["groomed"] and r["type"] != "hike"},
     )
 
     log.info("Writing outputs to %s", out_dir)

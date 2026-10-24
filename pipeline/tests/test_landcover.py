@@ -93,6 +93,18 @@ def test_clearings_cut_groomed_pistes_lifts_and_buildings_not_itineraries():
     assert at(60, 210) and not at(100, 210)  # building
 
 
+def test_off_piste_routes_get_a_narrow_glade_through_the_forest():
+    grid = Grid(Extent(0, 400, 0, 400), 2)
+    line = LineString([(0, 200), (400, 200)])
+    cleared = clearings(grid, [(3, line.buffer(10), False, line)], set(), [], [], routes={3})
+
+    def at(east, north):
+        return cleared[round((400 - north) / 2), round(east / 2)]
+
+    assert at(100, 200) and at(100, 203)  # skiable through the trees
+    assert not at(100, 207)  # but only a glade, not the run's whole width
+
+
 def test_clearings_cut_restaurant_terraces():
     grid = Grid(Extent(0, 400, 0, 400), 8)
     deck = [[100, 100], [120, 100], [120, 107], [100, 107]]
