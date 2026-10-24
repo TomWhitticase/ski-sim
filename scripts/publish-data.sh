@@ -83,11 +83,19 @@ PY
     case "$file" in
       *.json) type=application/json ;;
       *.png) type=image/png ;;
+      *.jpg) type=image/jpeg ;;
       *) type=application/octet-stream ;;
     esac
     case "$key" in */manifest.json | resorts.json) cache="no-cache" ;; esac
-    wrangler r2 object put "$bucket/$key" --file "$file" --content-type "$type" \
-      --cache-control "$cache" --remote >/dev/null
+    # R2 sometimes answers a put with a 500 ("internal error, please try again").
+    local try
+    for try in 1 2 3 4; do
+      wrangler r2 object put "$bucket/$key" --file "$file" --content-type "$type" \
+        --cache-control "$cache" --remote >/dev/null && return
+      echo "Retrying $key" >&2
+      sleep $((try * 5))
+    done
+    return 1
   }
   for id in "${ids[@]}"; do
     for file in "$staging/$id"/*; do
