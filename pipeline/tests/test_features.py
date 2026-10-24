@@ -1,7 +1,12 @@
 import numpy as np
 import pytest
 
-from ski_sim_pipeline.features import LIFT_PROFILES, estimate_height, place_supports
+from ski_sim_pipeline.features import (
+    LIFT_PROFILES,
+    display_name,
+    estimate_height,
+    place_supports,
+)
 
 
 def flat(height: float):
@@ -264,3 +269,10 @@ def test_display_name_prefers_english_only_for_non_latin_names():
     # No English name: keep what there is.
     assert display_name({"name": "नुप्त्से २"}) == "नुप्त्से २"
     assert display_name({}) is None
+
+
+def test_cyrillic_names_without_an_english_one_are_transliterated():
+    assert display_name({"name": "кв.Глазне"}) == "kv. Glazne"
+    assert display_name({"name": "Банско"}) == "Bansko"
+    assert display_name({"name": "Банско", "name:en": "Bansko town"}) == "Bansko town"
+    assert display_name({"name": "Val Thorens"}) == "Val Thorens"

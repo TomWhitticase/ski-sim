@@ -414,12 +414,79 @@ FAR_PEAK_MIN_ELE = 3500.0  # outside the near extent, only label major summits
 _NON_LATIN = re.compile(r"[^\W\d_A-Za-z\u00C0-\u024F\u1E00-\u1EFF]")
 
 
+# Cyrillic to Latin, by the Bulgarian official system (close enough for Russian and
+# Ukrainian names too), for names OSM has no `name:en` for.
+_CYRILLIC = dict(
+    zip(
+        "абвгдежзийклмнопрстуфхцчшщъьюяыэёєіїґ",
+        [
+            "a",
+            "b",
+            "v",
+            "g",
+            "d",
+            "e",
+            "zh",
+            "z",
+            "i",
+            "y",
+            "k",
+            "l",
+            "m",
+            "n",
+            "o",
+            "p",
+            "r",
+            "s",
+            "t",
+            "u",
+            "f",
+            "h",
+            "ts",
+            "ch",
+            "sh",
+            "sht",
+            "a",
+            "y",
+            "yu",
+            "ya",
+            "y",
+            "e",
+            "yo",
+            "ye",
+            "i",
+            "yi",
+            "g",
+        ],
+        strict=True,
+    )
+)
+
+
+def transliterate(name: str) -> str:
+    """Latin spelling of a Cyrillic name ("кв.Глазне" -> "kv. Glazne")."""
+    out = []
+    for ch in name:
+        low = ch.lower()
+        latin = _CYRILLIC.get(low)
+        if latin is None:
+            out.append(ch)
+        else:
+            out.append(latin.capitalize() if ch != low else latin)
+    # An abbreviation's full stop runs into the next word ("кв.Глазне").
+    return re.sub(r"\.(?=\w)", ". ", "".join(out))
+
+
 def display_name(tags: dict) -> str | None:
     """The name to show: OSM `name`, or `name:en` when `name` isn't in Latin script
-    (Everest's `name` is Chinese, Tibetan and Nepali in one string)."""
+    (Everest's `name` is Chinese, Tibetan and Nepali in one string), or for Cyrillic
+    without one, the name transliterated."""
     name = tags.get("name")
-    if name and _NON_LATIN.search(name) and tags.get("name:en"):
-        return tags["name:en"]
+    if name and _NON_LATIN.search(name):
+        if tags.get("name:en"):
+            return tags["name:en"]
+        if any(ch.lower() in _CYRILLIC for ch in name):
+            return transliterate(name)
     return name
 
 
