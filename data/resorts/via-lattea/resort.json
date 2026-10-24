@@ -1,10 +1,13 @@
 {
   "id": "via-lattea",
   "name": "Via Lattea",
-  "country": "IT",
+  "country": [
+    "IT",
+    "FR"
+  ],
   "bounds": {
     "south": 44.8886,
-    "west": 6.7294,
+    "west": 6.655,
     "north": 45.0437,
     "east": 6.9448
   }

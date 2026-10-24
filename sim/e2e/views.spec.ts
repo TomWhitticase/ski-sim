@@ -204,6 +204,10 @@ const VIEWS = [
   { name: 'kronplatz', query: 'resort=kronplatz&at=46.7025,11.9427,1702&heading=244&pitch=-8' },
   { name: 'via-lattea', query: 'resort=via-lattea&at=44.9449,6.8831,2485&heading=325&pitch=-8' },
   {
+    name: 'via-lattea-montgenevre',
+    query: 'resort=via-lattea&at=44.9200,6.7500,2300&heading=250&pitch=-8',
+  },
+  {
     name: 'zillertal-mayrhofen',
     query: 'resort=zillertal-3000&at=47.1581,11.8747,1151&heading=299&pitch=-8',
   },
