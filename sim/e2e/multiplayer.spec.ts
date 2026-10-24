@@ -165,13 +165,12 @@ test('host and guest see each other skiing, on the host clock', async ({ context
     .poll(() => sim(guest, (s) => Math.round(s.clock.seconds / 60)))
     .toBeGreaterThanOrEqual(22 * 60);
   // The guest's lift clock sits between two reads of the host's taken either side of it
-  // (reads of two pages are a moment apart, more on a busy machine). The guest eases
-  // onto the host's clock rather than jumping, so it can trail by a few tenths.
+  // (reads of two pages are a moment apart, more on a busy machine), within 0.3 s.
   const hostBefore = await sim(host, (s) => s.lifts.time);
   const guestLift = await sim(guest, (s) => s.lifts.time);
   const hostAfter = await sim(host, (s) => s.lifts.time);
-  expect(guestLift).toBeGreaterThan(hostBefore - 0.75);
-  expect(guestLift).toBeLessThan(hostAfter + 0.75);
+  expect(guestLift).toBeGreaterThan(hostBefore - 0.3);
+  expect(guestLift).toBeLessThan(hostAfter + 0.3);
   await guest.keyboard.press('KeyT');
   await expect(guest.locator('#opt-time .time-locked')).toContainText('host sets the time');
   await expect(guest.locator('#opt-time input[name="time"]')).toBeDisabled();

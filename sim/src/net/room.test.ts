@@ -13,6 +13,7 @@ import {
   saveParty,
   inviteLink,
   PUBLIC_SITE,
+  hostLiftNow,
   liftCorrection,
   makeRoomCode,
   parseRoomCode,
@@ -68,7 +69,7 @@ describe('shared clocks', () => {
   });
 
   it('slews small lift-clock errors and snaps big ones', () => {
-    expect(liftCorrection(0.5, 1 / 60)).toBeCloseTo(0.5 * 0.8 * (1 / 60), 6);
+    expect(liftCorrection(0.5, 1 / 60)).toBeCloseTo(0.5 * 3 * (1 / 60), 6);
     expect(liftCorrection(-0.5, 1 / 60)).toBeLessThan(0);
     expect(liftCorrection(30, 1 / 60)).toBe(30);
     // Worked off within a few seconds.
@@ -117,5 +118,21 @@ describe('party', () => {
     expect(loadParty(storage)).toBeNull();
     store.set('ski-sim.party', '{"code":"no","role":"x"}');
     expect(loadParty(storage)).toBeNull();
+  });
+});
+
+describe('guest lift clock', () => {
+  it("keeps up with the host's even when its own frames fall behind", () => {
+    // The guest's frames only advance the lift clock 80% of real time (dropped frames);
+    // steering toward the host's clock every frame keeps the gap tiny.
+    const reading = { lift: 100, at: 0 };
+    let lift = 100;
+    let worst = 0;
+    for (let ms = 0; ms < 20_000; ms += 1000 / 30) {
+      lift += (0.8 * 1) / 30;
+      lift += liftCorrection(hostLiftNow(reading, ms) - lift, 1 / 30);
+      if (ms > 3000) worst = Math.max(worst, Math.abs(hostLiftNow(reading, ms) - lift));
+    }
+    expect(worst).toBeLessThan(0.1);
   });
 });

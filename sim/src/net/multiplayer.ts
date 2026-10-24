@@ -10,6 +10,7 @@ import { type CarrierFrame, playerColour, RemotePlayers } from './remote-players
 import {
   cleanName,
   inviteLink,
+  hostLiftNow,
   liftCorrection,
   loadName,
   loadParty,
@@ -74,8 +75,8 @@ export class Multiplayer {
   readonly menu: MultiplayerMenu;
   private status = '';
   private error = false;
-  /** Guest: how far the local lift clock is behind the host's, still to make up (s). */
-  private liftError = 0;
+  /** Guest: the host's lift clock at its last reading (see `hostLiftNow`). */
+  private hostLift: { lift: number; at: number } | null = null;
   private name: string;
   /** Host/Join presses so far (connecting is async). */
   private attempts = 0;
@@ -238,13 +239,12 @@ export class Multiplayer {
     const s = this.session;
     if (!s) return;
     s.update();
-    if (s.role === 'guest' && this.liftError !== 0) {
+    if (s.role === 'guest' && this.hostLift) {
       // Ease the lift clock onto the host's, so everyone's chairs line up.
       const lifts = this.sim.lifts;
-      const step = liftCorrection(this.liftError, dt);
+      const step = liftCorrection(hostLiftNow(this.hostLift, performance.now()) - lifts.time, dt);
       lifts.time += step;
       if (Math.abs(step) > 1) lifts.previousTime = lifts.time; // a jump, not a pass
-      this.liftError -= step;
     }
     this.remote.update(s.players, dt, performance.now(), camera);
     if (this.menu.isOpen) this.render();
@@ -276,7 +276,7 @@ export class Multiplayer {
       return;
     }
     if (attempt !== this.attempts) return transport.leave();
-    this.liftError = 0;
+    this.hostLift = null;
     const hostSince = role === 'host' ? (since ?? Date.now()) : undefined;
     saveParty(sessionStorage, {
       code,
@@ -336,7 +336,7 @@ export class Multiplayer {
   }
 
   private follow(c: SharedClock): void {
-    this.liftError = c.lift - this.sim.lifts.time;
+    this.hostLift = { lift: c.lift, at: performance.now() };
     const clock = this.sim.clock;
     // Time of day: adopt the rate, and the time unless it's already within a moment.
     let d = (c.seconds - clock.seconds) % DAY_SECONDS;

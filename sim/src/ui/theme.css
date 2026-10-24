@@ -22,8 +22,10 @@
 }
 
 :root {
-  --font-ui: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  /* Twemoji Country Flags first: it holds only flag emoji, so it draws the flags (Windows
+     has none of its own, ui/flags.ts) and every other character falls through to Geist. */
+  --font-ui: 'Twemoji Country Flags', 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Twemoji Country Flags', 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   --r-panel: 8px;
   --r-control: 6px;
   --r-chip: 4px;

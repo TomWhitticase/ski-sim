@@ -109,6 +109,7 @@ import { addSpirit, sampleAvatar } from './net/local-avatar';
 import { Multiplayer } from './net/multiplayer';
 import { cleanName, loadName, NAME_KEY, parseRoomCode } from './net/room';
 import { MultiplayerMenu } from './ui/multiplayer-menu';
+import { polyfillFlags } from './ui/flags';
 import { PartyHud } from './ui/party-hud';
 import { saveCanvas, screenshotName } from './ui/screenshot';
 
@@ -162,6 +163,7 @@ function migrateStorage(): void {
 }
 
 async function main(): Promise<void> {
+  polyfillFlags(); // flag emoji in the menu on Windows
   migrateStorage();
   const params = new URLSearchParams(location.search);
   // Phones and tablets play by touch (on-screen stick and buttons); a mouse or keyboard

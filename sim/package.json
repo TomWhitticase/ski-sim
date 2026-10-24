@@ -16,6 +16,7 @@
     "station-audit": "node scripts/station-audit.mjs"
   },
   "dependencies": {
+    "country-flag-emoji-polyfill": "0.1.10",
     "proj4": "^2.22.0",
     "three": "^0.186.1",
     "trystero": "0.26.0"

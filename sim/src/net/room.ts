@@ -131,8 +131,21 @@ export function advanceShared(s: SharedClock, latency: number): SharedClock {
 
 /** Lift clock errors bigger than this jump straight to the host's (s). */
 const LIFT_SNAP = 2;
-/** Smaller errors are worked off at this rate (1/s), so chairs never visibly jump. */
-const LIFT_SLEW = 0.8;
+/**
+ * Smaller errors worked off at this rate (1/s): quick enough that a guest whose frames
+ * fall behind (a busy machine) keeps up, gentle enough that chairs never visibly jump.
+ */
+const LIFT_SLEW = 3;
+
+/**
+ * Guest: the host's lift clock now, from the last reading (`at`, ms, and the lift time it
+ * gave, already advanced by the one-way latency). Steering toward this every frame, not
+ * just once per sync, means the guest doesn't fall steadily behind if its own clock loses
+ * time between syncs.
+ */
+export function hostLiftNow(reading: { lift: number; at: number }, now: number): number {
+  return reading.lift + (now - reading.at) / 1000;
+}
 
 /** How much to move the local lift clock this frame toward the host's (s). */
 export function liftCorrection(error: number, dt: number): number {
