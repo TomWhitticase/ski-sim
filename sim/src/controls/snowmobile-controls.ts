@@ -208,8 +208,10 @@ export class SnowmobileControls {
   }
 
   setActive(active: boolean): void {
-    if (active) this.status = 'riding';
-    else if (this.status === 'riding') this.status = 'parked';
+    if (active) {
+      this.status = 'riding';
+      this.rider.setFlyingDrone(false);
+    } else if (this.status === 'riding') this.status = 'parked';
     this.root.visible = this.status !== 'away';
     this.rider.root.visible = this.status === 'riding';
     this.applyView();
@@ -217,13 +219,14 @@ export class SnowmobileControls {
   }
 
   /**
-   * Out of body (fly mode): the sled stays where you left it with you sat on it, drawn
-   * whole. Still 'riding', so it isn't parked and doesn't coast; it just isn't updated.
+   * Out of body (flying the drone): the sled stays where you left it with you sat on it
+   * holding the drone's controller, drawn whole. Still 'riding', so it isn't parked and doesn't coast; it just isn't updated.
    */
   showFrozen(): void {
     this.root.visible = true;
     this.rider.root.visible = true;
     this.rider.setFirstPerson(false, true);
+    this.rider.setFlyingDrone(true);
   }
 
   /** How dark it is (0 day … 1 night); the headlight comes on as it gets dark. */

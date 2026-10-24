@@ -219,6 +219,11 @@ export class Multiplayer {
     return this.remote.dots;
   }
 
+  /** The nearest drone another player is flying (distance from `from`, m; its speed). */
+  nearestDrone(from: Vector3): { distance: number; speed: number } | null {
+    return this.session ? this.remote.nearestDrone(from) : null;
+  }
+
   private async start(role: Role, code: string, since?: number): Promise<void> {
     if (this.session) this.session.close();
     this.session = null;

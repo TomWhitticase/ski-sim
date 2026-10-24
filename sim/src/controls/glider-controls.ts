@@ -198,12 +198,14 @@ export class GliderControls {
 
   setActive(active: boolean): void {
     this.root.visible = active;
+    if (active) this.pilot.setFlyingDrone(false);
   }
 
-  /** Out of body (fly mode): the wing and pilot hang where you left them, drawn whole. */
+  /** Out of body (flying the drone): the wing and pilot hang where you left them, drawn whole. */
   showFrozen(): void {
     this.root.visible = true;
     this.pilot.setFirstPerson(false);
+    this.pilot.setFlyingDrone(true);
   }
 
   setView(view: 'first-person' | 'chase'): void {

@@ -65,7 +65,7 @@ const FLASH_MS = 1200;
  * The in-game HUD (dark glass): the run underfoot (top left), a compass tape (top
  * centre) with the guide marker on it, the run and a stat strip (bottom left: speed with
  * the mode, altitude, slope), coordinates under the minimap with the quick toggles below,
- * and fly mode's set speed.
+ * and the drone's set speed (fly mode).
  */
 export class Hud {
   private readonly fields: Record<'altitude' | 'lat' | 'lon' | 'speed' | 'slope', HTMLElement>;
@@ -161,7 +161,7 @@ export class Hud {
   }
 
   /**
-   * Fly mode's set speed (m/s) and how far along its range it is (0-1); null hides it.
+   * The drone's set speed (fly mode; m/s) and how far along its range it is (0-1); null hides it.
    * Changes give the readout a little bump so the wheel feels responsive.
    */
   setFlySpeed(speed: number | null, fill = 0): void {
@@ -174,7 +174,7 @@ export class Hud {
     if (speed === null) return;
     const width = (Math.min(1, Math.max(0, fill)) * 100).toFixed(1);
     el.innerHTML =
-      `<span class="lab">Fly speed</span><b>${Math.round(speed * 3.6)}<span class="unit"> km/h</span></b>` +
+      `<span class="lab">Drone speed</span><b>${Math.round(speed * 3.6)}<span class="unit"> km/h</span></b>` +
       `<span class="bar"><i style="width:${width}%"></i></span>` +
       '<span class="lab desktop-only">Scroll to change</span>';
     if (changed) {
@@ -185,8 +185,8 @@ export class Hud {
   }
 
   /**
-   * Fly mode's ways out, always on screen so there's no guessing: back into the skier
-   * you left (`body`), or down to the snow where you are. Null hides them.
+   * Fly mode's ways out, always on screen so there's no guessing: back to the skier
+   * holding the controller (`body`), or down to the snow where the drone is. Null hides them.
    */
   setFlyKeys(state: 'body' | 'free' | null): void {
     this.flyKeys.hidden = state === null;
@@ -202,7 +202,13 @@ export class Hud {
 
   setMode(mode: 'fly' | 'ski' | 'glide' | 'ride' | 'sled'): void {
     this.root.querySelector('[data-mode]')!.textContent =
-      mode === 'ride' ? 'LIFT' : mode === 'sled' ? 'SNOWMOBILE' : mode.toUpperCase();
+      mode === 'ride'
+        ? 'LIFT'
+        : mode === 'sled'
+          ? 'SNOWMOBILE'
+          : mode === 'fly'
+            ? 'DRONE'
+            : mode.toUpperCase();
   }
 
   /** The guide marker's bearing from you (degrees), or null when there's none. */

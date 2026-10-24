@@ -1,4 +1,11 @@
-import type { EngineSound, RailSound, SoundLevels } from './levels';
+import type { DroneSound, EngineSound, RailSound, SoundLevels } from './levels';
+
+interface DroneVoice {
+  gain: GainNode;
+  filter: BiquadFilterNode;
+  motors: { osc: OscillatorNode; ratio: number }[];
+  wash: BiquadFilterNode;
+}
 
 const SMOOTHING = 0.08; // s: time constant for level changes (avoids zipper noise)
 
@@ -12,6 +19,9 @@ const SMOOTHING = 0.08; // s: time constant for level changes (avoids zipper noi
  *   tube), with a gritty flutter in a boardslide; a clank on landing on it
  * - engine: a snowmobile's twin two-stroke, sawtooth harmonics at the firing frequency
  *   through a low-pass, with a warble at idle and exhaust rasp from band-passed noise
+ * - drone: a quadcopter's buzz, four slightly detuned sawtooths at the blade-pass
+ *   frequency (they beat like four props), a motor whine above, and band-passed noise for
+ *   the rotor wash; one voice for your own drone, one for the nearest other player's
  * Browsers only allow audio after a user gesture, so start() is called from a click.
  */
 export class Sound {
@@ -35,6 +45,7 @@ export class Sound {
     warbleDepth: GainNode;
     rasp: BiquadFilterNode;
   };
+  private drones!: { own: DroneVoice; other: DroneVoice };
   private muted: boolean;
 
   constructor(muted = false) {
@@ -201,6 +212,59 @@ export class Sound {
       warbleDepth,
       rasp,
     };
+
+    const droneVoice = (): DroneVoice => {
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 500;
+      filter.Q.value = 0.8;
+      filter.connect(gain).connect(this.master);
+      const motors = (
+        [
+          [1, 'sawtooth', 0.22],
+          [1.012, 'sawtooth', 0.22],
+          [0.991, 'sawtooth', 0.22],
+          [1.023, 'sawtooth', 0.22],
+          [6.4, 'sine', 0.035], // the motors' electric whine
+        ] as const
+      ).map(([ratio, type, level]) => {
+        const osc = ctx.createOscillator();
+        osc.type = type;
+        osc.frequency.value = 160 * ratio;
+        const g = ctx.createGain();
+        g.gain.value = level;
+        osc.connect(g).connect(filter);
+        osc.start();
+        return { osc, ratio };
+      });
+      const wash = ctx.createBiquadFilter();
+      wash.type = 'bandpass';
+      wash.Q.value = 0.9;
+      const washGain = ctx.createGain();
+      washGain.gain.value = 0.5;
+      source.connect(wash).connect(washGain).connect(gain);
+      return { gain, filter, motors, wash };
+    };
+    this.drones = { own: droneVoice(), other: droneVoice() };
+  }
+
+  /**
+   * A drone's buzz: `own` is the one you're flying, `other` the nearest drone someone
+   * else is flying (its level already scaled by distance). Level 0 silences it.
+   */
+  setDrone(which: 'own' | 'other', drone: DroneSound): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const v = this.drones[which];
+    v.gain.gain.setTargetAtTime(drone.level, t, SMOOTHING);
+    v.filter.frequency.setTargetAtTime(drone.frequency * 3.5, t, SMOOTHING);
+    for (const { osc, ratio } of v.motors) {
+      osc.frequency.setTargetAtTime(drone.frequency * ratio, t, 0.06);
+    }
+    v.wash.frequency.setTargetAtTime(drone.frequency * 2.5, t, SMOOTHING);
   }
 
   /** The snowmobile's engine (level 0 when you're not on one). */

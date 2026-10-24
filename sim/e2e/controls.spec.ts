@@ -171,18 +171,27 @@ test('flying leaves your skier behind: F goes back to it, R skis from where you 
       const scene = (window.__sim as unknown as { scene: import('three').Scene }).scene;
       return scene.getObjectByName('ski-left')!.parent!.visible;
     });
+  const holdingController = () =>
+    page.evaluate(() => {
+      const scene = (window.__sim as unknown as { scene: import('three').Scene }).scene;
+      const skier = scene.getObjectByName('ski-left')!.parent!;
+      return skier.getObjectByName('drone-controller')!.visible;
+    });
   // Flying with no body to go back to: F lands you, and that's all it offers.
   await expect(keys).toHaveText(/F\s*Ski from here/);
   await page.keyboard.press('KeyF');
   await expect.poll(mode).toBe('SKI');
   const left = await hud(page);
 
-  // Out of body: the skier stays put (shown, with a tag), and you fly off without one.
+  // Out of body: the skier stays put (shown, with a tag, holding the drone's controller),
+  // and you fly the drone.
   await page.keyboard.press('KeyF');
-  await expect.poll(mode).toBe('FLY');
+  await expect.poll(mode).toBe('DRONE');
   await expect(keys).toContainText('Back to your skier');
   await expect(keys).toContainText('Ski from here');
   expect(await skierShown()).toBe(true);
+  expect(await holdingController()).toBe(true);
+  await expect(page.locator('#fly-speed .lab').first()).toHaveText('Drone speed');
   await page.keyboard.press('KeyV'); // no first or third person while flying
   await expect(page.locator('#toggles [data-toggle="view"]')).toBeHidden();
   await hold(page, 'KeyW', 1200);
@@ -194,6 +203,7 @@ test('flying leaves your skier behind: F goes back to it, R skis from where you 
   await page.keyboard.press('KeyF');
   await expect.poll(mode).toBe('SKI');
   const back = await hud(page);
+  expect(await holdingController()).toBe(false);
   expect(Math.abs(back.lat - left.lat)).toBeLessThan(0.00005);
   expect(Math.abs(back.lon - left.lon)).toBeLessThan(0.00005);
   await expect(keys).toBeHidden();
@@ -208,4 +218,50 @@ test('flying leaves your skier behind: F goes back to it, R skis from where you 
   expect(Math.abs(here.lat - away.lat)).toBeLessThan(0.0002);
   expect(here.lat).toBeGreaterThan(left.lat + 0.0003);
   await expect(page.locator('#labels .label-body')).toBeHidden();
+});
+
+test('flying the drone, your skier stands holding its controller, watching the screen', async ({
+  page,
+}) => {
+  // The frozen lake: flat, open ground.
+  await page.addInitScript(() => localStorage.setItem('ski-sim.mode', 'ski'));
+  await startFlying(page, 'at=45.28856,6.5752,2417.2&heading=90&pitch=-5');
+  await page.waitForTimeout(1500); // settle on the snow
+  await page.keyboard.press('KeyF');
+  await expect(page.locator('#hud [data-mode]')).toHaveText('DRONE');
+  await expect(page.locator('#hud .hud-speed .lab')).toContainText('DRONE');
+  // Turn the drone round to look at the skier: `ahead` and `right` of them (m), `up`
+  // above their feet, looking at their hands.
+  const look = async (ahead: number, right: number, up: number, shot: string) => {
+    await page.evaluate(
+      ({ ahead, right, up }) => {
+        type V = { x: number; y: number; z: number };
+        const s = window.__sim as unknown as {
+          ski: { feet: V; skier: { quaternion: V & { w: number } } };
+          fly: { place: (p: object) => void };
+        };
+        const f = s.ski.feet;
+        const q = s.ski.skier.quaternion;
+        // Where the skier faces (-z of their root), flattened.
+        const fx = -2 * (q.x * q.z + q.w * q.y);
+        const fz = -(1 - 2 * (q.x * q.x + q.y * q.y));
+        const len = Math.hypot(fx, fz);
+        const [dx, dz] = [fx / len, fz / len];
+        const x = f.x + dx * ahead - dz * right;
+        const z = f.z + dz * ahead + dx * right;
+        const hands = { x: f.x + dx * 0.3, y: f.y + 1.05, z: f.z + dz * 0.3 };
+        const heading = (Math.atan2(hands.x - x, -(hands.z - z)) * 180) / Math.PI;
+        const flat = Math.hypot(hands.x - x, hands.z - z);
+        const pitch = (Math.atan2(hands.y - (f.y + up), flat) * 180) / Math.PI;
+        s.fly.place({ east: x, north: -z, altitude: f.y + up, heading, pitch });
+      },
+      { ahead, right, up },
+    );
+    await page.waitForTimeout(800);
+    await page.screenshot({ path: `test-results/views/${shot}.png` });
+  };
+  await look(1.9, 1.1, 1.7, 'drone-pilot');
+  await look(-0.45, 0.55, 2.0, 'drone-pilot-screen'); // over the shoulder
+  await expect(page.locator('#fly-keys')).toBeVisible();
+  await page.locator('#fly-keys').screenshot({ path: 'test-results/views/drone-keys.png' });
 });

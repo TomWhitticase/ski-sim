@@ -63,6 +63,24 @@ describe('state codec', () => {
     expect(Math.sin(phase)).toBeCloseTo(Math.sin(50), 3);
   });
 
+  it('sends the drone (out of body) finely close by, and still reaches across a resort', () => {
+    const s = createState();
+    s.flags = Flag.Spirit;
+    for (const [offset, step] of [
+      [0.37, 0.01],
+      [-4.21, 0.03],
+      [180.6, 0.1],
+      [-2345.6, 0.6],
+      [30_000, 2.5],
+    ] as const) {
+      s.pose.set([offset, -offset / 3, offset / 7], SLOT.spirit);
+      const back = decodeState(encodeState(s))!;
+      expect(Math.abs(back.pose[SLOT.spirit]! - offset)).toBeLessThan(step);
+      expect(Math.abs(back.pose[SLOT.spirit + 1]! + offset / 3)).toBeLessThan(step);
+      expect(Math.abs(back.pose[SLOT.spirit + 2]! - offset / 7)).toBeLessThan(step);
+    }
+  });
+
   it('restores the stance, sit and grip included', () => {
     const { s, stance } = sampleState();
     const back = slotsToStance(decodeState(encodeState(s))!.pose, s.flags, initialStance());

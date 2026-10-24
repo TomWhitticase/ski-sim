@@ -21,6 +21,7 @@ import {
   Vector3,
 } from 'three/webgpu';
 
+import { createDroneController } from './drone-model';
 import { headGeometries } from './skier-head';
 import { DEFAULT_SETUP, type SkiDimensions, type SkiSetup, skiDimensions } from './ski-setup';
 import type { SkiPose, Stance } from './ski-stance';
@@ -171,6 +172,10 @@ export class SkierModel {
   /** Skis and bindings without the boots (stowed in a cabin's rack). */
   private readonly skiParts: Mesh[] = [];
   private stowed = false;
+  /** The gloved fists on the pole grips (hidden while the hands hold the controller). */
+  private readonly fists: Mesh[] = [];
+  private readonly controller = createDroneController();
+  private flyingDrone = false;
   /** The stance and balance line last applied (what a remote copy needs to match it). */
   lastStance: Stance | null = null;
   readonly lastUp = new Vector3(0, 1, 0);
@@ -329,6 +334,8 @@ export class SkierModel {
     ] as const)
       put(head, new Mesh(geometry, material));
     this.chest.add(head);
+    this.controller.root.visible = false;
+    this.chest.add(this.controller.root);
     this.figure.add(this.chest);
 
     // Limbs: unit cylinders stretched between joints each frame.
@@ -382,6 +389,8 @@ export class SkierModel {
       const gauntlet = put(pole, new Mesh(new CylinderGeometry(0.04, 0.034, 0.08, 12), glove));
       gauntlet.position.set(0, 0.07, 0.05);
       gauntlet.rotation.x = 0.95;
+      // The fist, knuckles, thumb and gauntlet (the glove), let go to fly the drone.
+      for (const m of pole.children) if ((m as Mesh).material === glove) this.fists.push(m as Mesh);
       this.root.add(pole);
       this.poles.push(pole);
     }
@@ -429,6 +438,29 @@ export class SkierModel {
     this.stowed = stowed;
     for (const p of this.skiParts) p.visible = !stowed;
     for (const p of this.poles) p.visible = !stowed;
+  }
+
+  /**
+   * Flying the drone (out of body): both hands on its controller in front of the stomach,
+   * head bowed to the screen, poles planted upright in the snow either side.
+   */
+  setFlyingDrone(on: boolean): void {
+    if (on === this.flyingDrone) return;
+    this.flyingDrone = on;
+    this.controller.root.visible = on;
+    for (const f of this.fists) f.visible = !on;
+    // A frozen body isn't updated: settle it from its last pose into standing still.
+    const last = this.lastStance;
+    if (on && last) {
+      this.apply(
+        { ...last, crouch: Math.min(last.crouch, 0.15), foreAft: 0, twist: 0, armReach: 0 },
+        this.lastUp,
+      );
+    }
+  }
+
+  get isFlyingDrone(): boolean {
+    return this.flyingDrone;
   }
 
   /** World position of a ski's centre on the snow. Call after the root's matrices update. */
@@ -504,8 +536,12 @@ export class SkierModel {
       const { height, back: seatBack } = stance.sit;
       pelvis.lerp(new Vector3(0, height, seatBack), sit);
     }
-    // Seated: leaning back a touch.
-    const bend = (0.12 + 0.85 * c + 0.25 * f - 0.2 * back) * (1 - sit) - 0.06 * sit;
+    // Seated: leaning back a touch. Flying the drone: a little over the controller.
+    const bend =
+      (0.12 + 0.85 * c + 0.25 * f - 0.2 * back) * (1 - sit) -
+      0.06 * sit +
+      (this.flyingDrone ? 0.1 : 0);
+    this.head.rotation.x = this.flyingDrone ? -0.5 : 0; // watching the screen
     this.chest.position.copy(pelvis);
     this.chest.quaternion
       .copy(align)
@@ -542,13 +578,17 @@ export class SkierModel {
         0.08 + 0.18 * c + 0.22 * Math.max(r, 0),
         -0.3 - 0.12 * c - 0.3 * r,
       ).lerp(new Vector3(side * 0.17, 0.06, -0.3), sit); // seated: hands on the thighs
-      const hand = stance.grip
-        ? new Vector3(side * stance.grip.x, stance.grip.y, stance.grip.z)
-        : handLocal.applyMatrix4(this.chest.matrix);
+      const drone = this.flyingDrone;
+      const hand = drone
+        ? this.controller.grips[i]!.clone().applyMatrix4(this.chest.matrix)
+        : stance.grip
+          ? new Vector3(side * stance.grip.x, stance.grip.y, stance.grip.z)
+          : handLocal.applyMatrix4(this.chest.matrix);
       // Leaning into a carve, the inside hand would go into the snow: like a real skier,
       // bring it up and forward over the snow, and never let a hand below HAND_CLEARANCE.
-      const inside = stance.grip ? 0 : smoothstep(0.12, 0.5, side * up.x) * (1 - sit);
-      if (!stance.grip) {
+      const held = drone || !!stance.grip;
+      const inside = held ? 0 : smoothstep(0.12, 0.5, side * up.x) * (1 - sit);
+      if (!held) {
         hand.y += 0.22 * inside;
         hand.z -= 0.18 * inside;
         hand.y = Math.max(hand.y, HAND_CLEARANCE * (1 - sit));
@@ -561,6 +601,14 @@ export class SkierModel {
       limb.elbow.position.copy(elbow);
 
       const pole = this.poles[i]!;
+      if (drone) {
+        // Planted upright beside the boots, tips a little into the snow.
+        pole.position.set(side * 0.42 + feet.x, POLE_TIP - 0.08, feet.z - 0.08);
+        pole.rotation.set(0, 0, side * 0.06);
+        this.clearance.hands[i] = hand.y;
+        this.clearance.tips[i] = -0.08;
+        return;
+      }
       pole.position.copy(hand);
       // The inside pole swings out to the side; then either pole is swept back until its
       // tip clears the snow (it trails, lightly off it, rather than spearing in).

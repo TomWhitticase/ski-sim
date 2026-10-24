@@ -77,3 +77,43 @@ export function railSound(speed: number, sideslip: number, onRail: boolean): Rai
     grit: across,
   };
 }
+
+export interface DroneSound {
+  /** Loudness, 0 when there's no drone flying. */
+  level: number;
+  /** Blade-pass frequency (Hz): two blades × the props' revs, rising with speed. */
+  frequency: number;
+}
+
+export const DRONE_OFF: DroneSound = { level: 0, frequency: 160 };
+
+/** Speed (m/s) at which the props are near full revs (a racing drone's dash). */
+const DRONE_FAST = 30;
+
+/**
+ * A quadcopter's buzz at `speed` m/s: ~160 Hz hovering (≈ 4,800 rpm on two-blade props),
+ * climbing toward ~400 Hz flat out and a little louder with it. Faster than a real drone
+ * flies (fly speed reaches 1500 m/s), the pitch keeps creeping up but stays a buzz.
+ */
+export function droneSound(speed: number): DroneSound {
+  const s = Math.max(0, speed);
+  const revs = 1 - Math.exp(-s / DRONE_FAST);
+  const beyond = Math.log1p(Math.max(0, s - 3 * DRONE_FAST) / 100);
+  return {
+    level: 0.08 + 0.06 * revs,
+    frequency: 160 + 220 * revs + 40 * Math.min(1, beyond),
+  };
+}
+
+/** Distance (m) at which someone else's drone sounds as loud as your own. */
+const DRONE_NEAR = 6;
+/** Beyond this (m) another player's drone isn't heard at all. */
+export const DRONE_HEARD_WITHIN = 300;
+
+/** How much of a drone's level reaches you from `distance` m: 1 close by, 0 by 300 m. */
+export function droneFalloff(distance: number): number {
+  const d = Math.max(0, distance);
+  if (d >= DRONE_HEARD_WITHIN) return 0;
+  const fade = 1 - d / DRONE_HEARD_WITHIN;
+  return Math.min(1, DRONE_NEAR / Math.max(d, DRONE_NEAR)) * fade * fade;
+}
