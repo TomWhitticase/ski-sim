@@ -9,6 +9,8 @@ export interface MultiplayerView {
   players: { player: number; name: string; you: boolean; colour: string; seen: boolean }[];
   status: string;
   error: boolean;
+  /** "Go to" a player is a teleport: off under the game's rules, it's not offered. */
+  teleport: boolean;
 }
 
 export interface MultiplayerActions {
@@ -179,7 +181,7 @@ export class MultiplayerMenu {
     this.linkInput.value = view.link ?? '';
     this.statusEl.textContent = view.status;
     this.statusEl.classList.toggle('error', view.error);
-    const key = JSON.stringify(view.players);
+    const key = JSON.stringify([view.players, view.teleport]);
     if (key === this.shownPlayers) return;
     this.shownPlayers = key;
     this.playersEl.replaceChildren(
@@ -190,7 +192,7 @@ export class MultiplayerMenu {
         li.innerHTML = '<span class="mp-dot"></span><span class="mp-name"></span>';
         li.querySelector('.mp-name')!.textContent =
           p.name + (p.player === 0 ? ' · host' : '') + (p.you ? ' (you)' : '');
-        if (!p.you) {
+        if (!p.you && view.teleport) {
           const go = document.createElement('button');
           go.type = 'button';
           go.className = 'setup-option';
@@ -217,4 +219,5 @@ const EMPTY: MultiplayerView = {
   players: [],
   status: '',
   error: false,
+  teleport: true,
 };

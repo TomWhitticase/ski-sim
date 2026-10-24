@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { REALISTIC } from '../game/rules';
+
 import {
   advanceShared,
   CODE_LENGTH,
@@ -108,6 +110,9 @@ describe('party', () => {
     };
     saveParty(storage, { code: 'ABCDEF', role: 'host', since: 5 });
     expect(loadParty(storage)).toEqual({ code: 'ABCDEF', role: 'host', since: 5 });
+    // The party's rules come back too (cleaned).
+    saveParty(storage, { code: 'ABCDEF', role: 'guest', rules: { ...REALISTIC } });
+    expect(loadParty(storage)?.rules).toEqual(REALISTIC);
     saveParty(storage, null);
     expect(loadParty(storage)).toBeNull();
     store.set('ski-sim.party', '{"code":"no","role":"x"}');

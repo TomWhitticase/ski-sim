@@ -1,6 +1,7 @@
 import type { PerspectiveCamera, Scene, Vector3 } from 'three/webgpu';
 
 import { DAY_SECONDS, type TimeOfDay } from '../env/time-of-day';
+import { type GameRules, sameRules } from '../game/rules';
 import { MultiplayerMenu } from '../ui/multiplayer-menu';
 import { activity } from '../ui/party-hud';
 import type { OtherRider } from '../lifts/ride';
@@ -47,6 +48,10 @@ export interface MultiplayerSim {
   setJacket(colour: string | null): void;
   /** A short message on the HUD ("Ben joined"). */
   notify(text: string): void;
+  /** Your own rules (Options → Rules), which a game you host starts with. */
+  ownRules(): GameRules;
+  /** The rules in force changed (the host's arrived or changed, or you left the party). */
+  rulesChanged(): void;
 }
 
 /** How long a dropped guest keeps trying to get back into the party (ms). */
@@ -74,6 +79,11 @@ export class Multiplayer {
   private name: string;
   /** Host/Join presses so far (connecting is async). */
   private attempts = 0;
+  /**
+   * The party's rules when they aren't your own: the host's (as a guest), or the ones a
+   * party you took over or rejoined was playing by. Null when you play by your own.
+   */
+  private partyRules: GameRules | null = null;
 
   constructor(
     private readonly sim: MultiplayerSim,
@@ -122,7 +132,10 @@ export class Multiplayer {
     if (autoJoin && named) void this.start('guest', autoJoin);
     else if (autoHost && named) void this.start('host', makeRoomCode());
     else if (autoJoin || autoHost) this.waiting = { code: autoJoin };
-    else if (saved && named) void this.start(saved.role, saved.code, saved.since);
+    else if (saved && named) {
+      this.partyRules = saved.rules ?? null;
+      void this.start(saved.role, saved.code, saved.since);
+    }
   }
 
   /** Reloading into another resort with the party (or following it): don't hand over. */
@@ -158,6 +171,29 @@ export class Multiplayer {
   /** Guests follow the host's clocks instead of running their own. */
   get isGuest(): boolean {
     return this.session?.role === 'guest';
+  }
+
+  /** The party's rules, or null when you play by your own. */
+  get rules(): GameRules | null {
+    return this.partyRules;
+  }
+
+  /** Someone else sets the rules: you're a guest, or finding your way back into a party. */
+  get rulesLocked(): boolean {
+    // Out of a session with the party's rules: dropped, and finding the way back in.
+    return this.isGuest || (this.session === null && this.partyRules !== null);
+  }
+
+  /**
+   * You changed the rules (only when they aren't locked): the party's, if you took one over
+   * (your own are saved by the caller), and guests hear them at once.
+   */
+  rulesEdited(rules: GameRules): void {
+    if (this.partyRules !== null && this.session?.role === 'host') {
+      this.partyRules = { ...rules };
+      this.saveParty();
+    }
+    this.session?.pushRules();
   }
 
   /** Dev/test handle: the session and what remote players are showing. */
@@ -242,7 +278,12 @@ export class Multiplayer {
     if (attempt !== this.attempts) return transport.leave();
     this.liftError = 0;
     const hostSince = role === 'host' ? (since ?? Date.now()) : undefined;
-    saveParty(sessionStorage, { code, role, since: hostSince });
+    saveParty(sessionStorage, {
+      code,
+      role,
+      since: hostSince,
+      rules: this.partyRules ?? undefined,
+    });
     this.session = new NetSession(
       transport,
       role,
@@ -257,6 +298,8 @@ export class Multiplayer {
           rate: this.sim.clock.rate,
         }),
         follow: (c) => this.follow(c),
+        rules: () => this.partyRules ?? this.sim.ownRules(),
+        followRules: (r) => this.followRules(r),
       },
       {
         roster: () => {
@@ -306,10 +349,35 @@ export class Multiplayer {
     }
   }
 
+  /** Guest: the host's rules, on joining and whenever it changes them. */
+  private followRules(rules: GameRules): void {
+    const before = this.partyRules ?? this.sim.ownRules();
+    const first = this.partyRules === null;
+    this.partyRules = rules;
+    this.saveParty();
+    if (!sameRules(before, rules))
+      this.sim.notify(first ? "Playing by the host's rules" : 'The host changed the rules');
+    this.sim.rulesChanged();
+  }
+
+  /** Keep the party (and its rules) for this tab, across reloads. */
+  private saveParty(): void {
+    const s = this.session;
+    if (!s) return;
+    const since = loadParty(sessionStorage)?.since;
+    saveParty(sessionStorage, {
+      code: s.code,
+      role: s.role,
+      since: s.role === 'host' ? since : undefined,
+      rules: this.partyRules ?? undefined,
+    });
+  }
+
   /** Leave the party for good (the Leave button, or skiing off to another resort). */
   leave(): void {
     this.stopReconnecting();
     this.cancelFollow();
+    this.partyRules = null;
     saveParty(sessionStorage, null);
     this.session?.leave();
     this.reset('');
@@ -379,6 +447,7 @@ export class Multiplayer {
       return;
     }
     saveParty(sessionStorage, null);
+    this.partyRules = null; // back to your own
     this.reset(reason, true);
     // Make sure they see why, even mid-run.
     if (document.pointerLockElement) document.exitPointerLock();
@@ -394,6 +463,7 @@ export class Multiplayer {
       if (Date.now() - this.reconnect.since > RECONNECT_FOR) {
         this.stopReconnecting();
         saveParty(sessionStorage, null);
+        this.partyRules = null;
         this.reset("Couldn't get back into the party", true);
         this.sim.notify("Couldn't get back into the party");
         return;
@@ -425,7 +495,7 @@ export class Multiplayer {
     let left = FOLLOW_AFTER;
     const go = () => {
       this.travelling = true;
-      saveParty(sessionStorage, { code, role: 'guest' });
+      saveParty(sessionStorage, { code, role: 'guest', rules: this.partyRules ?? undefined });
       location.href = partyLink(location.href, resort, code, start);
     };
     const tick = () => {
@@ -493,6 +563,7 @@ export class Multiplayer {
       })),
       status: this.status,
       error: this.error,
+      teleport: (this.partyRules ?? this.sim.ownRules()).teleport,
     });
   }
 }

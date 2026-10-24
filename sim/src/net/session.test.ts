@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { EVERYTHING_ON, type GameRules, REALISTIC } from '../game/rules';
 import type { PlayerState } from './codec';
 import type { SharedClock } from './room';
 import { type Control, FIND_TIMEOUT, NetSession, PEER_TIMEOUT, type Role } from './session';
@@ -58,7 +59,7 @@ function player(
   hub: ReturnType<typeof createHub>,
   role: Role,
   name: string,
-  opts: { resort?: string; clock?: SharedClock; since?: number } = {},
+  opts: { resort?: string; clock?: SharedClock; since?: number; rules?: GameRules } = {},
 ) {
   const log = {
     ended: [] as string[],
@@ -67,6 +68,7 @@ function player(
     moving: [] as string[],
     yielded: 0,
     followed: [] as SharedClock[],
+    rules: [] as GameRules[],
   };
   let x = 0;
   const world = {
@@ -78,6 +80,8 @@ function player(
     },
     clock: () => opts.clock ?? { lift: 0, seconds: 0, rate: 1 },
     follow: (c: SharedClock) => log.followed.push(c),
+    rules: () => opts.rules ?? { ...EVERYTHING_ON },
+    followRules: (r: GameRules) => log.rules.push(r),
   };
   const transport = hub.join();
   const session = new NetSession(
@@ -271,5 +275,42 @@ describe('NetSession', () => {
     expect(newer.log.yielded).toBe(1);
     expect(older.log.yielded).toBe(0);
     expect(newer.session.ended).toBe(true);
+  });
+
+  it("guests get the host's rules on joining and whenever they change", () => {
+    const hub = createHub();
+    const rules: GameRules = { ...EVERYTHING_ON, snowmobile: false };
+    const host = player(hub, 'host', 'Ana', { rules });
+    const guest = player(hub, 'guest', 'Ben');
+    run(hub, [host.session, guest.session], 300);
+    expect(guest.log.rules.at(-1)).toEqual(rules);
+    Object.assign(rules, REALISTIC);
+    host.session.pushRules();
+    run(hub, [host.session, guest.session], 100);
+    expect(guest.log.rules.at(-1)).toEqual(REALISTIC);
+    // A host doesn't take rules from anyone.
+    guest.transport.sendControl({ t: 'rules', rules: EVERYTHING_ON } satisfies Control);
+    run(hub, [host.session, guest.session], 100);
+    expect(host.log.rules).toEqual([]);
+  });
+
+  it('ignores rules from anyone but the host, and cleans what arrives', () => {
+    const hub = createHub();
+    const host = player(hub, 'host', 'Ana', { rules: { ...REALISTIC } });
+    const guest = player(hub, 'guest', 'Ben');
+    run(hub, [host.session, guest.session], 300);
+    const heard = guest.log.rules.length;
+    const rogue = hub.join();
+    hub.flush();
+    rogue.sendControl({ t: 'rules', rules: EVERYTHING_ON } satisfies Control);
+    hub.flush();
+    expect(guest.log.rules.length).toBe(heard);
+    // An odd host build: missing rules read as on, junk is dropped.
+    (host.transport.sendControl as (m: unknown) => void)({
+      t: 'rules',
+      rules: { teleport: false, snowmobile: 'off' },
+    });
+    hub.flush();
+    expect(guest.log.rules.at(-1)).toEqual({ ...EVERYTHING_ON, teleport: false });
   });
 });

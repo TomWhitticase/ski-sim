@@ -47,7 +47,8 @@ export type RidePhase = 'waiting' | 'boarding' | 'riding';
  * - riding: until your carrier passes the unloading point, where you're released.
  * Gondolas and cable cars run both ways: boarding at the top (`down`) rides the down
  * track and lets you off at the bottom.
- * Hold W to fast-forward the lift clock; S skips straight to the end.
+ * Hold W to fast-forward the lift clock; S skips straight to the end (the game's rules
+ * can turn both off).
  */
 export class RideControls {
   readonly look = new Look(FLY.mouseSensitivity);
@@ -65,6 +66,8 @@ export class RideControls {
   /** Your seat's spot in the grip frame, sliding over when you change seats. */
   private readonly spot = new Vector3();
   private readonly spotTarget = new Vector3();
+  /** S skips to the end (off under the game's rules). */
+  canSkip = true;
   readonly velocity = new Vector3();
   private blend = 0;
   private moved = false;
@@ -178,7 +181,7 @@ export class RideControls {
     // The rate the lift clock just ran at (this frame's carriers), before W changes it.
     const rate = lifts.rate;
     lifts.rate = this.fastForward && input.down('KeyW') ? FAST_FORWARD : 1;
-    if (input.wasPressed('KeyS')) {
+    if (this.canSkip && input.wasPressed('KeyS')) {
       this.skipToEnd();
       return true;
     }

@@ -123,6 +123,11 @@ export class WorldMap {
   private base: HTMLImageElement | null | undefined;
   /** The guide marker, if one is placed. */
   marker: { east: number; north: number } | null = null;
+  /**
+   * Teleporting is off under the game's rules: why (said where you click), or null. Picking
+   * a place then just shows it on the map.
+   */
+  teleportOff: string | null = null;
   /** Other players in a multiplayer game (set every frame; redrawn while the map is open). */
   private others: { east: number; north: number; colour: string; name: string }[] = [];
 
@@ -841,7 +846,13 @@ export class WorldMap {
       if (place.colour) icon.style.color = place.colour;
       li.querySelector('.map-place-name')!.textContent = place.name;
       li.querySelector('.map-place-detail')!.textContent = place.detail;
-      li.addEventListener('click', () => this.onTeleport(place.pose, place.lookAt));
+      li.addEventListener('click', () => {
+        if (!this.teleportOff) return this.onTeleport(place.pose, place.lookAt);
+        this.centerEast = place.pose.east;
+        this.centerNorth = place.pose.north;
+        this.clampCenter();
+        this.requestDraw();
+      });
       li.addEventListener('mouseenter', () => {
         this.hoverPlace = place;
         this.requestDraw();
@@ -1005,6 +1016,11 @@ export class WorldMap {
   private teleportTo(x: number, y: number): void {
     const [east, north] = this.toGround(x, y);
     if (!this.inMap(east, north)) return;
+    if (this.teleportOff) {
+      // Say so right where you clicked (the HUD's notices are under the map).
+      this.updateCursorInfo(x, y, this.teleportOff);
+      return;
+    }
     this.cursorInfo.hidden = true;
     this.onTeleport({
       east,
@@ -1015,7 +1031,7 @@ export class WorldMap {
     });
   }
 
-  private updateCursorInfo(x: number, y: number): void {
+  private updateCursorInfo(x: number, y: number, note?: string): void {
     const [east, north] = this.toGround(x, y);
     const info = this.cursorInfo;
     if (!this.inMap(east, north) || this.drag?.moved) {
@@ -1026,12 +1042,17 @@ export class WorldMap {
     this.canvas.style.cursor = 'crosshair';
     const { lat, lon } = this.data.toLatLon(east, north);
     const elevation = Math.round(this.data.groundHeight(east, north)).toLocaleString('en-GB');
-    const how = this.drag?.touch
-      ? 'hold: teleport · tap: marker'
-      : 'left click: marker · right click: teleport';
+    const touch = this.drag?.touch;
+    const how =
+      note ??
+      (this.teleportOff
+        ? `${touch ? 'tap' : 'left click'}: marker`
+        : touch
+          ? 'hold: teleport · tap: marker'
+          : 'left click: marker · right click: teleport');
     info.textContent = `${lat.toFixed(5)}°, ${lon.toFixed(5)}°\n${elevation} m · ${how}`;
     // Above a finger (which hides what's under it), beside a mouse pointer.
-    info.style.transform = this.drag?.touch
+    info.style.transform = touch
       ? `translate(calc(${x}px - 50%), ${y - 90}px)`
       : `translate(${x + 16}px, ${y + 16}px)`;
     info.hidden = false;

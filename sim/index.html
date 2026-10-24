@@ -59,7 +59,7 @@
         </div>
         <div id="marker-hint" class="glass" hidden>
           <span class="marker-dot"></span>Marker <span data-distance></span>
-          <span class="marker-key"><kbd>J</kbd> teleport</span>
+          <span class="marker-key teleport-hint"><kbd>J</kbd> teleport</span>
         </div>
         <!-- Quick toggles: always on screen, small, lit when on. -->
         <div id="toggles"></div>
@@ -115,12 +115,19 @@
         </div>
         <ul class="map-places"></ul>
         <p class="map-hint touch-only">
-          Pinch to zoom · drag to pan · tap: guide marker (tap it again to remove) · touch and hold,
-          or pick a place: teleport
+          Pinch to zoom · drag to pan · tap: guide marker (tap it again to remove)<span
+            class="teleport-hint"
+          >
+            · touch and hold, or pick a place: teleport</span
+          >
         </p>
         <p class="map-hint desktop-only">
-          Scroll to zoom · drag to pan · left click: guide marker (click it again to remove) · right
-          click or pick a place: teleport · M / Esc to close
+          Scroll to zoom · drag to pan · left click: guide marker (click it again to remove)<span
+            class="teleport-hint"
+          >
+            · right click or pick a place: teleport</span
+          >
+          · M / Esc to close
         </p>
       </aside>
     </div>
@@ -264,6 +271,7 @@
           <button type="button" data-tab="opt-display">Display</button>
           <button type="button" data-tab="opt-controls">Controls</button>
           <button type="button" data-tab="opt-ski">Ski setup <kbd>G</kbd></button>
+          <button type="button" data-tab="opt-rules">Rules</button>
           <button type="button" data-tab="opt-time" data-needs-map disabled>
             Time of day <kbd>T</kbd>
           </button>
@@ -443,6 +451,18 @@
           <div class="modal-body ski-setup"></div>
           <footer class="modal-footer">
             <button class="setup-reset btn" type="button">Reset to All-mountain</button>
+            <button class="modal-close btn btn-primary" type="button">Done</button>
+          </footer>
+        </section>
+
+        <section id="opt-rules" class="hub-panel" hidden>
+          <header class="hub-head">
+            <h2>Rules</h2>
+            <p>What the game lets you do; switch it all off for a realistic day</p>
+          </header>
+          <div class="modal-body rules"></div>
+          <footer class="modal-footer">
+            <span></span>
             <button class="modal-close btn btn-primary" type="button">Done</button>
           </footer>
         </section>
