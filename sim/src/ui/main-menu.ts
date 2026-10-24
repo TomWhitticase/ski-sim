@@ -13,7 +13,9 @@ import { showModalOver } from './stacked';
 export interface ResortEntry {
   id: string;
   name: string;
+  /** The main country; `countries` is every one the area spans (older indexes: none). */
   country: string;
+  countries?: string[];
   bases?: string[];
   lifts?: number | null;
   pistes?: number | null;
@@ -43,6 +45,19 @@ export interface ScreenControl {
 
 const regions = new Intl.DisplayNames(['en'], { type: 'region' });
 const countryName = (code: string) => (code ? (regions.of(code) ?? code) : '');
+/** Every country a ski area spans, main one first. */
+export const countriesOf = (r: Pick<ResortEntry, 'country' | 'countries'>) =>
+  r.countries?.length ? r.countries : r.country ? [r.country] : [];
+/** A country's flag: the emoji made of its two regional-indicator letters. */
+export const flag = (code: string) =>
+  /^[A-Za-z]{2}$/.test(code)
+    ? String.fromCodePoint(...[...code.toUpperCase()].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65))
+    : '';
+/** "🇫🇷 🇨🇭 France · Switzerland" */
+export const countriesLabel = (r: Pick<ResortEntry, 'country' | 'countries'>) => {
+  const codes = countriesOf(r);
+  return codes.length ? `${codes.map(flag).join(' ')} ${codes.map(countryName).join(' · ')}` : '';
+};
 const metres = (m: number) => `${Math.round(m).toLocaleString('en-GB')} m`;
 
 const TIPS = [
@@ -138,13 +153,13 @@ export class MainMenu {
   /** The ski areas, with `selected` highlighted (null: none yet). */
   setResorts(resorts: ResortEntry[], selected: string | null): void {
     this.resorts = [...resorts].sort((a, b) => a.name.localeCompare(b.name));
-    const countries = [...new Set(this.resorts.map((r) => r.country).filter(Boolean))].sort(
-      (a, b) => countryName(a).localeCompare(countryName(b)),
+    const countries = [...new Set(this.resorts.flatMap(countriesOf))].sort((a, b) =>
+      countryName(a).localeCompare(countryName(b)),
     );
     const select = this.$<HTMLSelectElement>('#menu-country');
     select.replaceChildren(
       new Option('All countries', ''),
-      ...countries.map((c) => new Option(countryName(c), c)),
+      ...countries.map((c) => new Option(`${flag(c)} ${countryName(c)}`, c)),
     );
     this.$('#menu-resorts').replaceChildren(
       ...this.resorts.map((r) => {
@@ -152,9 +167,9 @@ export class MainMenu {
         b.type = 'button';
         b.className = 'resort-card';
         b.dataset.resort = r.id;
-        b.dataset.country = r.country;
+        b.dataset.countries = countriesOf(r).join(' ');
         b.dataset.search =
-          `${r.name} ${countryName(r.country)} ${(r.bases ?? []).join(' ')}`.toLowerCase();
+          `${r.name} ${countriesOf(r).map(countryName).join(' ')} ${(r.bases ?? []).join(' ')}`.toLowerCase();
         b.innerHTML =
           '<span class="resort-thumb"><img loading="lazy" alt="" /></span>' +
           '<span class="menu-item-name"></span><span class="menu-item-detail"></span>';
@@ -354,7 +369,7 @@ export class MainMenu {
     for (const card of this.$('#menu-resorts').children) {
       const el = card as HTMLElement;
       el.hidden =
-        (!!country && el.dataset.country !== country) ||
+        (!!country && !(el.dataset.countries ?? '').split(' ').includes(country)) ||
         !words.every((w) => (el.dataset.search ?? '').includes(w));
       if (!el.hidden) shown++;
     }
@@ -368,7 +383,7 @@ export class MainMenu {
   private renderPreview(): void {
     const r = this.resorts.find((x) => x.id === this.selected);
     this.$('#menu-title').textContent = r?.name ?? '';
-    this.$('#menu-kicker').textContent = r ? countryName(r.country) : '';
+    this.$('#menu-kicker').textContent = r ? countriesLabel(r) : '';
     const img = this.$<HTMLImageElement>('#menu-preview');
     if (r) {
       img.style.visibility = '';
@@ -402,7 +417,7 @@ export class MainMenu {
   private renderStarts(): void {
     const r = this.resorts.find((x) => x.id === this.selected);
     this.$('#resort-title').textContent = r?.name ?? '';
-    this.$('#resort-kicker').textContent = r ? countryName(r.country) : '';
+    this.$('#resort-kicker').textContent = r ? countriesLabel(r) : '';
     this.$('#menu-starts-count').textContent = this.bases.length ? String(this.bases.length) : '';
     const items: { label: string; detail: string; altitude: number | null; choice: StartChoice }[] =
       [];
@@ -611,11 +626,7 @@ export class MainMenu {
 }
 
 function detailOf(r: ResortEntry): string {
-  return [
-    countryName(r.country),
-    r.lifts ? `${r.lifts} lifts` : '',
-    r.pistes ? `${r.pistes} runs` : '',
-  ]
+  return [countriesLabel(r), r.lifts ? `${r.lifts} lifts` : '', r.pistes ? `${r.pistes} runs` : '']
     .filter(Boolean)
     .join(' · ');
 }

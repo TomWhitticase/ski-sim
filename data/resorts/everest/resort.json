@@ -1,7 +1,10 @@
 {
   "id": "everest",
   "name": "Mount Everest",
-  "country": "NP",
+  "country": [
+    "NP",
+    "CN"
+  ],
   "bounds": {
     "south": 27.9165,
     "west": 86.8,

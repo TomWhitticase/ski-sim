@@ -1,7 +1,10 @@
 {
   "id": "portes-du-soleil",
   "name": "Portes du Soleil",
-  "country": "FR",
+  "country": [
+    "FR",
+    "CH"
+  ],
   "bounds": {
     "south": 46.1265,
     "west": 6.6105,

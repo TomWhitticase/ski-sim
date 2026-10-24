@@ -46,7 +46,8 @@ export interface ResortManifest {
   version: number;
   /** When the pipeline built this resort (ISO 8601). */
   generatedAt: string;
-  resort: { id: string; name: string; country: string };
+  /** `countries`: every country the area spans, main first (missing in older builds). */
+  resort: { id: string; name: string; country: string; countries?: string[] };
   origin: { lat: number; lon: number };
   projection: string;
   /** The resort's time zone; its offset on the sim's day sets the clock (absent: UTC+1). */

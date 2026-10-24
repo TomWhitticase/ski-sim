@@ -1,7 +1,10 @@
 {
   "id": "zermatt",
   "name": "Zermatt – Matterhorn",
-  "country": "CH",
+  "country": [
+    "CH",
+    "IT"
+  ],
   "bounds": {
     "south": 45.8696,
     "west": 7.6038,

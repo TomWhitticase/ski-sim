@@ -102,3 +102,12 @@ def test_cover_grows_the_near_extent_but_never_shrinks_it(tmp_path):
     assert g.east == e.east + 3000  # snapped out to the next kilometre
     assert (g.west, g.south, g.north) == (e.west, e.south, e.north)
     assert grown.far.extent.east == g.east + 55_000  # the horizon follows
+
+
+def test_country_can_be_a_list_for_an_area_across_a_border():
+    from ski_sim_pipeline.config import countries_of
+
+    assert countries_of("fr") == ("FR",)
+    assert countries_of(["FR", "ch", "FR"]) == ("FR", "CH")
+    with pytest.raises(ValueError):
+        countries_of([])

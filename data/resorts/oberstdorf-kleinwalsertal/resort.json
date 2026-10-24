@@ -1,7 +1,10 @@
 {
   "id": "oberstdorf-kleinwalsertal",
   "name": "Oberstdorf – Kleinwalsertal",
-  "country": "DE",
+  "country": [
+    "DE",
+    "AT"
+  ],
   "bounds": {
     "south": 47.304,
     "west": 10.084,

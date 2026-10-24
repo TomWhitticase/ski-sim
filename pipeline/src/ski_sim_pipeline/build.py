@@ -443,9 +443,19 @@ def write_resort_index(out_root: Path) -> Path:
     resorts = []
     for manifest_path in sorted(out_root.glob("*/manifest.json")):
         m = json.loads(manifest_path.read_text())
+        resort = dict(m["resort"])
+        # Countries come from the committed config when there is one, so changing a
+        # resort's countries needs no rebuild (older manifests have only `country`).
+        config = out_root.parent / "resorts" / resort["id"] / "resort.json"
+        if config.exists():
+            from .config import countries_of
+
+            resort["countries"] = list(countries_of(json.loads(config.read_text())["country"]))
+            resort["country"] = resort["countries"][0]
+        resort.setdefault("countries", [resort["country"]])
         resorts.append(
             {
-                **m["resort"],
+                **resort,
                 "bases": [b["name"] for b in m.get("bases", [])],
                 "lifts": m.get("features", {}).get("lifts"),
                 "pistes": m.get("pistes", {}).get("count"),
@@ -634,7 +644,12 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     manifest = {
         "version": MANIFEST_VERSION,
         "generatedAt": now,
-        "resort": {"id": cfg.id, "name": cfg.name, "country": cfg.country},
+        "resort": {
+            "id": cfg.id,
+            "name": cfg.name,
+            "country": cfg.country,
+            "countries": list(cfg.countries),
+        },
         "origin": {"lat": cfg.origin.lat, "lon": cfg.origin.lon},
         "projection": frame.proj4,
         "timezone": {"name": cfg.timezone, "utcOffsetHours": utc_offset_hours(cfg.timezone)},

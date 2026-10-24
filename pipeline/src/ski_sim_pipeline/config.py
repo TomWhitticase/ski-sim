@@ -86,6 +86,8 @@ class Landmark:
 class ResortConfig:
     id: str
     name: str
+    # The main country (terrain sources and time zone follow it); `countries` is every
+    # country the ski area spans, main first.
     country: str
     origin: GeoPoint
     spawn: Spawn
@@ -95,6 +97,7 @@ class ResortConfig:
     landmarks: tuple[Landmark, ...]
     # IANA zone for the sim's clock: `timezone` in the config, else the country's.
     timezone: str = "Europe/Paris"
+    countries: tuple[str, ...] = ()
     # The resort's own `bounds` in local metres (None without bounds). The near terrain
     # is snapped outward from it, so it can reach into a neighbouring resort.
     area: Extent | None = None
@@ -144,6 +147,15 @@ def _layer(raw: dict, defaults: dict) -> TerrainLayerConfig:
     )
 
 
+def countries_of(value: str | list[str]) -> tuple[str, ...]:
+    """A config's `country` as a tuple of upper-case ISO codes, main country first."""
+    codes = [value] if isinstance(value, str) else list(value)
+    out = tuple(dict.fromkeys(c.strip().upper() for c in codes if c and c.strip()))
+    if not out:
+        raise ValueError("`country` needs at least one ISO code")
+    return out
+
+
 def load_resort(path: Path, cover: Extent | None = None) -> ResortConfig:
     """Load a resort config. Only `id`, `name`, `country` and `bounds` (lat/lon box of the
     ski area) are required; origin, terrain extents and sources, spawn and minimap are
@@ -153,6 +165,9 @@ def load_resort(path: Path, cover: Extent | None = None) -> ResortConfig:
     from .frame import LocalFrame
 
     raw = json.loads(path.read_text())
+    # `country` is one ISO code, or a list for an area across a border (main one first).
+    countries = countries_of(raw["country"])
+    raw = {**raw, "country": countries[0]}
     b = raw.get("bounds")
     if "origin" in raw:
         origin = GeoPoint(raw["origin"]["lat"], raw["origin"]["lon"])
@@ -248,6 +263,7 @@ def load_resort(path: Path, cover: Extent | None = None) -> ResortConfig:
         id=raw["id"],
         name=raw["name"],
         country=raw["country"],
+        countries=countries,
         origin=origin,
         spawn=spawn,
         near=near,

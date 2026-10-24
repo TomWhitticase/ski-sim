@@ -36,6 +36,14 @@ test('first visit: title → resorts → start point → loading → skiing; not
   await menu.locator('#menu-search').fill('3 vall');
   await expect(menu.locator('.resort-card:visible')).toHaveCount(1);
   await menu.locator('#menu-search').fill('');
+  // An area across a border is under each of its countries, with both flags.
+  await menu.locator('#menu-country').selectOption('CH');
+  const ischgl = menu.locator('.resort-card[data-resort="ischgl-samnaun"]');
+  await expect(ischgl).toBeVisible();
+  await expect(ischgl.locator('.menu-item-detail')).toContainText('🇦🇹 🇨🇭 Austria · Switzerland');
+  await expect(menu.locator('.resort-card[data-resort="les-3-vallees"]')).toBeHidden();
+  await page.screenshot({ path: 'test-results/views/menu-countries.png' });
+  await menu.locator('#menu-country').selectOption('');
   await page.screenshot({ path: 'test-results/views/menu-resorts.png' });
 
   // Resort: start points in a list and as pins on a map.

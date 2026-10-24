@@ -36,7 +36,7 @@ def slugify(name: str) -> str:
 def resort_config(
     resort_id: str,
     name: str,
-    country: str,
+    country: str | list[str],
     bounds: tuple[float, float, float, float],
     margin: float = INIT_MARGIN_M,
 ) -> dict:
@@ -93,7 +93,11 @@ def main() -> None:
     init_cmd = sub.add_parser("init", help="Create a resort config from a ski area or bbox")
     init_cmd.add_argument("resort", nargs="?", help="Resort id (default: slug of --name)")
     init_cmd.add_argument("--name", required=True)
-    init_cmd.add_argument("--country", required=True, help="ISO code, e.g. FR, CH, AT")
+    init_cmd.add_argument(
+        "--country",
+        required=True,
+        help="ISO code, e.g. FR; several for an area across a border, main first: FR,CH",
+    )
     where = init_cmd.add_mutually_exclusive_group(required=True)
     where.add_argument("--ski-area", help="OSM ski area name (landuse=winter_sports), regex ok")
     where.add_argument("--bbox", help="south,west,north,east in degrees")
@@ -121,7 +125,10 @@ def main() -> None:
         if path.exists() and not args.force:
             parser.error(f"{path} exists (use --force to overwrite)")
         path.parent.mkdir(parents=True, exist_ok=True)
-        config = resort_config(resort_id, args.name, args.country.upper(), bounds, args.margin)
+        # FR, or FR,CH for an area across a border (main country first).
+        codes = [c.strip().upper() for c in args.country.split(",") if c.strip()]
+        country = codes[0] if len(codes) == 1 else codes
+        config = resort_config(resort_id, args.name, country, bounds, args.margin)
         path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n")
         logging.info("Wrote %s; next: uv run ski-sim build %s", path, resort_id)
 
