@@ -8,6 +8,7 @@ import {
   ScreenStack,
   startsAspect,
 } from './screens';
+import { showModalOver } from './stacked';
 
 export interface ResortEntry {
   id: string;
@@ -532,7 +533,7 @@ export class MainMenu {
     dialog.querySelector('h2')!.textContent = title;
     dialog.querySelector('p')!.textContent = text;
     dialog.returnValue = '';
-    dialog.showModal();
+    showModalOver(dialog);
     return new Promise((resolve) =>
       dialog.addEventListener('close', () => resolve(dialog.returnValue === 'leave'), {
         once: true,

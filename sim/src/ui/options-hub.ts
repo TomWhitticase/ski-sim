@@ -1,3 +1,5 @@
+import { showModalOver } from './stacked';
+
 /**
  * The options hub: one native `<dialog>` (light glass) with a tab per menu (camera,
  * display, controls, ski setup, time of day, multiplayer, credits). Each tab's panel is a
@@ -69,7 +71,7 @@ export class OptionsHub {
     for (const panel of this.el.querySelectorAll<HTMLElement>('.hub-panel')) {
       panel.hidden = panel.id !== id;
     }
-    if (!this.el.open) this.el.showModal();
+    if (!this.el.open) showModalOver(this.el);
     // Focus follows the tab (showModal would focus the first one), so arrows carry on from it.
     this.tabs.find((t) => t.dataset.tab === id)?.focus();
     this.onShow.get(id)?.();

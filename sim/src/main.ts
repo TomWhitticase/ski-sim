@@ -783,6 +783,7 @@ async function main(): Promise<void> {
     {
       resortName: manifest.resort.name,
       image: minimap.image,
+      baseUrl: manifest.minimap.base && resortUrl(resortId, manifest.minimap.base),
       imageExtent: manifest.minimap.extent,
       lifts: features.lifts,
       peaks: features.peaks,
@@ -798,6 +799,7 @@ async function main(): Promise<void> {
       ),
       pistes: pisteData.pistes,
       restaurants,
+      buildings: features.buildings,
       borders: features.borders ?? [],
       groundHeight: (east, north) => groundHeight(east, -north),
       toLatLon: (east, north) => frame.toLatLon(east, north),

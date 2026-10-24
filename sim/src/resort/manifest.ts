@@ -54,7 +54,8 @@ export interface ResortManifest {
   spawn: { east: number; north: number; altitude: number; heading: number };
   bases?: StartBase[];
   terrain: { near: HeightmapMeta; far: HeightmapMeta };
-  minimap: { file: string; extent: Extent };
+  /** `base`: the relief alone (no runs, lifts or buildings); older builds have none. */
+  minimap: { file: string; base?: string; extent: Extent };
   features: { file: string; lifts: number; buildings: number; peaks: number };
   pistes: {
     file: string;

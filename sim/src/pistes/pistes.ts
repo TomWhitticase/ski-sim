@@ -14,6 +14,8 @@ export const DIFFICULTY = {
 } as const;
 
 export type DifficultyCode = keyof typeof DIFFICULTY;
+/** Freeride itineraries: off-piste, dashed like a route (pipeline `pistes.FREERIDE`). */
+export const FREERIDE: DifficultyCode = 6;
 
 /**
  * OSM `piste:type`s the pipeline keeps, in lookup-grid code order (B channel high

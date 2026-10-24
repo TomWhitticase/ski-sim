@@ -1453,6 +1453,18 @@ body.entering #hud {
   background: rgba(13, 23, 38, 0.25);
 }
 
+/* A dialog over another menu (ui/stacked.ts): near-solid, over a darker backdrop, so its
+   text doesn't sit on the text behind. */
+dialog.stacked {
+  --glass-bg: var(--glass-solid);
+}
+
+dialog.stacked::backdrop {
+  background: rgba(13, 23, 38, 0.42);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
 .confirm-card {
   width: 380px;
   padding: 22px;

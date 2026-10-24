@@ -180,6 +180,9 @@ test('pause menu: change start point without reloading, and change resort after 
   const confirm = page.locator('#confirm');
   await expect(confirm).toBeVisible();
   await expect(confirm.locator('h2')).toHaveText('Leave Les 3 Vallées?');
+  // Over the menu, so it's near-solid (its text isn't read through the menu's).
+  await expect(confirm).toHaveClass(/stacked/);
+  await page.screenshot({ path: 'test-results/views/menu-confirm.png' });
   await confirm.locator('button[value="leave"]').click();
   await page.waitForURL(/resort=arlberg/);
   expect(new URL(page.url()).searchParams.get('start')).toMatch(/Lech/);

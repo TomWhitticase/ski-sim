@@ -1,7 +1,7 @@
 import type { Border, Lift, Peak, Restaurant } from '../features/types';
 import type { Place } from '../nav/places';
 import { RESTAURANT_COLOUR, drawBorders, drawRestaurantIcon } from './map-icons';
-import { type PisteRecord, pisteColour, pisteTitle } from '../pistes/pistes';
+import { FREERIDE, type PisteRecord, pisteColour, pisteTitle } from '../pistes/pistes';
 import type { Pose } from '../nav/pose';
 import type { Extent } from '../resort/manifest';
 import { classifyPress, pinchScale, PRESS } from '../controls/touch-input';
@@ -9,12 +9,19 @@ import { classifyPress, pinchScale, PRESS } from '../controls/touch-input';
 export interface WorldMapData {
   resortName: string;
   image: HTMLImageElement;
+  /**
+   * The same extent with the relief alone, loaded when first zoomed in past the image's
+   * resolution: then runs and buildings are drawn as shapes on it (lifts always are).
+   */
+  baseUrl?: string;
   /** Ground area the image covers. */
   imageExtent: Extent;
   lifts: Lift[];
   peaks: Peak[];
   pistes: PisteRecord[];
   restaurants: Restaurant[];
+  /** Footprints, drawn as shapes when zoomed in past the image (optional for tests). */
+  buildings?: { footprint: [number, number][]; raised?: boolean }[];
   borders: Border[];
   places: Place[];
   groundHeight: (east: number, north: number) => number;
@@ -78,6 +85,8 @@ export class WorldMap {
   private gestureUsed = false;
   private longPress = 0;
   private frameRequested = false;
+  /** The bare relief (`WorldMapData.baseUrl`), once asked for; null if it failed. */
+  private base: HTMLImageElement | null | undefined;
   /** The guide marker, if one is placed. */
   marker: { east: number; north: number } | null = null;
   /** Other players in a multiplayer game (set every frame; redrawn while the map is open). */
@@ -207,8 +216,25 @@ export class WorldMap {
     const e = data.imageExtent;
     const [x0, y0] = this.toScreen(e.west, e.north);
     const [x1, y1] = this.toScreen(e.east, e.south);
-    ctx.imageSmoothingEnabled = this.mpp > 2;
-    ctx.drawImage(data.image, x0, y0, x1 - x0, y1 - y0);
+    // Smoothed at every zoom: unsmoothed, each 8 m map pixel was drawn as a hard square.
+    // Zoomed in past the image's own resolution, the bare relief goes underneath instead
+    // and runs and buildings are drawn as shapes, so their edges stay sharp.
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    const cell = (e.east - e.west) / data.image.width;
+    const close = this.mpp < cell;
+    if (close && data.baseUrl && this.base === undefined) {
+      this.base = new Image();
+      this.base.src = data.baseUrl;
+      this.base.decode().then(
+        () => this.requestDraw(),
+        () => (this.base = null),
+      );
+    }
+    const bare = close && this.base?.complete && this.base.naturalWidth > 0;
+    ctx.drawImage(bare ? this.base! : data.image, x0, y0, x1 - x0, y1 - y0);
+    if (close) this.drawBuildings();
+    if (close && this.show.piste) this.drawPisteLines(cell, !!bare);
 
     // Treat the side panel as occupied so names aren't drawn underneath it.
     const panel = this.root.querySelector('.map-panel')!.getBoundingClientRect();
@@ -280,6 +306,66 @@ export class WorldMap {
       ctx.fillStyle = '#fff';
       ctx.fillText(lift.name, x, y);
     }
+  }
+
+  /** Building footprints as shapes (the minimap's colour), only those on screen. */
+  private drawBuildings(): void {
+    const { ctx, canvas } = this;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    ctx.fillStyle = 'rgb(112, 104, 100)';
+    for (const b of this.data.buildings ?? []) {
+      if (b.raised) continue; // a piece above a cut: its ground-floor piece is drawn
+      const pts = b.footprint.map(([e, n]) => this.toScreen(e, n));
+      if (pts.every(([x]) => x < 0) || pts.every(([x]) => x > w)) continue;
+      if (pts.every(([, y]) => y < 0) || pts.every(([, y]) => y > h)) continue;
+      ctx.beginPath();
+      pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  /**
+   * Runs as shapes, matching the pipeline's minimap (`draw_pistes`): lines 3 px of `cell`
+   * m wide (2 for cross-country, connections and dashed routes), and on the bare relief
+   * (`withAreas`) the translucent areas too. Slightly wider over the full image, so they
+   * cover the baked line's soft edge.
+   */
+  private drawPisteLines(cell: number, withAreas: boolean): void {
+    const { ctx } = this;
+    const scale = cell / this.mpp;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    if (withAreas) {
+      for (const piste of this.data.pistes) {
+        if (!piste.areas.length) continue;
+        ctx.fillStyle = pisteColour(piste);
+        ctx.globalAlpha = piste.type === 'snow_park' ? 0.59 : 0.27;
+        for (const area of piste.areas) {
+          ctx.beginPath();
+          area.forEach(([e, n], i) => {
+            const [x, y] = this.toScreen(e, n);
+            if (i) ctx.lineTo(x, y);
+            else ctx.moveTo(x, y);
+          });
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+    }
+    for (const piste of this.data.pistes) {
+      const route =
+        piste.difficulty === FREERIDE || piste.type === 'skitour' || piste.type === 'hike';
+      const thin = route || piste.type === 'nordic' || piste.type === 'connection';
+      ctx.strokeStyle = pisteColour(piste);
+      ctx.globalAlpha = 0.92;
+      ctx.lineWidth = (thin ? 2 : 3) * scale + (withAreas ? 0 : 1);
+      ctx.setLineDash(route ? [7 * scale, 5 * scale] : []);
+      for (const line of piste.lines) this.polyline(line.map(([e, n]) => this.toScreen(e, n)));
+    }
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
   }
 
   private drawPisteNames(

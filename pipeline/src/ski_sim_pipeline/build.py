@@ -581,12 +581,16 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     half = near_grid.cell_size / 2
     image = minimap.render(mm_heights, mm_cell, cfg.minimap.contour_interval)
     minimap.shade_forest(image, tree_cover, ext.west - half, ext.north + half, mm_cell)
+    # The bare relief, for the world map zoomed in past the image's resolution: it draws
+    # runs, buildings and lifts as shapes on top, so they stay sharp.
+    image.save(out_dir / "minimap-base.png", optimize=True)
     minimap.draw_pistes(image, piste_records, ext.west - half, ext.north + half, mm_cell)
     minimap.draw_features(image, feature_data, ext.west - half, ext.north + half, mm_cell)
     image.save(out_dir / "minimap.png", optimize=True)
     minimap.preview(image).save(out_dir / "preview.jpg", quality=82, optimize=True)
     minimap_meta = {
         "file": "minimap.png",
+        "base": "minimap-base.png",
         "extent": {
             "west": ext.west - half,
             "north": ext.north + half,
