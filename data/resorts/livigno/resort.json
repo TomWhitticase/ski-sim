@@ -1,0 +1,11 @@
+{
+  "id": "livigno",
+  "name": "Livigno",
+  "country": "IT",
+  "bounds": {
+    "south": 46.4943,
+    "west": 10.0514,
+    "north": 46.5626,
+    "east": 10.1938
+  }
+}

@@ -191,6 +191,17 @@ const VIEWS = [
   { name: 'davos', query: 'resort=davos-klosters&at=46.7978,9.8089,2039&heading=124&pitch=-8' },
   { name: 'saas-fee', query: 'resort=saas-fee&at=46.1166,7.9326,2282&heading=196&pitch=-8' },
   { name: 'engelberg', query: 'resort=engelberg-titlis&at=46.8117,8.4152,1558&heading=5&pitch=-8' },
+  { name: 'cortina', query: 'resort=cortina&at=46.5407,12.1253,1727&heading=104&pitch=-8' },
+  { name: 'courmayeur', query: 'resort=courmayeur&at=45.7812,6.9852,1708&heading=292&pitch=-8' },
+  {
+    name: 'crans-montana',
+    query: 'resort=crans-montana&at=46.2980,7.4631,2005&heading=16&pitch=-8',
+  },
+  { name: 'livigno', query: 'resort=livigno&at=46.5440,10.1295,2328&heading=125&pitch=-8' },
+  {
+    name: 'madonna-di-campiglio',
+    query: 'resort=madonna-di-campiglio&at=46.2325,10.8148,2013&heading=112&pitch=-8',
+  },
   // Lift stations up close: a detachable chair's hood, a fixed-grip bullwheel, a gondola hall.
   {
     name: 'station-chair-detachable',

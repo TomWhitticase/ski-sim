@@ -1,0 +1,11 @@
+{
+  "id": "cortina",
+  "name": "Cortina d'Ampezzo",
+  "country": "IT",
+  "bounds": {
+    "south": 46.4432,
+    "west": 11.99,
+    "north": 46.6117,
+    "east": 12.29
+  }
+}

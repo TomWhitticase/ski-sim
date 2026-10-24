@@ -1,0 +1,11 @@
+{
+  "id": "crans-montana",
+  "name": "Crans-Montana",
+  "country": "CH",
+  "bounds": {
+    "south": 46.293,
+    "west": 7.4385,
+    "north": 46.3868,
+    "east": 7.5525
+  }
+}

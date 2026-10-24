@@ -1,0 +1,11 @@
+{
+  "id": "courmayeur",
+  "name": "Courmayeur",
+  "country": "IT",
+  "bounds": {
+    "south": 45.7569,
+    "west": 6.8905,
+    "north": 45.8675,
+    "east": 7.0458
+  }
+}

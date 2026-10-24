@@ -1,0 +1,11 @@
+{
+  "id": "madonna-di-campiglio",
+  "name": "Madonna di Campiglio",
+  "country": "IT",
+  "bounds": {
+    "south": 46.1488,
+    "west": 10.7445,
+    "north": 46.3337,
+    "east": 10.9232
+  }
+}

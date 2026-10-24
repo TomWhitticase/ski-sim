@@ -1,0 +1,18 @@
+{
+  "id": "engelberg-titlis",
+  "name": "Engelberg – Titlis",
+  "country": "CH",
+  "bounds": {
+    "south": 46.7562,
+    "west": 8.3466,
+    "north": 46.8583,
+    "east": 8.4541
+  },
+  "places": [
+    {
+      "name": "Engelberg",
+      "lat": 46.8158,
+      "lon": 8.4085
+    }
+  ]
+}
