@@ -17,6 +17,11 @@ export class Input {
   /** The touch thumbstick, -1..1: x right, y forward. 0 when it isn't held. */
   stickX = 0;
   stickY = 0;
+  /**
+   * Touch's hockey stop (the Stop button with the stick sideways): skis swung across the
+   * path to the left (+1) or right (-1); 0 when not stopping. Keys use S + A/D instead.
+   */
+  hockey = 0;
   /** Touch controls are in use (no pointer lock; `locked` means playing). */
   touch = false;
 
@@ -168,6 +173,7 @@ export class Input {
     this.pressed.clear();
     this.stickX = 0;
     this.stickY = 0;
+    this.hockey = 0;
   };
 }
 

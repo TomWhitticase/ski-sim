@@ -53,9 +53,11 @@ class Fingers {
     }
   }
 
+  /** Lift one finger. CDP's touchEnd releases the points it lists, so list only this one. */
   async lift(id: number) {
+    const point = this.down.get(id)!;
     this.down.delete(id);
-    await this.send('touchEnd');
+    await this.cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [point] });
   }
 
   async tap(x: number, y: number) {
@@ -207,6 +209,115 @@ test('touch: jump, tuck and flips on the snow, pause with the ⏸ button', async
   await expect(page.locator('#overlay')).toBeHidden();
 });
 
+/**
+ * Every frame from now: speed (km/h) and the skis' angle to the path (degrees, > 0 = swung
+ * left), until `hockeyResult` reads them.
+ */
+const startHockeyLog = (page: Page) =>
+  page.evaluate(() => {
+    type Ski = { speed: number; velocity: { x: number; z: number }; skiYaw: number };
+    const w = window as unknown as { __sim: { ski: Ski }; __hockey: number[][] };
+    w.__hockey = [];
+    const t0 = performance.now();
+    const frame = () => {
+      const { speed, velocity: v, skiYaw } = w.__sim.ski;
+      const slip = skiYaw - Math.atan2(-v.x, -v.z);
+      const deg = (Math.atan2(Math.sin(slip), Math.cos(slip)) * 180) / Math.PI;
+      w.__hockey.push([performance.now() - t0, speed * 3.6, deg]);
+      if (performance.now() - t0 < 3300) requestAnimationFrame(frame);
+    };
+    frame();
+  });
+/**
+ * Timed from when the skis start to swing (so the touches' few frames of delivery don't
+ * count): the share of speed kept 2 s later, and the skis' angle to the path from 0.6 s on.
+ */
+async function hockeyResult(page: Page) {
+  await page.waitForTimeout(3400);
+  const log = await page.evaluate(() => (window as unknown as { __hockey: number[][] }).__hockey);
+  const slip0 = log[0]![2]!;
+  const [t0, start] = log.find(([, , d]) => Math.abs(d! - slip0) > 10)!;
+  const end = log.filter(([t]) => t! <= t0! + 2000).at(-1)![1]!;
+  const slips = log.filter(([t]) => t! >= t0! + 600 && t! <= t0! + 2000).map(([, , d]) => d!);
+  return {
+    start: start!,
+    kept: end / start!,
+    minSlip: Math.min(...slips),
+    maxSlip: Math.max(...slips),
+  };
+}
+
+/** On the 21° slope, landed and running straight down at ~70 km/h. */
+async function downTheSlope(page: Page) {
+  await load(page, SLOPE);
+  const fingers = await Fingers.on(page);
+  await tapToPlay(page, fingers);
+  await expect.poll(() => sim<boolean>(page, 'ski.airborne'), { timeout: 10_000 }).toBe(false);
+  await page.waitForTimeout(5500);
+  return fingers;
+}
+
+test('touch: Stop with the stick sideways is a hockey stop, as good as S + A', async ({ page }) => {
+  // Keyboard and mouse first, for comparison: S + A (or D) swings the skis ~90°, then S
+  // holds them. The slope isn't symmetrical, so each side is compared with its own.
+  const keys = async (side: 'KeyA' | 'KeyD') => {
+    await downTheSlope(page);
+    await startHockeyLog(page);
+    await page.keyboard.down('KeyS');
+    await page.keyboard.down(side);
+    await page.waitForTimeout(450);
+    await page.keyboard.up(side);
+    const result = await hockeyResult(page);
+    await page.keyboard.up('KeyS');
+    expect(result.start).toBeGreaterThan(50);
+    return result;
+  };
+  const keysLeft = await keys('KeyA');
+  const keysRight = await keys('KeyD');
+  expect(keysLeft.kept).toBeLessThan(0.55);
+
+  // Touch, Stop first: the thumb flicks the stick left and leaves it. The skis swing left,
+  // square across the path, and stay there until Stop is let go.
+  let fingers = await downTheSlope(page);
+  await expect(page.locator('body')).toHaveClass(/touch/);
+  const stop = await centre(page, '[data-touch="stop"]');
+  await startHockeyLog(page);
+  await fingers.press(1, stop.x, stop.y);
+  await fingers.press(2, 150, 300);
+  await fingers.move(2, 100, 305, 3);
+  await fingers.lift(2);
+  await page.waitForTimeout(700);
+  await shot(page, 'ski-hockey-stop-landscape');
+  const left = await hockeyResult(page);
+  await fingers.lift(1);
+  expect(left.start).toBeGreaterThan(50);
+  expect(left.minSlip).toBeGreaterThan(80);
+  expect(left.maxSlip).toBeLessThan(100);
+
+  // Stick first (steering a little right), then Stop: a hockey stop to the right, upright.
+  await page.setViewportSize(PORTRAIT);
+  fingers = await downTheSlope(page);
+  const stopUp = await centre(page, '[data-touch="stop"]');
+  await startHockeyLog(page);
+  await fingers.press(2, 120, 600);
+  await fingers.move(2, 180, 595, 3);
+  await fingers.press(1, stopUp.x, stopUp.y);
+  await page.waitForTimeout(700);
+  await shot(page, 'ski-hockey-stop-portrait');
+  const right = await hockeyResult(page);
+  await fingers.lift(1);
+  await fingers.lift(2);
+  expect(right.maxSlip).toBeLessThan(-80);
+  expect(right.minSlip).toBeGreaterThan(-100);
+  // As hard a stop as the keys': they hold the skis where you face, so on this slope the
+  // path curves across it one way (a quicker stop) and back down it the other; touch keeps
+  // the skis square to the path, about the same either way.
+  console.log('hockey stop, speed kept 2 s in:', { keysLeft, keysRight, left, right });
+  const keysAverage = (keysLeft.kept + keysRight.kept) / 2;
+  expect(left.kept).toBeLessThan(keysAverage * 1.15);
+  expect(right.kept).toBeLessThan(keysAverage * 1.15);
+});
+
 test('touch map: pinch zooms, a tap drops the marker, touch and hold teleports', async ({
   page,
 }) => {
@@ -249,8 +360,24 @@ test('touch map: pinch zooms, a tap drops the marker, touch and hold teleports',
   await expect(page.locator('#world-map')).toBeHidden();
   await expect.poll(() => hud(page, 'lat'), { timeout: 10_000 }).not.toBeCloseTo(lat, 4);
 
-  // The map on its side: the panel down the right.
+  // The marker's still set: its panel has a Go to marker button (J on a keyboard), naming
+  // no key.
   await expect(page.locator('body')).not.toHaveClass(/sky-transition/, { timeout: 10_000 });
+  const go = page.locator('#marker-hint .marker-go');
+  await expect(go).toBeVisible();
+  await expect(go).toHaveText('Go to marker');
+  await expect(page.locator('#marker-hint kbd')).toBeHidden();
+  await shot(page, 'marker-go-portrait');
+  const marker = (await sim<{ east: number; north: number }>(page, 'waypoint.current'))!;
+  await go.tap();
+  await expect(page.locator('body')).not.toHaveClass(/sky-transition/, { timeout: 15_000 });
+  const pose = await page.evaluate(() => {
+    const s = window.__sim as unknown as { ski: { feet: { x: number; z: number } } };
+    return { east: s.ski.feet.x, north: -s.ski.feet.z };
+  });
+  expect(Math.hypot(pose.east - marker.east, pose.north - marker.north)).toBeLessThan(5);
+
+  // The map on its side: the panel down the right.
   await page.setViewportSize(LANDSCAPE);
   await page.waitForTimeout(300);
   const again = await centre(page, '[data-touch="map"]');
@@ -258,6 +385,78 @@ test('touch map: pinch zooms, a tap drops the marker, touch and hold teleports',
   await expect(page.locator('#world-map')).toBeVisible();
   await page.waitForTimeout(300);
   await shot(page, 'map-landscape');
+  await page.locator('#world-map .map-close').tap();
+  await expect(page.locator('#world-map')).toBeHidden();
+  await expect(page.locator('#marker-hint .marker-go')).toBeVisible();
+  await shot(page, 'marker-go-landscape');
+});
+
+test('touch: no Go to marker when teleporting is off', async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem('ski-sim.rules', JSON.stringify({ teleport: false })),
+  );
+  await page.addInitScript(() =>
+    localStorage.setItem('ski-sim.waypoint.les-3-vallees', JSON.stringify({ east: 0, north: 0 })),
+  );
+  await load(page, LAKE);
+  const fingers = await Fingers.on(page);
+  await tapToPlay(page, fingers);
+  await expect(page.locator('body')).toHaveClass(/rules-no-teleport/);
+  await expect(page.locator('#marker-hint')).toBeVisible();
+  await expect(page.locator('#marker-hint .marker-go')).toBeHidden();
+});
+
+test('touch: the piste colours tool turns them on and off; labels still toggle', async ({
+  page,
+}) => {
+  await load(page, LAKE);
+  const fingers = await Fingers.on(page);
+  await tapToPlay(page, fingers);
+  const pistes = page.locator('[data-touch="pistes"]');
+  const labels = page.locator('[data-touch="labels"]');
+  const row = page.locator('#toggles [data-toggle="pistes"]');
+  // The tests start with everything on (playwright.config.ts).
+  await expect(pistes).toHaveClass(/\bon\b/);
+  await expect(labels).toHaveClass(/\bon\b/);
+  const tap = async (selector: string) => {
+    const c = await centre(page, selector);
+    await fingers.tap(c.x, c.y);
+  };
+  await tap('[data-touch="pistes"]');
+  await expect(row).not.toHaveClass(/\bon\b/);
+  await expect(pistes).not.toHaveClass(/\bon\b/);
+  await tap('[data-touch="pistes"]');
+  await expect(row).toHaveClass(/\bon\b/);
+  await expect(pistes).toHaveClass(/\bon\b/);
+  await tap('[data-touch="labels"]');
+  await expect(labels).not.toHaveClass(/\bon\b/);
+  await expect(page.locator('#toggles [data-toggle="lift"]')).not.toHaveClass(/\bon\b/);
+  await expect(pistes).toHaveClass(/\bon\b/); // names only
+  await tap('[data-touch="labels"]');
+  await expect(labels).toHaveClass(/\bon\b/);
+  await shot(page, 'tools-landscape');
+  await page.setViewportSize(PORTRAIT);
+  await page.waitForTimeout(400);
+  await shot(page, 'tools-portrait');
+  // Upright, the tool column stays clear of the minimap panel above it (with a marker's
+  // panel too) and of the turn-sideways hint.
+  await page.evaluate(() => {
+    const s = window.__sim as unknown as {
+      waypoint: { set(w: { east: number; north: number }): void };
+    };
+    s.waypoint.set({ east: 0, north: 0 });
+  });
+  await expect(page.locator('#marker-hint .marker-go')).toBeVisible();
+  await expect(page.locator('#rotate-hint')).toBeVisible();
+  await shot(page, 'tools-marker-portrait');
+  const tools = (await page.locator('#touch-tools').boundingBox())!;
+  const side = (await page.locator('.hud-side').boundingBox())!;
+  const hint = (await page.locator('#rotate-hint').boundingBox())!;
+  const stop = (await page.locator('[data-touch="stop"]').boundingBox())!;
+  expect(tools.y).toBeGreaterThanOrEqual(side.y + side.height);
+  expect(tools.y + tools.height).toBeLessThanOrEqual(stop.y);
+  expect(hint.x + hint.width).toBeLessThanOrEqual(tools.x);
+  expect(hint.y).toBeGreaterThanOrEqual(side.y + side.height);
 });
 
 test('touch: Ride boards the chairlift, Skip takes you to the top', async ({ page }) => {

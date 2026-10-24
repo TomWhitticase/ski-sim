@@ -5,7 +5,7 @@ import {
   stickFollow,
   stickKeys,
   stickVector,
-  stopKey,
+  stopSide,
   TOUCH_LOOK_GAIN,
   type TouchMode,
 } from './touch-input';
@@ -18,6 +18,10 @@ export interface TouchState {
   tucked: boolean;
   /** Riding a lift that may be fast-forwarded (not in a multiplayer game). */
   fastForward: boolean;
+  /** Any of the lift, peak and restaurant names are showing. */
+  names: boolean;
+  /** Piste colours are on the snow. */
+  pistes: boolean;
 }
 
 export interface TouchActions {
@@ -61,6 +65,10 @@ const ICONS = {
     '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   ),
   labels: svg('<path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="8" r="1.5"/>'),
+  // Piste colours: mountains with a run winding down them.
+  pistes: svg(
+    '<path d="M2 20l7-13 4 6 2-3 7 10z"/><path d="M9 7.5c-1.5 2.5 2 3.5.5 6.5S9 18 10 20"/>',
+  ),
   fullscreen: svg('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
   jump: svg('<path d="M12 20V5"/><path d="M5 12l7-7 7 7"/>'),
   tuck: svg('<path d="M6 7l6 6 6-6"/><path d="M6 13l6 6 6-6"/>'),
@@ -83,8 +91,8 @@ const REPEAT_MS = 140;
 /**
  * Touch play: a virtual thumbstick where the left thumb lands, look-drag on the right half,
  * and context buttons for the current mode (dark glass, bottom right), plus pause and a row
- * of tools (map, drone, paraglider, snowmobile, view, labels, fullscreen). Everything goes
- * through `Input`, as the keyboard does, so the physics is the same.
+ * of tools (map, drone, paraglider, snowmobile, view, labels, piste colours, fullscreen).
+ * Everything goes through `Input`, as the keyboard does, so the physics is the same.
  *
  * It also decides which controls are in use: touch on a phone or tablet (`body.touch`), and
  * keyboard and mouse from the first real mouse click or key press (`nextKind`), back to
@@ -148,7 +156,7 @@ export class TouchControls {
 
   /** The mode and what's happening in it; shows the buttons that matter. Every frame. */
   update(state: TouchState): void {
-    const key = `${state.mode}|${state.airborne}|${state.tucked}|${state.fastForward}`;
+    const key = `${state.mode}|${state.airborne}|${state.tucked}|${state.fastForward}|${state.names}|${state.pistes}`;
     if (key !== this.stateKey) {
       this.stateKey = key;
       for (const { spec, el } of this.buttons) {
@@ -159,11 +167,13 @@ export class TouchControls {
       this.root.dataset.mode = state.mode;
     }
     if (this.kind !== 'touch') return;
-    this.input.setStickKeys(stickKeys(state.mode, this.input.stickY));
-    // Stop: a snowplough, or a hockey stop with the stick pushed sideways.
-    const stop = this.stopping && state.mode === 'ski' ? stopKey(this.input.stickX) : null;
-    this.input.hold('KeyS', stop === 'KeyS');
-    this.input.hold('ShiftLeft', stop === 'ShiftLeft' || this.heldBy('ShiftLeft'));
+    // Stop: a snowplough, or a hockey stop to the side the stick's pushed. While it's
+    // held the stick doesn't skate or plough as well.
+    const stopping = this.stopping && state.mode === 'ski';
+    this.input.hockey = stopping ? stopSide(this.input.hockey, this.input.stickX) : 0;
+    this.input.setStickKeys(stopping ? [] : stickKeys(state.mode, this.input.stickY));
+    const plough = stopping && this.input.hockey === 0;
+    this.input.hold('ShiftLeft', plough || this.heldBy('ShiftLeft'));
   }
 
   private heldBy(code: string): boolean {
@@ -331,6 +341,16 @@ export class TouchControls {
         icon: ICONS.labels,
         press: () => this.actions.labels(),
         when: () => true,
+        on: (st) => st.names,
+      },
+
+      {
+        id: 'pistes',
+        label: 'Piste colours',
+        icon: ICONS.pistes,
+        press: () => this.actions.key('Digit3'),
+        when: () => true,
+        on: (st) => st.pistes,
       },
       {
         id: 'fullscreen',
@@ -403,6 +423,7 @@ export class TouchControls {
     this.stickTouch = null;
     this.lookTouch = null;
     this.stopping = false;
+    this.input.hockey = 0;
     this.input.stickX = 0;
     this.input.stickY = 0;
     this.input.setStickKeys([]);

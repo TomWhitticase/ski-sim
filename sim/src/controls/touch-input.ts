@@ -142,12 +142,19 @@ export function stickKeys(mode: TouchMode, y: number): string[] {
   return [];
 }
 
+/** How far sideways the stick goes before Stop becomes a hockey stop (fraction). */
+export const HOCKEY_STICK = 0.3;
+
 /**
- * The Stop button while skiing: with the stick pushed sideways it's a hockey stop (S, the
- * skis swing across), otherwise a snowplough.
+ * The Stop button while skiing: a snowplough (0), or with the stick pushed sideways a
+ * hockey stop to that side (+1 left, -1 right, like `Input.turn`). Once chosen, the side
+ * holds until Stop is let go, even if the thumb eases back or leaves the stick; pushing
+ * the other way swaps it. `side` is last frame's answer.
  */
-export function stopKey(stickX: number): string {
-  return Math.abs(stickX) > 0.3 ? 'KeyS' : 'ShiftLeft';
+export function stopSide(side: number, stickX: number): number {
+  if (stickX < -HOCKEY_STICK) return 1;
+  if (stickX > HOCKEY_STICK) return -1;
+  return side;
 }
 
 /** Looking around by dragging: radians per pixel are this many times the mouse's. */

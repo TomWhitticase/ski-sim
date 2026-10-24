@@ -31,6 +31,8 @@ const TURN_RATE = 1.8; // rad/s with A/D
 const PIVOT_RATE = 3.5;
 /** How quickly the skis swing back under you when S is released (1/s). */
 const REALIGN_RATE = 6;
+/** Slower than this a touch hockey stop stops following the path round (m/s). */
+const HOCKEY_TRACK_MIN = 1.5;
 /** Most the skis can be twisted away from where you face (rad). */
 const MAX_TWIST = (110 * Math.PI) / 180;
 const CHASE_DISTANCE = 4.5;
@@ -277,6 +279,20 @@ export class SkiControls {
       // Down in the snow: no steering. The physics swings you round to face downhill,
       // and your view follows so you get up looking down the slope.
       this.look.yaw += wrapAngle(this.state.yaw - this.look.yaw) * Math.min(1, dt * 4);
+    } else if (input.hockey !== 0) {
+      // Touch's hockey stop: the skis swing at S + A/D's rate to square across the path
+      // (not the view, which may be off it) and stay there as gravity bends it, so they
+      // never swing past and carve you round backwards (holding S + A/D can).
+      const v = this.state.velocity;
+      if (Math.hypot(v.x, v.z) > HOCKEY_TRACK_MIN) {
+        const across = Math.atan2(-v.x, -v.z) + (input.hockey * Math.PI) / 2;
+        const step = PIVOT_RATE * this.handling.pivotRate * dt;
+        const d = wrapAngle(across - this.skiYaw);
+        this.skiYaw += Math.max(-step, Math.min(step, d));
+        // Past the most you can twist, the body comes round with the skis.
+        const twist = wrapAngle(this.skiYaw - this.look.yaw);
+        if (Math.abs(twist) > MAX_TWIST) this.look.yaw += twist - Math.sign(twist) * MAX_TWIST;
+      }
     } else if (pivot) {
       // Upper body stays put; only the skis swing.
       const twist = wrapAngle(
