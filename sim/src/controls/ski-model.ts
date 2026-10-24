@@ -21,6 +21,7 @@ import {
   Vector3,
 } from 'three/webgpu';
 
+import { headGeometries } from './skier-head';
 import { DEFAULT_SETUP, type SkiDimensions, type SkiSetup, skiDimensions } from './ski-setup';
 import type { SkiPose, Stance } from './ski-stance';
 
@@ -154,6 +155,7 @@ export class SkierModel {
   private opacity = 1;
   private readonly figure = new Group();
   private readonly chest = new Group();
+  private readonly head = new Group();
   private readonly poles: Group[] = [];
   private readonly limbs: {
     thigh: Mesh;
@@ -266,11 +268,11 @@ export class SkierModel {
     const jacketDark = mat(0x16191d, 0.7);
     const accent = mat(0xff7a1a, 0.5);
     const pants = mat(0x25282c, 0.85);
-    const helmet = mat(0x1a1c1f, 0.55);
+    const helmet = mat(0x23272c, 0.5);
     const gaiter = mat(0x495057, 0.95);
     const frame = mat(0x101113, 0.4);
     const lens = new MeshStandardNodeMaterial({
-      color: 0xff8a2a,
+      vertexColors: true,
       emissive: 0x4a1800,
       metalness: 0.7,
       roughness: 0.12,
@@ -311,33 +313,21 @@ export class SkierModel {
     put(this.chest, new Mesh(new BoxGeometry(0.05, 0.022, 0.01), accent), 0.07, 0.37, -0.118);
     put(this.chest, new Mesh(new CylinderGeometry(0.075, 0.095, 0.09, 16), jacket), 0, 0.53, 0);
 
-    // Head: neck gaiter, helmet, goggle strap and a wraparound mirrored lens.
-    const head = new Group();
+    // Head: helmet (peak, vents, ear pads), goggles with the strap in the jacket's colour,
+    // and a neck gaiter up to the goggles.
+    const head = this.head;
     head.position.set(0, 0.67, -0.01);
-    put(head, new Mesh(new SphereGeometry(0.098, 16, 12), gaiter)).scale.set(1, 1.08, 1);
-    const shell = put(
-      head,
-      new Mesh(new SphereGeometry(0.124, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.56), helmet),
-      0,
-      0.022,
-      0.006,
-    );
-    shell.scale.set(1, 0.95, 1.1);
-    const strap = put(
-      head,
-      new Mesh(new TorusGeometry(0.121, 0.013, 6, 32), accent),
-      0,
-      0.01,
-      0.01,
-    );
-    strap.rotation.x = Math.PI / 2;
-    // Cylinder angle 0 points along +z; centre the arc on the face (-z).
-    const arc = (r: number, h: number, span: number, material: MeshStandardNodeMaterial) =>
-      new Mesh(new CylinderGeometry(r, r, h, 24, 1, true, Math.PI - span / 2, span), material);
+    const parts = headGeometries();
+    helmet.side = DoubleSide; // the peak is a single sheet, the shell open underneath
     frame.side = DoubleSide;
-    lens.side = DoubleSide;
-    put(head, arc(0.127, 0.066, 2.3, frame), 0, 0.012, 0.004);
-    put(head, arc(0.131, 0.05, 2.0, lens), 0, 0.012, 0.004);
+    for (const [geometry, material] of [
+      [parts.gaiter, gaiter],
+      [parts.helmet, helmet],
+      [parts.frame, frame],
+      [parts.lens, lens],
+      [parts.strap, jacket],
+    ] as const)
+      put(head, new Mesh(geometry, material));
     this.chest.add(head);
     this.figure.add(this.chest);
 
@@ -365,6 +355,7 @@ export class SkierModel {
     }
     this.figure.name = 'body';
     this.chest.name = 'chest';
+    this.head.name = 'head';
     this.root.add(this.figure);
 
     // Poles hang from the hands (gloves on the grips); their pivot is the grip.
