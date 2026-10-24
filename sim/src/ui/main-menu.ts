@@ -96,6 +96,8 @@ export class MainMenu {
   private current: string | null = null;
   private phase: 'idle' | 'loading' | 'ready' | 'error' = 'idle';
   private started = false;
+  /** Why moving to a start point in the loaded area isn't allowed (the rules), or null. */
+  private teleportOff: string | null = null;
   /** The start picked on the Resort screen. */
   private choice: StartChoice = null;
   /** The start to use when the loading area is ready. */
@@ -289,6 +291,18 @@ export class MainMenu {
     this.screens.reset('pause');
     const confirm = this.$<HTMLDialogElement>('#confirm');
     if (confirm.open) confirm.close('stay');
+    this.render();
+  }
+
+  /**
+   * Teleporting is off under the game's rules (`off` says so) or on (null): once you're in
+   * an area, its start points are teleports, so they aren't offered.
+   */
+  setTeleport(off: string | null): void {
+    this.teleportOff = off;
+    const change = this.$<HTMLButtonElement>('#pause-start');
+    change.disabled = !!off;
+    change.title = off ?? '';
     this.render();
   }
 
@@ -510,6 +524,7 @@ export class MainMenu {
     const id = this.selected;
     if (!id) return;
     if (this.started && id === this.current) {
+      if (this.choice && this.teleportOff) return;
       this.handlers.onPlay(this.choice); // already here: just move
       return;
     }
@@ -607,11 +622,13 @@ export class MainMenu {
     const where =
       this.choice?.name ?? (this.bases.length ? 'where you left off' : 'the resort start');
     const here = this.started && this.selected === this.current;
-    this.$('#ski-from').textContent = here
+    const skiFrom = this.$<HTMLButtonElement>('#ski-from');
+    skiFrom.textContent = here
       ? this.choice
-        ? `Go to ${this.choice.name}`
+        ? (this.teleportOff ?? `Go to ${this.choice.name}`)
         : 'Back to where you were'
       : `${this.hosting ? 'Host from' : 'Ski from'} ${where}`;
+    skiFrom.disabled = here && !!this.choice && !!this.teleportOff;
     this.$<HTMLButtonElement>('#choose-start').disabled = !this.selected;
 
     const start = this.$<HTMLButtonElement>('#start');

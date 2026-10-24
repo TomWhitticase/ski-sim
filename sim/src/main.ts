@@ -72,8 +72,17 @@ import { loadPose, type Pose, savePose } from './nav/pose';
 import { showCredits } from './ui/credits';
 import { BodyMarker } from './ui/body-marker';
 import { DisplayMenu, type WorldToggle } from './ui/display-menu';
+import { RulesMenu } from './ui/rules-menu';
 import { applyDisplay, loadDisplay, saveDisplay } from './ui/display-settings';
 import { Hud } from './ui/hud';
+import {
+  type GameRules,
+  gameRules,
+  loadRules,
+  type Rule,
+  ruleOffMessage,
+  saveRules,
+} from './game/rules';
 import {
   type LabelKind,
   type LabelSpec,
@@ -290,6 +299,16 @@ async function main(): Promise<void> {
     (name) => onWorldToggle(name),
     () => saveDisplay(localStorage),
   );
+  // Game rules (Options → Rules): your own until a world (and maybe a party) is loaded.
+  let ownRules = loadRules(localStorage);
+  Object.assign(gameRules, ownRules);
+  let onRulesEdited = (rules: GameRules) => {
+    ownRules = rules;
+    saveRules(localStorage, rules);
+    Object.assign(gameRules, rules);
+  };
+  const rulesMenu = new RulesMenu($('#opt-rules'), (rules) => onRulesEdited(rules));
+  rulesMenu.show(ownRules, null);
 
   if (auto) load(suggested);
   const resortId = await chosen;
@@ -705,6 +724,8 @@ async function main(): Promise<void> {
   showToggle('hud', hudShown, false);
   applyPisteColours();
   const debug = $('#debug');
+  /** The rules in force changed: set when the world exists (below). */
+  let applyRules = () => {};
   const multiplayer = new Multiplayer(
     {
       scene,
@@ -723,6 +744,7 @@ async function main(): Promise<void> {
         showClock();
       },
       goTo: (at) => {
+        if (!allowed('teleport')) return;
         // On the snow a few metres from them, looking their way.
         if (mode === 'ride' || mode === 'fly') setMode('ski'); // your skier lands there
         const pose = groundedPose(
@@ -746,8 +768,10 @@ async function main(): Promise<void> {
         timeMenu.setLocked(
           multiplayer.isGuest ? 'In a multiplayer game the host sets the time of day.' : null,
         );
-        ride.fastForward = !multiplayer.active; // the lift clock is shared
+        applyRules(); // a party's rules, or your own again
       },
+      ownRules: () => ownRules,
+      rulesChanged: () => applyRules(),
     },
     multiplayerMenu,
     params.get('net') === 'loopback' ? 'loopback' : 'webrtc',
@@ -768,10 +792,18 @@ async function main(): Promise<void> {
     },
   };
 
+  /** Whether the game's rules allow it; if not, say so (a notice under the compass). */
+  const allowed = (rule: Rule) => {
+    if (gameRules[rule]) return true;
+    partyHud.notify(ruleOffMessage(rule, multiplayer.active));
+    return false;
+  };
+
   // Teleports reset the speed readout so the jump doesn't register as motion.
   let speedReset = true;
   // Map teleports (and J, to the guide marker) land you on the ground there.
   const teleport = (target: Pose, lookAt?: Place['lookAt']) => {
+    if (!allowed('teleport')) return;
     if (mode === 'ride') setMode('ski');
     // The cuts' heights are above the highest ground nearby, so the low ones can't end
     // up inside a hillside.
@@ -917,6 +949,14 @@ async function main(): Promise<void> {
   /** F while flying: back into your skier, as and where you left it. */
   const returnToBody = () => {
     if (!body) return;
+    // Left on a snowmobile or paraglider the rules have since taken away: land instead.
+    if (
+      (body === 'sled' && !allowed('snowmobile')) ||
+      (body === 'glide' && !allowed('paraglider'))
+    ) {
+      setMode('ski');
+      return;
+    }
     mode = body;
     body = null;
     activate();
@@ -984,6 +1024,39 @@ async function main(): Promise<void> {
   hud.setMode(mode);
   hud.setFlyKeys(mode === 'fly' ? 'free' : null);
   document.body.classList.toggle('skiing', mode !== 'fly');
+  applyRules = () => {
+    const rules = multiplayer.rules ?? ownRules;
+    Object.assign(gameRules, rules);
+    rulesMenu.show(
+      rules,
+      multiplayer.rulesLocked ? 'In a multiplayer game the host sets the rules.' : null,
+    );
+    // What a rule takes away goes from the hints and touch buttons too (style.css).
+    const classes = document.body.classList;
+    classes.toggle('rules-no-teleport', !rules.teleport);
+    classes.toggle('rules-no-snowmobile', !rules.snowmobile);
+    classes.toggle('rules-no-paraglider', !rules.paraglider);
+    classes.toggle('rules-no-lift-skip', !rules.liftSkip);
+    const teleportOff = rules.teleport ? null : ruleOffMessage('teleport', multiplayer.active);
+    worldMap.teleportOff = teleportOff;
+    menu.setTeleport(teleportOff);
+    ride.canSkip = rules.liftSkip;
+    ride.fastForward = rules.liftSkip && !multiplayer.active; // a party's lift clock is shared
+    // On something the rules have just taken away: back on your skis.
+    if ((mode === 'sled' && !rules.snowmobile) || (mode === 'glide' && !rules.paraglider)) {
+      setMode('ski');
+    }
+  };
+  // Your own rules settle in when the world's ready (a party's arrive with the host).
+  onRulesEdited = (rules) => {
+    if (multiplayer.rules === null) {
+      ownRules = rules;
+      saveRules(localStorage, rules);
+    }
+    multiplayer.rulesEdited(rules);
+    applyRules();
+  };
+  applyRules();
   let nearTower = false;
   /** E: straight onto the loading point, to wait for the next carrier. */
   const boardLift = (line: number, down: boolean) => {
@@ -1131,10 +1204,12 @@ async function main(): Promise<void> {
       setMode('ski'); // your skier comes to the ground below you
     } else if (code === 'KeyP' && !worldMap.isOpen) {
       // Deploy the paraglider (keeping your momentum), or drop it and ski.
-      setMode(mode === 'glide' ? 'ski' : 'glide');
+      if (mode === 'glide') setMode('ski');
+      else if (allowed('paraglider')) setMode('glide');
     } else if (code === 'KeyB' && !worldMap.isOpen && mode !== 'ride') {
       // Get on a snowmobile (keeping your momentum), or step off it onto your skis.
-      setMode(mode === 'sled' ? 'ski' : 'sled');
+      if (mode === 'sled') setMode('ski');
+      else if (allowed('snowmobile')) setMode('sled');
     } else if (code === 'KeyV' && mode !== 'fly') {
       // Flying is always a free camera: there's no first or third person.
       setView(view === 'first-person' ? 'chase' : 'first-person', true);
@@ -1170,9 +1245,12 @@ async function main(): Promise<void> {
     speedReset = true;
     persistPose();
   };
+  /** In the world already: a start point is then a teleport (the first one never is). */
+  let entered = false;
   play = (choice, auto = false) => {
     sound.start(); // audio may only start from a user gesture
-    if (choice) startAt(choice);
+    if (choice && (!entered || allowed('teleport'))) startAt(choice);
+    entered = true;
     // Straight from loading there's no click to capture the mouse with: the world shows,
     // with "Click to play" until the first click (or Enter). On a touchscreen, "Tap to
     // play" unless this came from a tap (Resume, a start point), so sound can start.
@@ -1254,8 +1332,8 @@ async function main(): Promise<void> {
         text = `Waiting for ${ride.name} · ${formatWait(ride.departsIn)}${ff}${away}`;
       } else {
         const ff = ride.fastForward ? ' · hold W to fast-forward' : '';
-        const end = ride.down ? 'bottom' : 'top';
-        text = tap ? ride.name : `${ride.name}${ff} · S to skip to the ${end} · E to jump off`;
+        const skip = ride.canSkip ? ` · S to skip to the ${ride.down ? 'bottom' : 'top'}` : '';
+        text = tap ? ride.name : `${ride.name}${ff}${skip} · E to jump off`;
       }
     } else if (mode !== 'glide' && mode !== 'sled') {
       const p = whereAmI();
@@ -1272,7 +1350,7 @@ async function main(): Promise<void> {
           key = 'KeyE';
           text = `${tap ? 'Ride' : 'ride'} ${l.name}${near.down ? ' down' : ''} (${liftTypeName(l.lift.type)}, ${vertical})`;
         }
-      } else if (mode === 'ski' && sled.canRemount(p)) {
+      } else if (mode === 'ski' && gameRules.snowmobile && sled.canRemount(p)) {
         key = 'KeyB';
         text = `${tap ? 'Get' : 'get'} back on the snowmobile`;
       }
@@ -1369,6 +1447,12 @@ async function main(): Promise<void> {
       // Map teleport: the camera's in the sky and you wait, frozen, at the destination.
       sky.update(dt, camera);
     } else {
+      // On a lift with skipping off: S (or W, unless the party's shared clock already
+      // stops it) says why nothing happens.
+      if (mode === 'ride' && !gameRules.liftSkip) {
+        if (input.wasPressed('KeyS') || (!multiplayer.active && input.wasPressed('KeyW')))
+          allowed('liftSkip');
+      }
       const landed = controls().update(dt, input);
       if (mode === 'glide' && landed) setMode('ski');
       if (mode === 'ride' && landed) unload();

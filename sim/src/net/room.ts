@@ -1,5 +1,7 @@
 // Room codes, player names and the shared-clock maths for a multiplayer session.
 
+import { type GameRules, sanitizeRules } from '../game/rules';
+
 /** No 0/O or 1/I, so a code read out loud or off a screen can't be mistyped. */
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const CODE_LENGTH = 6;
@@ -94,6 +96,8 @@ export interface SavedParty {
   role: 'host' | 'guest';
   /** When you started hosting it (epoch ms), so a returning host keeps the party. */
   since?: number;
+  /** The party's rules (the host's), so they hold across a reload or a hand-over. */
+  rules?: GameRules;
 }
 
 const PARTY_KEY = 'ski-sim.party';
@@ -101,7 +105,8 @@ const PARTY_KEY = 'ski-sim.party';
 export function loadParty(storage: Pick<Storage, 'getItem'>): SavedParty | null {
   try {
     const p = JSON.parse(storage.getItem(PARTY_KEY) ?? 'null') as SavedParty | null;
-    return p && parseRoomCode(p.code) && (p.role === 'host' || p.role === 'guest') ? p : null;
+    if (!p || !parseRoomCode(p.code) || (p.role !== 'host' && p.role !== 'guest')) return null;
+    return p.rules ? { ...p, rules: sanitizeRules(p.rules) } : p;
   } catch {
     return null;
   }

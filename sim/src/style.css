@@ -1695,7 +1695,8 @@ dialog.stacked::backdrop {
 .ski-setup,
 .time-of-day,
 .settings,
-.display {
+.display,
+.rules {
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -1879,6 +1880,14 @@ dialog.stacked::backdrop {
   border-radius: var(--r-control);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   font-size: 12.5px;
+}
+
+/* Game rules: what a rule switched off takes away also goes from the hints and buttons. */
+body.rules-no-teleport .teleport-hint,
+body.rules-no-snowmobile [data-touch='sled'],
+body.rules-no-paraglider [data-touch='glider'],
+body.rules-no-lift-skip [data-touch='skip'] {
+  display: none !important;
 }
 
 /* Multiplayer */

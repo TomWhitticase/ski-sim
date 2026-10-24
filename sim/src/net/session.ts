@@ -6,6 +6,7 @@ import {
   encodeState,
   type PlayerState,
 } from './codec';
+import { type GameRules, sanitizeRules } from '../game/rules';
 import { Interpolator } from './interpolation';
 import { advanceShared, cleanName, DEFAULT_NAME, MAX_PLAYERS, type SharedClock } from './room';
 import type { Transport } from './transport';
@@ -16,7 +17,7 @@ const shownName = (name: string) => cleanName(name) || DEFAULT_NAME;
 export type Role = 'host' | 'guest';
 
 /** Bump when the wire format changes, so mismatched builds refuse rather than garble. */
-export const NET_VERSION = 3;
+export const NET_VERSION = 4;
 /** States sent per second. */
 export const SEND_HZ = 12;
 /** A peer silent for this long has gone (ms). */
@@ -35,6 +36,8 @@ export type Control =
   | { t: 'ping'; at: number }
   | { t: 'pong'; at: number; clock: SharedClock }
   | { t: 'sync'; clock: SharedClock }
+  /** The host's game rules, which the whole party plays by. */
+  | { t: 'rules'; rules: GameRules }
   | { t: 'end' }
   | { t: 'bye' }
   /** The host is leaving: the party carries on under the next host (no waiting). */
@@ -60,6 +63,10 @@ export interface SessionWorld {
   clock(): SharedClock;
   /** Guest: the host's clocks, already advanced by the one-way latency. */
   follow(clock: SharedClock): void;
+  /** Host: the rules the party plays by. */
+  rules(): GameRules;
+  /** Guest: the host's rules arrived (on joining, and whenever it changes them). */
+  followRules(rules: GameRules): void;
 }
 
 export interface SessionEvents {
@@ -200,6 +207,12 @@ export class NetSession {
     if (this.players.size > 0) this.transport.sendControl({ t: 'sync', clock: this.world.clock() });
   }
 
+  /** Host: send the rules now (they were just changed). */
+  pushRules(): void {
+    if (this.role !== 'host' || this.over || this.players.size === 0) return;
+    this.transport.sendControl({ t: 'rules', rules: this.world.rules() });
+  }
+
   /** Your name changed: the host updates the roster. */
   rename(): void {
     if (this.over) return;
@@ -281,6 +294,7 @@ export class NetSession {
       guest.interp.heard(now);
       this.transport.sendControl({ t: 'welcome', player: guest.player }, peer);
       this.transport.sendControl({ t: 'sync', clock: this.world.clock() }, peer);
+      this.transport.sendControl({ t: 'rules', rules: this.world.rules() }, peer);
       this.broadcastRoster();
       return;
     }
@@ -335,6 +349,8 @@ export class NetSession {
       this.world.follow(advanceShared(m.clock, this.rtt / 2000));
     } else if (m.t === 'sync') {
       this.world.follow(advanceShared(m.clock, this.rtt / 2000));
+    } else if (m.t === 'rules') {
+      this.world.followRules(sanitizeRules(m.rules));
     } else if (m.t === 'end') {
       this.end('The host ended the game');
     } else if (m.t === 'handover') {
