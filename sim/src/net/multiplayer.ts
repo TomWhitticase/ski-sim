@@ -2,20 +2,24 @@ import type { PerspectiveCamera, Scene, Vector3 } from 'three/webgpu';
 
 import { DAY_SECONDS, type TimeOfDay } from '../env/time-of-day';
 import { MultiplayerMenu } from '../ui/multiplayer-menu';
+import { activity } from '../ui/party-hud';
 import type { PlayerState } from './codec';
 import { playerColour, RemotePlayers } from './remote-players';
 import {
   cleanName,
-  nameProblem,
   inviteLink,
   liftCorrection,
   loadName,
+  loadParty,
   makeRoomCode,
   NAME_KEY,
+  nameProblem,
+  partyLink,
   roomId,
+  saveParty,
   type SharedClock,
 } from './room';
-import { NetSession, type Role, SEND_HZ } from './session';
+import { type EndKind, NetSession, type Role, SEND_HZ } from './session';
 import { openTransport, type TransportKind } from './transport';
 
 /** What multiplayer needs from the running sim. */
@@ -38,7 +42,19 @@ export interface MultiplayerSim {
   roomChanged(): void;
   /** Your jacket colour in a game (your player colour), null out of one. */
   setJacket(colour: string | null): void;
+  /** A short message on the HUD ("Ben joined"). */
+  notify(text: string): void;
 }
+
+/** How long a dropped guest keeps trying to get back into the party (ms). */
+export const RECONNECT_FOR = 90_000;
+/** Between attempts to reach the party again (ms). */
+const RETRY_EVERY = 3000;
+/** The host gone without a word: the next player waits this long for it to come back
+ *  before taking over (a reload into the same resort is quicker than a new host). */
+const TAKEOVER_DELAY = 4000;
+/** Guests follow the host to another resort after this long (s), unless they stay. */
+export const FOLLOW_AFTER = 10;
 
 /**
  * Hosting and joining games: owns the session, the Multiplayer tab and the remote
@@ -85,18 +101,34 @@ export class Multiplayer {
         this.render();
       },
     };
-    window.addEventListener('pagehide', () => this.session?.leave());
+    // Closing the tab hands the party on; moving resort with it (or following) doesn't.
+    window.addEventListener('pagehide', () => {
+      if (this.travelling) this.session?.close();
+      else this.session?.leave();
+    });
     // The frame loop stops while the map is open or the tab is in the background; keep
     // sending and pinging anyway, or the host drops you after a few seconds.
     setInterval(() => this.session?.update(), 1000 / SEND_HZ);
     this.render();
     // An invite link: join straight away (progress shows on the Multiplayer screen),
     // once you've a name; without one, the screen asks for it with the code filled in.
+    // Back from a reload or a move with the party: carry on in it (a host hosts again
+    // under the same code, and keeps it if a guest took over meanwhile).
     const named = !nameProblem(this.name);
+    const saved = loadParty(sessionStorage);
     if (autoJoin && named) void this.start('guest', autoJoin);
     else if (autoHost && named) void this.start('host', makeRoomCode());
     else if (autoJoin || autoHost) this.waiting = { code: autoJoin };
+    else if (saved && named) void this.start(saved.role, saved.code, saved.since);
   }
+
+  /** Reloading into another resort with the party (or following it): don't hand over. */
+  private travelling = false;
+  /** Dropped and finding our way back in: since when (ms), and the party's code. */
+  private reconnect: { code: string; since: number; timer: number } | null = null;
+  /** Guest: the host is moving the party; follow when this runs out (or stay). */
+  private follow_: { resort: string; start: string | null; timer: number } | null = null;
+  private lastNames = new Map<number, string>();
 
   /** An invite link or Host from the menu, held until you've entered a name. */
   private waiting: { code: string | null } | null = null;
@@ -165,8 +197,9 @@ export class Multiplayer {
     return this.remote.dots;
   }
 
-  private async start(role: Role, code: string): Promise<void> {
-    if (this.session) this.leave();
+  private async start(role: Role, code: string, since?: number): Promise<void> {
+    if (this.session) this.session.close();
+    this.session = null;
     // A second click while the first is still connecting: only the latest goes ahead.
     const attempt = ++this.attempts;
     this.setStatus(role === 'host' ? 'Opening a game…' : `Looking for game ${code}…`);
@@ -181,6 +214,8 @@ export class Multiplayer {
     }
     if (attempt !== this.attempts) return transport.leave();
     this.liftError = 0;
+    const hostSince = role === 'host' ? (since ?? Date.now()) : undefined;
+    saveParty(sessionStorage, { code, role, since: hostSince });
     this.session = new NetSession(
       transport,
       role,
@@ -201,17 +236,27 @@ export class Multiplayer {
           const self = this.session?.self;
           this.sim.setJacket(self === null || self === undefined ? null : playerColour(self));
           if (this.session?.connected) {
+            if (this.reconnect) this.sim.notify('Back in the party');
+            this.stopReconnecting();
             this.setStatus(role === 'host' ? 'Share the code or the link' : 'Connected');
           }
+          this.announce();
         },
-        ended: (reason) => this.ended(reason),
+        ended: (reason, kind) => this.ended(reason, kind),
         wrongResort: (resort) => {
           // Same game, the host's ski area: reload there and join again.
-          const url = new URL(inviteLink(location.href, resort, code));
-          if (this.transport === 'loopback') url.searchParams.set('net', 'loopback');
-          location.href = url.toString();
+          this.travelling = true;
+          location.href = partyLink(location.href, resort, code);
+        },
+        moving: (resort, start) => this.hostMoving(resort, start),
+        yieldHost: () => {
+          // Another host had this party first (we took over while it was reloading).
+          this.sim.notify('Rejoining the party');
+          void this.start('guest', code);
         },
       },
+      undefined,
+      hostSince,
     );
     if (role === 'host') {
       this.setStatus('Share the code or the link');
@@ -234,21 +279,169 @@ export class Multiplayer {
     }
   }
 
-  private leave(): void {
+  /** Leave the party for good (the Leave button, or skiing off to another resort). */
+  leave(): void {
+    this.stopReconnecting();
+    this.cancelFollow();
+    saveParty(sessionStorage, null);
     this.session?.leave();
     this.reset('');
   }
 
-  private ended(reason: string): void {
+  /** Host: take the party to another resort. Call just before reloading there. */
+  moveParty(resort: string, start: string | null): void {
+    const s = this.session;
+    if (!s || s.role !== 'host') return;
+    s.move(resort, start);
+    this.travelling = true;
+  }
+
+  /**
+   * The party card's rows: everyone else, with how far they are from `you` (world) and
+   * what they're doing (`runAt`: the run at a world position). Null out of a party.
+   */
+  partyMembers(
+    you: Vector3,
+    runAt: (at: Vector3) => string | null,
+  ): import('../ui/party-hud').PartyMember[] | null {
+    const s = this.session;
+    if (!s) return this.reconnect ? [] : null;
+    return s
+      .names()
+      .filter((p) => !p.you)
+      .map((p) => {
+        const at = this.remote.positionOf(p.player);
+        const mode = this.remote.modeOf(p.player);
+        return {
+          name: p.name,
+          colour: playerColour(p.player),
+          host: p.player === 0,
+          distance: at ? Math.round(at.distanceTo(you)) : null,
+          doing: at && mode ? activity(mode, mode === 'ski' ? runAt(at) : null) : null,
+        };
+      });
+  }
+
+  /** In a party as a guest (picking another resort leaves it). */
+  get inPartyAsGuest(): boolean {
+    return !!this.session && this.session.role === 'guest';
+  }
+
+  /** The host's name, for "You'll leave Ana's party". */
+  get hostName(): string | null {
+    return this.session?.names().find((p) => p.player === 0)?.name ?? null;
+  }
+
+  private ended(reason: string, kind: EndKind): void {
+    const s = this.session;
+    if (kind !== 'final' && s) {
+      // The party carries on: the next player takes over as host, the rest find it.
+      const others = [...s.players.keys()].filter((n) => n !== 0);
+      const me = s.self;
+      const next = me !== null && others.every((n) => n > me);
+      const retrying = !!this.reconnect;
+      this.reset('Reconnecting…', false, true);
+      if (!retrying)
+        this.sim.notify(kind === 'handover' ? 'The host left' : 'Lost the host: reconnecting…');
+      if (next && !retrying) {
+        const delay = kind === 'handover' ? 0 : TAKEOVER_DELAY;
+        this.reconnectTo(s.code, delay, 'host');
+      } else {
+        this.reconnectTo(s.code, retrying ? RETRY_EVERY : kind === 'handover' ? 1500 : 0, 'guest');
+      }
+      return;
+    }
+    saveParty(sessionStorage, null);
     this.reset(reason, true);
     // Make sure they see why, even mid-run.
     if (document.pointerLockElement) document.exitPointerLock();
     this.menu.open();
   }
 
-  private reset(status: string, error = false): void {
+  /** Keep trying to get back into the party (`as` host: take it over). */
+  private reconnectTo(code: string, delay: number, as: Role): void {
+    const since = this.reconnect?.since ?? Date.now();
+    clearTimeout(this.reconnect?.timer);
+    const attempt = () => {
+      if (!this.reconnect) return;
+      if (Date.now() - this.reconnect.since > RECONNECT_FOR) {
+        this.stopReconnecting();
+        saveParty(sessionStorage, null);
+        this.reset("Couldn't get back into the party", true);
+        this.sim.notify("Couldn't get back into the party");
+        return;
+      }
+      if (as === 'host') {
+        this.sim.notify('You are hosting the party now');
+        void this.start('host', code);
+        this.stopReconnecting();
+        return;
+      }
+      // Looks for the party for FIND_TIMEOUT; if it's not there yet that session ends as
+      // `lost`, which comes back here for the next try (see `ended`).
+      void this.start('guest', code);
+    };
+    this.reconnect = { code, since, timer: window.setTimeout(attempt, delay) };
+  }
+
+  private stopReconnecting(): void {
+    if (this.reconnect) clearTimeout(this.reconnect.timer);
+    this.reconnect = null;
+  }
+
+  /** Guest: the host is moving the party. Follow in FOLLOW_AFTER s unless you stay. */
+  private hostMoving(resort: string, start: string | null): void {
+    const code = this.session?.code;
+    if (!code) return;
+    this.cancelFollow();
+    const host = this.hostName ?? 'The host';
+    let left = FOLLOW_AFTER;
+    const go = () => {
+      this.travelling = true;
+      saveParty(sessionStorage, { code, role: 'guest' });
+      location.href = partyLink(location.href, resort, code, start);
+    };
+    const tick = () => {
+      if (!this.follow_) return;
+      if (left <= 0) return go();
+      this.sim.notify(
+        `${host} is taking the party to ${resort}: following in ${left} s · L to stay`,
+      );
+      left--;
+      this.follow_.timer = window.setTimeout(tick, 1000);
+    };
+    this.follow_ = { resort, start, timer: 0 };
+    tick();
+  }
+
+  /** L while the party's moving: stay here (and leave it). */
+  stayBehind(): boolean {
+    if (!this.follow_) return false;
+    this.cancelFollow();
+    this.leave();
+    this.sim.notify('You stayed behind and left the party');
+    return true;
+  }
+
+  private cancelFollow(): void {
+    if (this.follow_) clearTimeout(this.follow_.timer);
+    this.follow_ = null;
+  }
+
+  /** "Ben joined" / "Ben left", from the roster's changes. */
+  private announce(): void {
+    const now = new Map(
+      (this.session?.names() ?? []).filter((p) => !p.you).map((p) => [p.player, p.name]),
+    );
+    for (const [n, name] of now) if (!this.lastNames.has(n)) this.sim.notify(`${name} joined`);
+    for (const [n, name] of this.lastNames) if (!now.has(n)) this.sim.notify(`${name} left`);
+    this.lastNames = now;
+  }
+
+  private reset(status: string, error = false, keepNames = false): void {
     this.session = null;
     this.remote.clear();
+    if (!keepNames) this.lastNames = new Map();
     this.sim.setJacket(null);
     this.setStatus(status, error);
     this.sim.roomChanged();

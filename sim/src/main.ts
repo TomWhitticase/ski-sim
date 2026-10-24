@@ -92,6 +92,7 @@ import { addSpirit, sampleAvatar } from './net/local-avatar';
 import { Multiplayer } from './net/multiplayer';
 import { cleanName, loadName, NAME_KEY, parseRoomCode } from './net/room';
 import { MultiplayerMenu } from './ui/multiplayer-menu';
+import { PartyHud } from './ui/party-hud';
 import { saveCanvas, screenshotName } from './ui/screenshot';
 
 declare global {
@@ -197,6 +198,11 @@ async function main(): Promise<void> {
   let loaded = false;
   // Chose "Host a game" before choosing where: open one once the map's ready.
   let hostAfterLoad = params.get('host') === '1';
+  /** Set once multiplayer exists: what changing resort does to your party. */
+  let party: {
+    note: () => string | null;
+    leaving: (resort: string, start: string | null) => void;
+  } = { note: () => null, leaving: () => {} };
   const menu: MainMenu = new MainMenu($('#overlay'), {
     onSelect: (id) => {
       manifestOf(id).then(
@@ -216,10 +222,13 @@ async function main(): Promise<void> {
         hostAfterLoad ||= host;
         return load(id);
       }
-      // Another area: a fresh page that loads it straight away, at the chosen start.
-      location.href = resortLink(id, _choice?.name ?? null, host);
+      // Another area: a fresh page that loads it straight away, at the chosen start (a
+      // host's party comes too; a guest leaves theirs). A moment for the word to go out.
+      party.leaving(id, _choice?.name ?? null);
+      setTimeout(() => (location.href = resortLink(id, _choice?.name ?? null, host)), 300);
     },
     onPlay: (choice, auto) => play(choice, auto),
+    leaveNote: () => party.note(),
   });
   failLoad = (message) => menu.failed(message);
   menu.setResorts(resorts, suggested);
@@ -607,6 +616,8 @@ async function main(): Promise<void> {
   forest?.update(camera);
 
   const hud = new Hud($('#hud'));
+  const partyHud = new PartyHud($('#hud'));
+  let partyClock = 0;
   const minimap = await Minimap.load(
     $<HTMLCanvasElement>('#minimap canvas'),
     resortUrl(resortId, manifest.minimap.file),
@@ -724,6 +735,10 @@ async function main(): Promise<void> {
         speedReset = true;
         persistPose();
       },
+      notify: (text) => {
+        // A countdown updates one notice rather than stacking ten.
+        partyHud.notify(text, text.includes('following in') ? 'follow' : text);
+      },
       setJacket: (colour) => {
         for (const model of [ski.model, glider.pilot, sled.rider]) model.setJacket(colour);
       },
@@ -739,6 +754,19 @@ async function main(): Promise<void> {
     parseRoomCode(params.get('join') ?? ''),
     hostAfterLoad,
   );
+
+  party = {
+    note: () =>
+      multiplayer.inPartyAsGuest
+        ? `You'll leave ${multiplayer.hostName ?? 'the host'}'s party.`
+        : multiplayer.active
+          ? 'Your party comes with you.'
+          : null,
+    leaving: (resort, start) => {
+      if (multiplayer.inPartyAsGuest) multiplayer.leave();
+      else multiplayer.moveParty(resort, start);
+    },
+  };
 
   // Teleports reset the speed readout so the jump doesn't register as motion.
   let speedReset = true;
@@ -1077,6 +1105,8 @@ async function main(): Promise<void> {
       else openMap();
     } else if (code === 'Escape' && worldMap.isOpen) {
       closeMap(false);
+    } else if (code === 'KeyL' && multiplayer.stayBehind()) {
+      // The party's moving resort: stay here instead (and leave it).
     } else if (code === 'KeyJ' && !worldMap.isOpen && waypoint.current) {
       // Jump to the guide marker, facing the way you were going.
       const w = waypoint.current;
@@ -1395,6 +1425,16 @@ async function main(): Promise<void> {
       camera.updateProjectionMatrix();
     }
     multiplayer.update(dt, camera);
+    partyClock += dt;
+    if (partyClock > 0.25) {
+      partyClock = 0;
+      partyHud.setParty(
+        multiplayer.partyMembers(whereAmI(), (at) => {
+          const p = pisteLookup.at(at.x, -at.z);
+          return p?.name ? runLabel(p) : null;
+        }),
+      );
+    }
     renderer.render(scene, camera);
     if (screenshotPending) {
       screenshotPending = false;

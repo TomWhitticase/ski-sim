@@ -58,9 +58,16 @@ function player(
   hub: ReturnType<typeof createHub>,
   role: Role,
   name: string,
-  opts: { resort?: string; clock?: SharedClock } = {},
+  opts: { resort?: string; clock?: SharedClock; since?: number } = {},
 ) {
-  const log = { ended: [] as string[], moved: [] as string[], followed: [] as SharedClock[] };
+  const log = {
+    ended: [] as string[],
+    kinds: [] as string[],
+    moved: [] as string[],
+    moving: [] as string[],
+    yielded: 0,
+    followed: [] as SharedClock[],
+  };
   let x = 0;
   const world = {
     resort: opts.resort ?? 'les-3-vallees',
@@ -80,10 +87,16 @@ function player(
     world,
     {
       roster: () => {},
-      ended: (r) => log.ended.push(r),
+      ended: (r, kind) => {
+        log.ended.push(r);
+        log.kinds.push(kind);
+      },
       wrongResort: (r) => log.moved.push(r),
+      moving: (r, start) => log.moving.push(`${r}@${start}`),
+      yieldHost: () => log.yielded++,
     },
     now,
+    opts.since ?? clockNow,
   );
   return { session, transport, log, move: (to: number) => (x = to) };
 }
@@ -129,7 +142,7 @@ describe('NetSession', () => {
     expect(a.session.players.has(1)).toBe(false);
   });
 
-  it('ends the game for guests when the host leaves', () => {
+  it('ends the host session for guests when the host leaves (they then take over)', () => {
     clockNow = 1000;
     const hub = createHub();
     const host = player(hub, 'host', 'Host');
@@ -138,7 +151,7 @@ describe('NetSession', () => {
     host.session.leave();
     run(hub, [a.session], 300);
     expect(a.session.ended).toBe(true);
-    expect(a.log.ended).toEqual(['The host ended the game']);
+    expect(a.log.ended).toEqual(['The host left']);
   });
 
   it('drops a silent guest, and a guest gives up on a silent host', () => {
@@ -218,5 +231,45 @@ describe('NetSession', () => {
     rogue.sendControl({ t: 'end' } satisfies Control);
     hub.flush();
     expect(a.session.ended).toBe(false);
+  });
+
+  it('a host leaving hands the party over instead of ending it', () => {
+    const hub = createHub();
+    const host = player(hub, 'host', 'Ana');
+    const guest = player(hub, 'guest', 'Ben');
+    run(hub, [host.session, guest.session], 300);
+    host.session.leave();
+    run(hub, [guest.session], 300);
+    expect(guest.log.kinds).toEqual(['handover']);
+  });
+
+  it('a host going quiet reads as lost (reconnect), not as the end', () => {
+    const hub = createHub();
+    const host = player(hub, 'host', 'Ana');
+    const guest = player(hub, 'guest', 'Ben');
+    run(hub, [host.session, guest.session], 300);
+    hub.cut(host.transport);
+    run(hub, [guest.session], PEER_TIMEOUT + 500);
+    expect(guest.log.kinds).toEqual(['lost']);
+  });
+
+  it('guests hear where the host is moving the party', () => {
+    const hub = createHub();
+    const host = player(hub, 'host', 'Ana');
+    const guest = player(hub, 'guest', 'Ben');
+    run(hub, [host.session, guest.session], 300);
+    host.session.move('zermatt', 'Furi');
+    run(hub, [host.session, guest.session], 100);
+    expect(guest.log.moving).toEqual(['zermatt@Furi']);
+  });
+
+  it('of two hosts for one code, the one hosting longer keeps it', () => {
+    const hub = createHub();
+    const older = player(hub, 'host', 'Ana', { since: 1000 });
+    const newer = player(hub, 'host', 'Ben', { since: 5000 });
+    run(hub, [older.session, newer.session], 300);
+    expect(newer.log.yielded).toBe(1);
+    expect(older.log.yielded).toBe(0);
+    expect(newer.session.ended).toBe(true);
   });
 });

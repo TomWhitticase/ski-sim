@@ -34,6 +34,8 @@ export interface MenuHandlers {
    * `auto` when it's just finished loading (no tap or click to start with).
    */
   onPlay: (choice: StartChoice, auto?: boolean) => void;
+  /** Said when leaving for another area, about your party ("Your party comes with you"). */
+  leaveNote?: () => string | null;
 }
 
 /** A menu screen something else opens and closes (the Multiplayer screen). */
@@ -512,9 +514,10 @@ export class MainMenu {
       return;
     }
     if (this.current && id !== this.current) {
+      const note = this.handlers.leaveNote?.();
       const leave = await this.confirm(
         `Leave ${this.name(this.current)}?`,
-        `${this.name(id)} loads in its place. Your position here is saved.`,
+        `${this.name(id)} loads in its place. Your position here is saved.${note ? ` ${note}` : ''}`,
       );
       if (!leave) return;
     }

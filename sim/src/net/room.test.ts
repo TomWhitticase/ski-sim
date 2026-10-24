@@ -6,6 +6,9 @@ import {
   cleanName,
   loadName,
   nameProblem,
+  loadParty,
+  partyLink,
+  saveParty,
   inviteLink,
   PUBLIC_SITE,
   liftCorrection,
@@ -86,5 +89,28 @@ describe('names', () => {
     expect(loadName(storage(null))).toBe('');
     expect(loadName(storage('Skier'))).toBe('');
     expect(loadName(storage(' Ana '))).toBe('Ana');
+  });
+});
+
+describe('party', () => {
+  it('follows the party on this site, keeping the transport for tests', () => {
+    expect(
+      partyLink('http://localhost:5173/?resort=a&net=loopback', 'zermatt', 'ABCDEF', 'Furi'),
+    ).toBe('http://localhost:5173/?resort=zermatt&join=ABCDEF&start=Furi&net=loopback');
+  });
+
+  it('remembers the party for the tab, and ignores junk', () => {
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    };
+    saveParty(storage, { code: 'ABCDEF', role: 'host', since: 5 });
+    expect(loadParty(storage)).toEqual({ code: 'ABCDEF', role: 'host', since: 5 });
+    saveParty(storage, null);
+    expect(loadParty(storage)).toBeNull();
+    store.set('ski-sim.party', '{"code":"no","role":"x"}');
+    expect(loadParty(storage)).toBeNull();
   });
 });

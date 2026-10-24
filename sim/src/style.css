@@ -135,6 +135,79 @@ body:not(.flying) #hud {
   height: 36px;
 }
 
+/* Multiplayer notices (ui/party-hud.ts): under the compass, a few seconds each. */
+#notices {
+  position: absolute;
+  top: 74px;
+  left: 50%;
+  translate: -50% 0;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  zoom: var(--ui-scale);
+}
+
+.notice {
+  padding: 6px 12px;
+  font: 600 13px var(--font-ui);
+  animation: rise 0.2s var(--ease);
+}
+
+/* The party card, top left: who's in and where they are. */
+#party {
+  position: absolute;
+  top: 22px;
+  left: 22px;
+  min-width: 220px;
+  max-width: 300px;
+  padding: 9px 12px;
+  display: grid;
+  gap: 5px;
+  font: 500 12px var(--font-ui);
+  zoom: var(--ui-scale);
+}
+
+.party-head {
+  font: 600 10px var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.party-row {
+  display: grid;
+  grid-template-columns: 9px 1fr;
+  column-gap: 8px;
+  align-items: center;
+}
+
+.party-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--player);
+  grid-row: span 2;
+}
+
+.party-name {
+  font-weight: 700;
+}
+
+.party-where {
+  color: var(--muted);
+  font: 500 11px var(--font-mono);
+}
+
+.party-hint {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.party-hint kbd {
+  margin-right: 4px;
+}
+
 .compass-window {
   position: absolute;
   inset: 0 0 12px;

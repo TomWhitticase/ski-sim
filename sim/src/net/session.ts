@@ -16,7 +16,7 @@ const shownName = (name: string) => cleanName(name) || DEFAULT_NAME;
 export type Role = 'host' | 'guest';
 
 /** Bump when the wire format changes, so mismatched builds refuse rather than garble. */
-export const NET_VERSION = 2;
+export const NET_VERSION = 3;
 /** States sent per second. */
 export const SEND_HZ = 12;
 /** A peer silent for this long has gone (ms). */
@@ -28,7 +28,7 @@ const SYNC_INTERVAL = 1000;
 const PING_INTERVAL = 2000;
 
 export type Control =
-  | { t: 'hello'; v: number; role: Role; name: string; resort: string }
+  | { t: 'hello'; v: number; role: Role; name: string; resort: string; since?: number }
   | { t: 'welcome'; player: number }
   | { t: 'roster'; players: { player: number; name: string }[] }
   | { t: 'reject'; reason: 'full' | 'version' }
@@ -36,7 +36,18 @@ export type Control =
   | { t: 'pong'; at: number; clock: SharedClock }
   | { t: 'sync'; clock: SharedClock }
   | { t: 'end' }
-  | { t: 'bye' };
+  | { t: 'bye' }
+  /** The host is leaving: the party carries on under the next host (no waiting). */
+  | { t: 'handover' }
+  /** The host is moving the party to another resort (guests follow, or stay behind). */
+  | { t: 'move'; resort: string; start: string | null };
+
+/**
+ * Why a session ended, for what happens next: `lost` (the host went quiet or its tab
+ * closed: reconnect, and take over if it doesn't come back), `handover` (the host left:
+ * the next one takes over now), `final` (rejected, not found, or you left: stop).
+ */
+export type EndKind = 'lost' | 'handover' | 'final';
 
 /** What the session needs from the running sim. */
 export interface SessionWorld {
@@ -55,9 +66,13 @@ export interface SessionEvents {
   /** Players changed (joined, left, renamed). */
   roster(): void;
   /** The session is over for you (host left, rejected, lost, not found). */
-  ended(reason: string): void;
+  ended(reason: string, kind: EndKind): void;
   /** Guest: the host is skiing another resort; reload there and join again. */
   wrongResort(resort: string): void;
+  /** Guest: the host is moving the party to `resort`. */
+  moving(resort: string, start: string | null): void;
+  /** Host: another host has this code and has hosted longer; become its guest. */
+  yieldHost(): void;
 }
 
 export interface Player {
@@ -102,6 +117,8 @@ export class NetSession {
     private readonly world: SessionWorld,
     private readonly events: SessionEvents,
     private readonly now: () => number = () => performance.now(),
+    /** When this player started hosting (epoch ms): of two hosts, the earlier keeps it. */
+    private readonly since: number = Date.now(),
   ) {
     this.started = now();
     this.self = role === 'host' ? 0 : null;
@@ -142,10 +159,12 @@ export class NetSession {
         this.sendHello(this.host);
       }
       if (!this.connected) {
-        if (now - this.started > FIND_TIMEOUT) this.end(`No game found with code ${this.code}`);
+        if (now - this.started > FIND_TIMEOUT)
+          this.end(`No game found with code ${this.code}`, 'lost');
         return;
       }
-      if (now - this.heardHost > PEER_TIMEOUT) return this.end('Lost connection to the host');
+      if (now - this.heardHost > PEER_TIMEOUT)
+        return this.end('Lost connection to the host', 'lost');
       if (now - this.lastPing > PING_INTERVAL) {
         this.lastPing = now;
         this.transport.sendControl({ t: 'ping', at: now }, this.host!);
@@ -188,16 +207,29 @@ export class NetSession {
     else if (this.host) this.sendHello(this.host);
   }
 
+  /** Leave for good. A host hands the party over to the next player. */
   leave(): void {
     if (this.over) return;
-    this.transport.sendControl(this.role === 'host' ? { t: 'end' } : { t: 'bye' });
+    this.transport.sendControl(this.role === 'host' ? { t: 'handover' } : { t: 'bye' });
     this.finish();
   }
 
-  private end(reason: string): void {
+  /** Host: tell the party it's moving to `resort` (then reload there and host again). */
+  move(resort: string, start: string | null): void {
+    if (this.over || this.role !== 'host') return;
+    this.transport.sendControl({ t: 'move', resort, start });
+  }
+
+  /** Close the connections without a word (a host reloading into another resort). */
+  close(): void {
     if (this.over) return;
     this.finish();
-    this.events.ended(reason);
+  }
+
+  private end(reason: string, kind: EndKind = 'final'): void {
+    if (this.over) return;
+    this.finish();
+    this.events.ended(reason, kind);
   }
 
   private finish(): void {
@@ -210,7 +242,10 @@ export class NetSession {
     if (this.over) return;
     const { resort } = this.world;
     const name = this.world.name();
-    this.transport.sendControl({ t: 'hello', v: NET_VERSION, role: this.role, name, resort }, peer);
+    this.transport.sendControl(
+      { t: 'hello', v: NET_VERSION, role: this.role, name, resort, since: this.since },
+      peer,
+    );
   }
 
   private control(m: Control, peer: string, now: number): void {
@@ -220,6 +255,16 @@ export class NetSession {
   }
 
   private hostControl(m: Control, peer: string, now: number): void {
+    if (m.t === 'hello' && m.role === 'host') {
+      // Two hosts for one code (a guest took over while the host was reloading): the one
+      // hosting longer keeps the party; ties go to the lower transport id.
+      const theirs = m.since ?? Infinity;
+      if (theirs < this.since || (theirs === this.since && peer < this.transport.selfId)) {
+        this.finish();
+        this.events.yieldHost();
+      }
+      return;
+    }
     if (m.t === 'hello') {
       if (m.role !== 'guest' || m.resort !== this.world.resort) return; // they'll move resort
       if (m.v !== NET_VERSION)
@@ -292,6 +337,10 @@ export class NetSession {
       this.world.follow(advanceShared(m.clock, this.rtt / 2000));
     } else if (m.t === 'end') {
       this.end('The host ended the game');
+    } else if (m.t === 'handover') {
+      this.end('The host left', 'handover');
+    } else if (m.t === 'move') {
+      this.events.moving(m.resort, m.start);
     }
   }
 
@@ -314,7 +363,7 @@ export class NetSession {
   private peerLeft(peer: string): void {
     if (this.over) return;
     if (this.role === 'guest') {
-      if (peer === this.host) this.end('The host left the game');
+      if (peer === this.host) this.end('The host left the game', 'lost');
       return;
     }
     const guest = this.guestByPeer(peer);

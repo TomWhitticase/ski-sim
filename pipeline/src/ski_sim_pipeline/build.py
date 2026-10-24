@@ -27,7 +27,7 @@ from . import (
     territory,
 )
 from . import bases as base_finder
-from .config import Area, Extent, ResortConfig, load_resort
+from .config import MAX_GRID_SIZE, Area, Extent, ResortConfig, load_resort
 from .export import write_heightmap
 from .frame import LocalFrame
 from .grid import (
@@ -269,7 +269,12 @@ def build_pistes(
 
     fine_grid = Grid(extent, pistes.RASTER_CELL)
     fine = pistes.rasterise(shapes, fine_grid, runs)
-    overlay_factor = round(near_grid.cell_size / pistes.RASTER_CELL)
+    # The overlay is at least as coarse as the terrain, and within the GPU texture limit
+    # (`round` took 5 m / 2 m down to 2, a 4 m overlay 8251 px tall for Les 3 Vallées).
+    overlay_factor = max(
+        math.ceil(near_grid.cell_size / pistes.RASTER_CELL - 1e-9),
+        math.ceil(max(fine_grid.width, fine_grid.height) / MAX_GRID_SIZE),
+    )
     lookup_factor = round(pistes.LOOKUP_CELL / pistes.RASTER_CELL)
     gaps = pistes.dash_gaps(shapes, runs, fine_grid)
     pistes.overlay_image(fine, runs, overlay_factor, gaps).save(
@@ -318,7 +323,7 @@ def build_pistes(
     )
     return {
         "file": "pistes.json",
-        "overlay": {"file": "pistes-overlay.png", "cellSize": near_grid.cell_size},
+        "overlay": {"file": "pistes-overlay.png", "cellSize": pistes.RASTER_CELL * overlay_factor},
         # How much of the overlay's coverage is unprepared snow (same grid).
         "ungroomed": {"file": "pistes-ungroomed.png"},
         "lookup": {"file": "pistes-lookup.png", "cellSize": pistes.LOOKUP_CELL},

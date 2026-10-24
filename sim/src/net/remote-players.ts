@@ -225,6 +225,12 @@ export class RemotePlayers {
     return [...this.avatars.values()].filter((a) => a.visible).map((a) => a.state.mode);
   }
 
+  /** What a player is doing (avatar mode), if they've been seen. */
+  modeOf(player: number): string | null {
+    const a = this.avatars.get(player);
+    return a?.visible ? a.state.mode : null;
+  }
+
   /** Where a player is (world), if they've been seen. */
   positionOf(player: number): Vector3 | null {
     const a = this.avatars.get(player);

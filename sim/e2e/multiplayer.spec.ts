@@ -177,11 +177,12 @@ test('host and guest see each other skiing, on the host clock', async ({ context
   await expect(guest.locator('#opt-time input[name="time"]')).toBeDisabled();
   await guest.keyboard.press('Escape');
 
-  // The host leaves: the game ends for the guest, with a message.
+  // The host leaves: the party carries on, the guest hosting it now.
   await host.keyboard.press('KeyN');
   await modal.locator('.mp-leave').click();
-  await expect(guestModal).toBeVisible();
-  await expect(guestModal.locator('.mp-status')).toHaveText('The host ended the game');
+  await expect
+    .poll(() => sim(guest, (s) => s.multiplayer.debug.role), { timeout: 20_000 })
+    .toBe('host');
   await expect(tag).toBeHidden();
   expect(await sim(guest, (s) => s.multiplayer.debug.dots.length)).toBe(0);
   // Back on their own clock: the time menu works again.
@@ -243,4 +244,73 @@ test('an invite link asks for your name before joining, and Host needs one too',
   await modal.locator('.mp-join').click();
   await expect(modal.locator('.mp-status')).toHaveText(/Looking for game ABCDEF/);
   expect(errors).toEqual([]);
+});
+
+test('the party carries on: the host leaves and a guest takes over, under the same code', async ({
+  context,
+}) => {
+  test.setTimeout(240_000);
+  const errors: string[] = [];
+  const host = await open(context, HOST_AT, errors);
+  await host.keyboard.press('KeyN');
+  const modal = host.locator('#mp-panel');
+  await setName(host, 'Alice');
+  await modal.locator('.mp-host').click();
+  await expect(modal.locator('.mp-code')).toHaveText(/^[A-Z2-9]{6}$/);
+  const code = (await modal.locator('.mp-code').textContent())!;
+
+  const guest = await open(context, `${GUEST_AT}&join=${code}`, errors);
+  await guest.keyboard.press('KeyN');
+  await setName(guest, 'Bob');
+  await expect(guest.locator('#mp-panel .mp-status')).toHaveText('Connected');
+  // The party card lists Alice, and her joining was announced to... the guest sees her.
+  await expect(guest.locator('#party .party-name')).toHaveText(['Alice · host']);
+  await expect(host.locator('#notices')).toContainText(/joined/);
+
+  // Alice leaves: Bob carries the party on as its host, same code.
+  await modal.locator('.mp-leave').click();
+  await expect
+    .poll(() => sim(guest, (s) => s.multiplayer.debug.role), { timeout: 20_000 })
+    .toBe('host');
+  expect(await sim(guest, (s) => s.multiplayer.debug.code)).toBe(code);
+  await expect(guest.locator('#notices')).toContainText('hosting the party now');
+
+  // Alice comes back with the same code and is Bob's guest now.
+  await host.locator('#mp-panel .mp-code-input').fill(code);
+  await host.locator('#mp-panel .mp-join').click();
+  await expect
+    .poll(() => sim(host, (s) => s.multiplayer.debug.connected), { timeout: 30_000 })
+    .toBe(true);
+  await expect(guest.locator('#party .party-name')).toHaveText(['Alice']);
+  expect(errors).toEqual([]);
+});
+
+test('a host moving resort takes the party along', async ({ context }) => {
+  test.setTimeout(300_000);
+  const errors: string[] = [];
+  const host = await open(context, HOST_AT, errors);
+  await host.keyboard.press('KeyN');
+  const modal = host.locator('#mp-panel');
+  await setName(host, 'Alice');
+  await modal.locator('.mp-host').click();
+  await expect(modal.locator('.mp-code')).toHaveText(/^[A-Z2-9]{6}$/);
+  const code = (await modal.locator('.mp-code').textContent())!;
+  const guest = await open(context, `${GUEST_AT}&join=${code}`, errors);
+  await guest.keyboard.press('KeyN');
+  await setName(guest, 'Bob');
+  await expect(guest.locator('#mp-panel .mp-status')).toHaveText('Connected');
+
+  // Alice takes the party to another resort (what picking one in the menu does).
+  await host.evaluate(() => {
+    const mp = (
+      window.__sim as unknown as {
+        multiplayer: { moveParty: (r: string, s: string | null) => void };
+      }
+    ).multiplayer;
+    mp.moveParty('arlberg', null);
+  });
+  // Bob's told, with a countdown, and follows on his own.
+  await expect(guest.locator('#notices')).toContainText('taking the party to arlberg');
+  await guest.waitForURL(/resort=arlberg.*join=/, { timeout: 30_000 });
+  expect(errors.filter((e) => !/WebSocket|relay/i.test(e))).toEqual([]);
 });

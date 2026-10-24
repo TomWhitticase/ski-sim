@@ -72,6 +72,46 @@ export function inviteLink(href: string, resort: string, code: string): string {
   return url.toString();
 }
 
+/**
+ * This page at another resort, joining `code` (and starting at `start`): for following
+ * the party, so it stays on this site (an invite goes to the public one).
+ */
+export function partyLink(href: string, resort: string, code: string, start?: string | null) {
+  const url = new URL(href);
+  url.search = `?resort=${encodeURIComponent(resort)}&join=${code}`;
+  if (start) url.searchParams.set('start', start);
+  for (const keep of ['net']) {
+    const v = new URL(href).searchParams.get(keep);
+    if (v) url.searchParams.set(keep, v);
+  }
+  url.hash = '';
+  return url.toString();
+}
+
+/** The party you're in, kept for this tab across reloads and resort changes. */
+export interface SavedParty {
+  code: string;
+  role: 'host' | 'guest';
+  /** When you started hosting it (epoch ms), so a returning host keeps the party. */
+  since?: number;
+}
+
+const PARTY_KEY = 'ski-sim.party';
+
+export function loadParty(storage: Pick<Storage, 'getItem'>): SavedParty | null {
+  try {
+    const p = JSON.parse(storage.getItem(PARTY_KEY) ?? 'null') as SavedParty | null;
+    return p && parseRoomCode(p.code) && (p.role === 'host' || p.role === 'guest') ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveParty(storage: Pick<Storage, 'setItem' | 'removeItem'>, p: SavedParty | null) {
+  if (p) storage.setItem(PARTY_KEY, JSON.stringify(p));
+  else storage.removeItem(PARTY_KEY);
+}
+
 /** The host's shared clocks: lift clock (s) and time of day (seconds, rate). */
 export type SharedClock = {
   lift: number;
