@@ -4,6 +4,8 @@ import {
   advanceShared,
   CODE_LENGTH,
   cleanName,
+  loadName,
+  nameProblem,
   inviteLink,
   PUBLIC_SITE,
   liftCorrection,
@@ -45,7 +47,7 @@ describe('room codes', () => {
 
   it('cleans names', () => {
     expect(cleanName('  Ana  ')).toBe('Ana');
-    expect(cleanName('')).toBe('Skier');
+    expect(cleanName('   ')).toBe('');
     expect(cleanName('a\u0007b')).toBe('ab');
     expect(cleanName('x'.repeat(50))).toHaveLength(20);
   });
@@ -68,5 +70,21 @@ describe('shared clocks', () => {
     let error = 1.5;
     for (let i = 0; i < 60 * 5; i++) error -= liftCorrection(error, 1 / 60);
     expect(Math.abs(error)).toBeLessThan(0.05);
+  });
+});
+
+describe('names', () => {
+  it('must be chosen: no blank names and not the default', () => {
+    expect(nameProblem('')).toMatch(/Enter your name/);
+    expect(nameProblem('   ')).toMatch(/Enter your name/);
+    expect(nameProblem('skier')).toMatch(/of your own/);
+    expect(nameProblem(' Ana ')).toBeNull();
+  });
+
+  it('a saved default or blank name loads as none, so the player is asked', () => {
+    const storage = (v: string | null) => ({ getItem: () => v });
+    expect(loadName(storage(null))).toBe('');
+    expect(loadName(storage('Skier'))).toBe('');
+    expect(loadName(storage(' Ana '))).toBe('Ana');
   });
 });

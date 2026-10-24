@@ -164,11 +164,14 @@ test('host and guest see each other skiing, on the host clock', async ({ context
   await expect
     .poll(() => sim(guest, (s) => Math.round(s.clock.seconds / 60)))
     .toBeGreaterThanOrEqual(22 * 60);
-  const liftGap = await Promise.all([
-    sim(host, (s) => s.lifts.time),
-    sim(guest, (s) => s.lifts.time),
-  ]);
-  expect(Math.abs(liftGap[0] - liftGap[1])).toBeLessThan(0.5);
+  // The guest's lift clock sits between two reads of the host's taken either side of it
+  // (reads of two pages are a moment apart, more on a busy machine). The guest eases
+  // onto the host's clock rather than jumping, so it can trail by a few tenths.
+  const hostBefore = await sim(host, (s) => s.lifts.time);
+  const guestLift = await sim(guest, (s) => s.lifts.time);
+  const hostAfter = await sim(host, (s) => s.lifts.time);
+  expect(guestLift).toBeGreaterThan(hostBefore - 0.75);
+  expect(guestLift).toBeLessThan(hostAfter + 0.75);
   await guest.keyboard.press('KeyT');
   await expect(guest.locator('#opt-time .time-locked')).toContainText('host sets the time');
   await expect(guest.locator('#opt-time input[name="time"]')).toBeDisabled();
@@ -195,6 +198,7 @@ test('a double-clicked Join joins once', async ({ context }) => {
   const host = await open(context, HOST_AT, errors);
   await host.keyboard.press('KeyN');
   const modal = host.locator('#mp-panel');
+  await setName(host, 'Alice');
   await modal.locator('.mp-host').click();
   await expect(modal.locator('.mp-code')).toHaveText(/^[A-Z2-9]{6}$/);
   const code = (await modal.locator('.mp-code').textContent())!;
@@ -214,5 +218,29 @@ test('a double-clicked Join joins once', async ({ context }) => {
   await guest.waitForTimeout(6500);
   expect(await sim(host, (s) => s.multiplayer.debug.players.length)).toBe(2);
   expect(await sim(guest, (s) => s.multiplayer.debug.connected)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('an invite link asks for your name before joining, and Host needs one too', async ({
+  context,
+}) => {
+  test.setTimeout(180_000);
+  const errors: string[] = [];
+  const page = await open(context, `${GUEST_AT}&join=ABCDEF`, errors);
+  const modal = page.locator('#mp-panel');
+  // No name yet: the Multiplayer screen is up with the code in, asking for one.
+  await expect(modal).toBeVisible();
+  await expect(modal.locator('.mp-code-input')).toHaveValue('ABCDEF');
+  await expect(modal.locator('.mp-status')).toHaveText('Enter your name to play together');
+  await expect(modal.locator('[name="player-name"]')).toHaveClass(/invalid/);
+  // The default name doesn't count, and Host is refused too.
+  await setName(page, 'Skier');
+  await modal.locator('.mp-host').click();
+  await expect(modal.locator('.mp-status')).toHaveText('Choose a name of your own');
+  expect(await sim(page, (s) => s.multiplayer.debug.role)).toBeNull();
+  // With a name, Join goes ahead.
+  await setName(page, 'Cara');
+  await modal.locator('.mp-join').click();
+  await expect(modal.locator('.mp-status')).toHaveText(/Looking for game ABCDEF/);
   expect(errors).toEqual([]);
 });

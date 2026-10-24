@@ -724,6 +724,9 @@ async function main(): Promise<void> {
         speedReset = true;
         persistPose();
       },
+      setJacket: (colour) => {
+        for (const model of [ski.model, glider.pilot, sled.rider]) model.setJacket(colour);
+      },
       roomChanged: () => {
         timeMenu.setLocked(
           multiplayer.isGuest ? 'In a multiplayer game the host sets the time of day.' : null,
@@ -1135,6 +1138,8 @@ async function main(): Promise<void> {
     // Straight from loading there's no click to capture the mouse with: the world shows,
     // with "Click to play" until the first click (or Enter). On a touchscreen, "Tap to
     // play" unless this came from a tap (Resume, a start point), so sound can start.
+    // An invite link and no name yet: ask for it first (the screen sits over the world).
+    if (multiplayer.askForName()) return;
     if (!input.locked) document.body.classList.add('entering');
     if (!input.touch || !auto) void input.lock();
   };

@@ -160,12 +160,14 @@ class RemoteAvatar {
 
   private addSkier(): SkierModel {
     const skier = new SkierModel();
+    skier.setJacket(playerColour(this.player));
     this.root.add(skier.root);
     return skier;
   }
 
   private addGlider(): GliderRig {
     const rig = createGliderRig();
+    rig.pilot.setJacket(playerColour(this.player));
     this.root.add(rig.root);
     return rig;
   }
@@ -173,6 +175,7 @@ class RemoteAvatar {
   private addSled(): { parts: SnowmobileParts; rider: SkierModel } {
     const parts = createSnowmobile();
     const rider = new SkierModel();
+    rider.setJacket(playerColour(this.player));
     rider.setStowed(true);
     parts.seat.add(rider.root);
     this.root.add(parts.root);

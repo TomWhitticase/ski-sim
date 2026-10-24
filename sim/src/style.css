@@ -1836,6 +1836,12 @@ dialog.stacked::backdrop {
   flex: none;
 }
 
+/* A name is required to host or join (net/room.ts nameProblem). */
+.mp-input.invalid {
+  outline: 2px solid #e03131;
+  outline-offset: 1px;
+}
+
 .mp-input {
   flex: 1;
   min-width: 0;

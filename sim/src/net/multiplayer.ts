@@ -6,6 +6,7 @@ import type { PlayerState } from './codec';
 import { playerColour, RemotePlayers } from './remote-players';
 import {
   cleanName,
+  nameProblem,
   inviteLink,
   liftCorrection,
   loadName,
@@ -35,6 +36,8 @@ export interface MultiplayerSim {
   goTo(position: Vector3): void;
   /** Joining or leaving changes whether you may run the shared clocks. */
   roomChanged(): void;
+  /** Your jacket colour in a game (your player colour), null out of one. */
+  setJacket(colour: string | null): void;
 }
 
 /**
@@ -87,9 +90,29 @@ export class Multiplayer {
     // sending and pinging anyway, or the host drops you after a few seconds.
     setInterval(() => this.session?.update(), 1000 / SEND_HZ);
     this.render();
-    // An invite link: join straight away (progress shows on the Multiplayer screen).
-    if (autoJoin) void this.start('guest', autoJoin);
-    else if (autoHost) void this.start('host', makeRoomCode());
+    // An invite link: join straight away (progress shows on the Multiplayer screen),
+    // once you've a name; without one, the screen asks for it with the code filled in.
+    const named = !nameProblem(this.name);
+    if (autoJoin && named) void this.start('guest', autoJoin);
+    else if (autoHost && named) void this.start('host', makeRoomCode());
+    else if (autoJoin || autoHost) this.waiting = { code: autoJoin };
+  }
+
+  /** An invite link or Host from the menu, held until you've entered a name. */
+  private waiting: { code: string | null } | null = null;
+
+  /**
+   * Entering the world with an invite waiting for a name: show the Multiplayer screen
+   * asking for it (the code filled in) instead. Returns whether it did.
+   */
+  askForName(): boolean {
+    const w = this.waiting;
+    if (!w) return false;
+    this.waiting = null;
+    if (document.pointerLockElement) document.exitPointerLock(); // menus need the mouse
+    if (w.code) this.menu.askName(w.code);
+    else this.menu.open();
+    return true;
   }
 
   /** In a game (hosting, or joined/joining one). */
@@ -175,6 +198,8 @@ export class Multiplayer {
       },
       {
         roster: () => {
+          const self = this.session?.self;
+          this.sim.setJacket(self === null || self === undefined ? null : playerColour(self));
           if (this.session?.connected) {
             this.setStatus(role === 'host' ? 'Share the code or the link' : 'Connected');
           }
@@ -188,7 +213,10 @@ export class Multiplayer {
         },
       },
     );
-    if (role === 'host') this.setStatus('Share the code or the link');
+    if (role === 'host') {
+      this.setStatus('Share the code or the link');
+      this.sim.setJacket(playerColour(0));
+    }
     this.sim.roomChanged();
   }
 
@@ -221,6 +249,7 @@ export class Multiplayer {
   private reset(status: string, error = false): void {
     this.session = null;
     this.remote.clear();
+    this.sim.setJacket(null);
     this.setStatus(status, error);
     this.sim.roomChanged();
   }

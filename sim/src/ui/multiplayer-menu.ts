@@ -1,4 +1,4 @@
-import { CODE_LENGTH, parseRoomCode } from '../net/room';
+import { CODE_LENGTH, nameProblem, parseRoomCode } from '../net/room';
 import type { ScreenControl } from './main-menu';
 
 export interface MultiplayerView {
@@ -50,7 +50,7 @@ export class MultiplayerMenu {
     body.innerHTML = `
       <section>
         <h3>Your name</h3>
-        <input class="mp-input" name="player-name" maxlength="20" autocomplete="nickname" />
+        <input class="mp-input" name="player-name" maxlength="20" autocomplete="nickname" placeholder="Enter your name" required />
       </section>
       <section class="mp-lobby">
         <h3>Play with friends</h3>
@@ -83,6 +83,9 @@ export class MultiplayerMenu {
     this.nameInput = $('[name="player-name"]');
     this.nameInput.value = name;
     this.nameInput.addEventListener('change', () => this.actions.rename(this.nameInput.value));
+    this.nameInput.addEventListener('input', () => {
+      if (!nameProblem(this.nameInput.value)) this.nameInput.classList.remove('invalid');
+    });
     this.codeInput = $('.mp-code-input');
     this.lobby = $('.mp-lobby');
     this.room = $('.mp-room');
@@ -92,8 +95,11 @@ export class MultiplayerMenu {
     this.statusEl = $('.mp-status');
     this.hostButton = $('.mp-host');
     this.joinButton = $('.mp-join');
-    this.hostButton.addEventListener('click', () => this.actions.host());
+    this.hostButton.addEventListener('click', () => {
+      if (this.named()) this.actions.host();
+    });
     const join = () => {
+      if (!this.named()) return;
       const code = parseRoomCode(this.codeInput.value);
       if (code) this.actions.join(code);
       else
@@ -140,6 +146,29 @@ export class MultiplayerMenu {
 
   get name(): string {
     return this.nameInput.value;
+  }
+
+  /**
+   * Before hosting or joining: everyone plays under a name they chose. If there isn't
+   * one, say so at the name field and don't go on; else save it.
+   */
+  private named(): boolean {
+    const problem = nameProblem(this.nameInput.value);
+    this.nameInput.classList.toggle('invalid', !!problem);
+    if (problem) {
+      this.render({ ...EMPTY, status: problem, error: true });
+      this.nameInput.focus();
+      return false;
+    }
+    this.actions.rename(this.nameInput.value);
+    return true;
+  }
+
+  /** An invite link, waiting for you to enter a name: the code's filled in for Join. */
+  askName(code: string): void {
+    this.codeInput.value = code;
+    this.open();
+    this.named();
   }
 
   render(view: MultiplayerView): void {

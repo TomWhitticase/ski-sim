@@ -25,14 +25,27 @@ export function roomId(code: string): string {
   return `ski-sim/room/${code}`;
 }
 
+/** What an unnamed player is called on others' screens; nobody may choose it. */
+export const DEFAULT_NAME = 'Skier';
+
+/** Printable, trimmed, at most MAX_NAME characters ('' if nothing's left). */
 export function cleanName(name: string): string {
   const printable = [...name].filter((c) => c >= ' ').join('');
-  const clean = printable.trim().slice(0, MAX_NAME);
-  return clean || 'Skier';
+  return printable.trim().slice(0, MAX_NAME);
 }
 
+/** Why a name can't be used to play (null: it can). Everyone must pick their own. */
+export function nameProblem(name: string): string | null {
+  const clean = cleanName(name);
+  if (!clean) return 'Enter your name to play together';
+  if (clean.toLowerCase() === DEFAULT_NAME.toLowerCase()) return 'Choose a name of your own';
+  return null;
+}
+
+/** Your saved name ('' if you haven't chosen one, or it was the old default). */
 export function loadName(storage: Pick<Storage, 'getItem'>): string {
-  return cleanName(storage.getItem(NAME_KEY) ?? '');
+  const name = cleanName(storage.getItem(NAME_KEY) ?? '');
+  return nameProblem(name) ? '' : name;
 }
 
 /** The public site, for invites from a page friends can't open (a local dev server). */

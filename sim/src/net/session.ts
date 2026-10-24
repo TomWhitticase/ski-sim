@@ -7,8 +7,11 @@ import {
   type PlayerState,
 } from './codec';
 import { Interpolator } from './interpolation';
-import { advanceShared, MAX_PLAYERS, type SharedClock } from './room';
+import { advanceShared, cleanName, DEFAULT_NAME, MAX_PLAYERS, type SharedClock } from './room';
 import type { Transport } from './transport';
+
+/** A guest's name as everyone sees it: cleaned, and never blank (old or odd clients). */
+const shownName = (name: string) => cleanName(name) || DEFAULT_NAME;
 
 export type Role = 'host' | 'guest';
 
@@ -226,10 +229,10 @@ export class NetSession {
         const player = freeNumber(this.players);
         if (player === null)
           return this.transport.sendControl({ t: 'reject', reason: 'full' }, peer);
-        guest = { player, name: m.name, peer, interp: new Interpolator() };
+        guest = { player, name: shownName(m.name), peer, interp: new Interpolator() };
         this.players.set(player, guest);
       }
-      guest.name = m.name;
+      guest.name = shownName(m.name);
       guest.interp.heard(now);
       this.transport.sendControl({ t: 'welcome', player: guest.player }, peer);
       this.transport.sendControl({ t: 'sync', clock: this.world.clock() }, peer);

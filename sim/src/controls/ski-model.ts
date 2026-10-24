@@ -261,7 +261,8 @@ export class SkierModel {
     poleGrip: MeshStandardNodeMaterial,
     glove: MeshStandardNodeMaterial,
   ): void {
-    const jacket = mat(0x0b7285, 0.65); // deep teal shell
+    const jacket = mat(JACKET, 0.65); // deep teal shell, or a player's colour
+    this.jacket = jacket;
     const jacketDark = mat(0x16191d, 0.7);
     const accent = mat(0xff7a1a, 0.5);
     const pants = mat(0x25282c, 0.85);
@@ -455,6 +456,13 @@ export class SkierModel {
     for (const limb of this.limbs) {
       for (const m of [limb.upperArm, limb.forearm, limb.elbow, limb.cuff]) m.visible = upper;
     }
+  }
+
+  private jacket!: MeshStandardNodeMaterial;
+
+  /** Jacket colour (CSS colour; null = the default teal). Multiplayer: the player's colour. */
+  setJacket(colour: string | null): void {
+    this.jacket.color.set(colour ?? JACKET);
   }
 
   /** Hand and pole-tip heights above the snow (skier frame) after the last `apply`. */
@@ -674,6 +682,8 @@ function poleGripGeometry(): BufferGeometry {
 
 /** Boot sole above the base of the ski. */
 const BOOT_SOLE = UNDERFOOT + 0.026;
+/** The default jacket: deep teal. */
+const JACKET = 0x0b7285;
 const ANKLE_HEIGHT = 0.2; // ankle joint above the base of the ski, inside the boot
 /** Lowest a gloved hand goes above the snow, and a pole tip (m); pole grip to tip. */
 const HAND_CLEARANCE = 0.42;
