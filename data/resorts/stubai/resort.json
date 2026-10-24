@@ -1,0 +1,11 @@
+{
+  "id": "stubai",
+  "name": "Stubaital: Stubai Glacier, Schlick 2000, Elfer, Serles",
+  "country": "AT",
+  "bounds": {
+    "south": 46.965,
+    "west": 11.07,
+    "north": 47.175,
+    "east": 11.4
+  }
+}

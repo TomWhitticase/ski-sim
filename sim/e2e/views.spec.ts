@@ -190,7 +190,6 @@ const VIEWS = [
   { name: 'laax-flims', query: 'resort=laax&at=46.8298,9.2962,1599&heading=290&pitch=-8' },
   { name: 'davos', query: 'resort=davos-klosters&at=46.7978,9.8089,2039&heading=124&pitch=-8' },
   { name: 'saas-fee', query: 'resort=saas-fee&at=46.1166,7.9326,2282&heading=196&pitch=-8' },
-  { name: 'engelberg', query: 'resort=engelberg-titlis&at=46.8117,8.4152,1558&heading=5&pitch=-8' },
   { name: 'cortina', query: 'resort=cortina&at=46.5407,12.1253,1727&heading=104&pitch=-8' },
   { name: 'courmayeur', query: 'resort=courmayeur&at=45.7812,6.9852,1708&heading=292&pitch=-8' },
   {
@@ -204,6 +203,20 @@ const VIEWS = [
   },
   { name: 'kronplatz', query: 'resort=kronplatz&at=46.7025,11.9427,1702&heading=244&pitch=-8' },
   { name: 'via-lattea', query: 'resort=via-lattea&at=44.9449,6.8831,2485&heading=325&pitch=-8' },
+  {
+    name: 'zillertal-mayrhofen',
+    query: 'resort=zillertal-3000&at=47.1581,11.8747,1151&heading=299&pitch=-8',
+  },
+  {
+    name: 'zillertal-hintertux',
+    query: 'resort=zillertal-3000&at=47.1000,11.6900,2300&heading=230&pitch=-8',
+  },
+  { name: 'stubai-glacier', query: 'resort=stubai&at=47.0000,11.1500,2900&heading=240&pitch=-8' },
+  {
+    name: 'engelberg-titlis',
+    query: 'resort=engelberg-titlis&at=46.8268,8.4026,1504&heading=176&pitch=-8',
+  },
+  { name: 'bansko', query: 'resort=bansko&at=41.8150,23.4700,1900&heading=200&pitch=-8' },
   // Lift stations up close: a detachable chair's hood, a fixed-grip bullwheel, a gondola hall.
   {
     name: 'station-chair-detachable',

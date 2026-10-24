@@ -1,0 +1,18 @@
+{
+  "id": "bansko",
+  "name": "Bansko",
+  "country": "BG",
+  "bounds": {
+    "south": 41.744,
+    "west": 23.3959,
+    "north": 41.8405,
+    "east": 23.4957
+  },
+  "places": [
+    {
+      "name": "Bansko",
+      "lat": 41.8272,
+      "lon": 23.4771
+    }
+  ]
+}

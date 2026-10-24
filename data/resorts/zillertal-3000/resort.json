@@ -1,0 +1,18 @@
+{
+  "id": "zillertal-3000",
+  "name": "Zillertal 3000: Mayrhofen and Hintertux",
+  "country": "AT",
+  "bounds": {
+    "south": 47.05,
+    "west": 11.64,
+    "north": 47.225,
+    "east": 11.9
+  },
+  "places": [
+    {
+      "name": "Hintertux",
+      "lat": 47.1068,
+      "lon": 11.675
+    }
+  ]
+}
