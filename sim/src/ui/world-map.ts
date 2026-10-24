@@ -1,7 +1,14 @@
 import type { Border, Lift, Peak, Restaurant } from '../features/types';
 import type { Place } from '../nav/places';
 import { RESTAURANT_COLOUR, drawBorders, drawRestaurantIcon } from './map-icons';
-import { FREERIDE, type PisteRecord, pisteColour, pisteTitle } from '../pistes/pistes';
+import {
+  DIFFICULTY,
+  FREERIDE,
+  type PisteRecord,
+  pisteColour,
+  pisteTitle,
+  RUN_TYPES,
+} from '../pistes/pistes';
 import type { Pose } from '../nav/pose';
 import type { Extent } from '../resort/manifest';
 import { classifyPress, pinchScale, PRESS } from '../controls/touch-input';
@@ -20,13 +27,40 @@ export interface WorldMapData {
   peaks: Peak[];
   pistes: PisteRecord[];
   restaurants: Restaurant[];
-  /** Footprints, drawn as shapes when zoomed in past the image (optional for tests). */
+  /** Footprints, drawn as shapes over the bare relief (optional for tests). */
   buildings?: { footprint: [number, number][]; raised?: boolean }[];
+  /** Towns, villages and hamlets to label (pipeline `map_places`; older builds: the
+   *  resort's start villages). */
+  mapPlaces?: MapPlace[];
   borders: Border[];
   places: Place[];
   groundHeight: (east: number, north: number) => number;
   toLatLon: (east: number, north: number) => { lat: number; lon: number };
 }
+
+/** A named settlement for a map label. */
+export interface MapPlace {
+  name: string;
+  kind: 'town' | 'village' | 'suburb' | 'hamlet' | 'neighbourhood';
+  east: number;
+  north: number;
+}
+
+/** Place labels: from how far out (metres per pixel) each kind shows, and its type. */
+const PLACE_STYLE: Record<MapPlace['kind'], { mpp: number; font: string }> = {
+  town: { mpp: 41, font: '700 15px system-ui, sans-serif' },
+  village: { mpp: 41, font: '700 13px system-ui, sans-serif' },
+  suburb: { mpp: 14, font: '600 12px system-ui, sans-serif' },
+  hamlet: { mpp: 7, font: '600 11px system-ui, sans-serif' },
+  neighbourhood: { mpp: 3, font: '600 11px system-ui, sans-serif' },
+};
+/** Lift names show from this zoom in (the whole resort's would bury the village names). */
+const LIFT_NAMES_MPP = 22;
+/** Restaurants are only marked once zoomed in this far (beyond it they bury the lifts). */
+const RESTAURANT_ICONS_MPP = 12;
+/** Direction arrows on runs and lifts from this zoom in, about this far apart on screen. */
+const ARROWS_MPP = 9;
+const ARROW_SPACING = 170;
 
 const LIFT_COLOURS: Record<string, string> = {
   cable_car: '#c92a2a',
@@ -109,11 +143,13 @@ export class WorldMap {
     root.querySelector('.map-title')!.textContent = data.resortName;
 
     this.buildList();
+    this.buildKey(root.querySelector('.map-key-list'));
     this.search.addEventListener('input', () => this.filterList());
     root.querySelector('.map-close')!.addEventListener('click', () => this.onClose());
     for (const box of root.querySelectorAll<HTMLInputElement>('[data-show]')) {
       box.addEventListener('change', () => {
         this.show[box.dataset.show as keyof typeof this.show] = box.checked;
+        this.filterList();
         this.requestDraw();
       });
     }
@@ -216,14 +252,13 @@ export class WorldMap {
     const e = data.imageExtent;
     const [x0, y0] = this.toScreen(e.west, e.north);
     const [x1, y1] = this.toScreen(e.east, e.south);
-    // Smoothed at every zoom: unsmoothed, each 8 m map pixel was drawn as a hard square.
-    // Zoomed in past the image's own resolution, the bare relief goes underneath instead
-    // and runs and buildings are drawn as shapes, so their edges stay sharp.
+    // The bare relief, with runs, lifts and buildings drawn as shapes on it: sharp at any
+    // zoom, and the Lifts / Pistes switches really take them off. Older builds have only
+    // the full image (everything baked in); then shapes go on top when zoomed past it.
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     const cell = (e.east - e.west) / data.image.width;
-    const close = this.mpp < cell;
-    if (close && data.baseUrl && this.base === undefined) {
+    if (data.baseUrl && this.base === undefined) {
       this.base = new Image();
       this.base.src = data.baseUrl;
       this.base.decode().then(
@@ -231,10 +266,12 @@ export class WorldMap {
         () => (this.base = null),
       );
     }
-    const bare = close && this.base?.complete && this.base.naturalWidth > 0;
+    const bare = !!(this.base?.complete && this.base.naturalWidth > 0);
     ctx.drawImage(bare ? this.base! : data.image, x0, y0, x1 - x0, y1 - y0);
-    if (close) this.drawBuildings();
-    if (close && this.show.piste) this.drawPisteLines(cell, !!bare);
+    const shapes = bare || this.mpp < cell;
+    if (shapes) this.drawBuildings();
+    if (shapes && this.show.piste) this.drawPisteLines(cell, bare);
+    if (bare && this.show.piste && this.mpp < ARROWS_MPP) this.drawRunArrows(cell);
 
     // Treat the side panel as occupied so names aren't drawn underneath it.
     const panel = this.root.querySelector('.map-panel')!.getBoundingClientRect();
@@ -259,10 +296,11 @@ export class WorldMap {
     this.drawBorderNames(tryPlace);
     this.drawPlayer();
     this.drawMarker();
+    this.drawPlaceNames(tryPlace);
     if (this.show.lift) this.drawLifts(tryPlace);
     if (this.show.piste && this.mpp < 6) this.drawPisteNames(tryPlace);
     if (this.show.peak) this.drawPeaks(tryPlace);
-    if (this.show.restaurant) this.drawRestaurants(tryPlace);
+    if (this.show.restaurant && this.mpp < RESTAURANT_ICONS_MPP) this.drawRestaurants(tryPlace);
     this.drawOthers();
     if (this.hoverPlace) this.drawHighlight(this.hoverPlace.pose);
     this.updateScaleBar();
@@ -290,21 +328,139 @@ export class WorldMap {
         ctx.lineWidth = 1.5;
         ctx.stroke();
       }
+      // Which way it goes: up from the bottom station (two-way cabins too).
+      if (this.mpp < ARROWS_MPP * 2) {
+        const first = lift.supports[0]!;
+        const last = lift.supports[lift.supports.length - 1]!;
+        const up = last.ground >= first.ground ? pts : [...pts].reverse();
+        this.arrows(up, colour, 4, ARROW_SPACING * 1.4);
+      }
     }
-    // Names after all lines so they sit on top.
+    // Names after all lines so they sit on top; the longest lifts claim space first.
     ctx.font = '600 12px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    for (const lift of this.data.lifts) {
+    const byLength =
+      this.mpp < LIFT_NAMES_MPP ? [...this.data.lifts].sort((a, b) => b.length - a.length) : [];
+    for (const lift of byLength) {
       if (!lift.name) continue;
       const mid = lift.supports[Math.floor(lift.supports.length / 2)]!;
       const [x, y] = this.toScreen(mid.east, mid.north);
+      if (
+        x < -100 ||
+        y < -20 ||
+        x > this.canvas.clientWidth + 100 ||
+        y > this.canvas.clientHeight + 20
+      )
+        continue;
       const width = ctx.measureText(lift.name).width + 12;
       if (!tryPlace(x, y - 9, width, 18)) continue;
       ctx.fillStyle = LIFT_COLOURS[lift.type] ?? DRAG_COLOUR;
       this.pill(x - width / 2, y - 9, width, 18);
       ctx.fillStyle = '#fff';
       ctx.fillText(lift.name, x, y);
+    }
+  }
+
+  /**
+   * Small chevrons along a polyline (screen px) pointing from its first point to its last,
+   * about `spacing` apart and none on a line shorter than that: a white mark with a
+   * coloured edge, like a printed piste map's.
+   */
+  private arrows(pts: [number, number][], colour: string, size: number, spacing: number): void {
+    const { ctx } = this;
+    let total = 0;
+    for (let i = 1; i < pts.length; i++) {
+      total += Math.hypot(pts[i]![0] - pts[i - 1]![0], pts[i]![1] - pts[i - 1]![1]);
+    }
+    if (total < spacing * 0.6) return;
+    const count = Math.max(1, Math.floor(total / spacing));
+    const w = this.canvas.clientWidth;
+    const h = this.canvas.clientHeight;
+    let k = 0;
+    let along = 0;
+    for (let i = 1; i < pts.length && k < count; i++) {
+      const [ax, ay] = pts[i - 1]!;
+      const [bx, by] = pts[i]!;
+      const seg = Math.hypot(bx - ax, by - ay);
+      while (k < count && (total * (k + 0.5)) / count <= along + seg) {
+        const t = ((total * (k + 0.5)) / count - along) / (seg || 1);
+        const x = ax + (bx - ax) * t;
+        const y = ay + (by - ay) * t;
+        k++;
+        if (x < -10 || y < -10 || x > w + 10 || y > h + 10) continue;
+        const a = Math.atan2(by - ay, bx - ax);
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(a);
+        ctx.beginPath();
+        ctx.moveTo(-size * 0.7, -size);
+        ctx.lineTo(size * 0.8, 0);
+        ctx.lineTo(-size * 0.7, size);
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = colour;
+        ctx.lineWidth = 3.4;
+        ctx.stroke();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+        ctx.restore();
+      }
+      along += seg;
+    }
+  }
+
+  /** Chevrons down each run (from its higher end to its lower). */
+  private drawRunArrows(cell: number): void {
+    // As big as the run's line is wide (it widens with the zoom), at least a clear mark.
+    const size = Math.max(3.5, Math.min(9, ((3 * cell) / this.mpp) * 0.45));
+    for (const piste of this.data.pistes) {
+      for (const line of piste.lines) {
+        if (line.length < 2) continue;
+        const a = line[0]!;
+        const b = line[line.length - 1]!;
+        const down =
+          this.data.groundHeight(a[0], a[1]) >= this.data.groundHeight(b[0], b[1])
+            ? line
+            : [...line].reverse();
+        this.arrows(
+          down.map(([e, n]) => this.toScreen(e, n)),
+          pisteColour(piste),
+          size,
+          ARROW_SPACING,
+        );
+      }
+    }
+  }
+
+  /** Town, village and hamlet names, as on a printed map: dark text with a white halo. */
+  private drawPlaceNames(
+    tryPlace: (cx: number, top: number, w: number, h: number) => boolean,
+  ): void {
+    const { ctx } = this;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const place of this.data.mapPlaces ?? []) {
+      const style = PLACE_STYLE[place.kind];
+      if (!style || this.mpp > style.mpp) continue;
+      const [x, y] = this.toScreen(place.east, place.north);
+      if (
+        x < -100 ||
+        y < -20 ||
+        x > this.canvas.clientWidth + 100 ||
+        y > this.canvas.clientHeight + 20
+      )
+        continue;
+      ctx.font = style.font;
+      const width = ctx.measureText(place.name).width + 6;
+      if (!tryPlace(x, y - 9, width, 18)) continue;
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+      ctx.strokeText(place.name, x, y);
+      ctx.fillStyle = '#2b2f36';
+      ctx.fillText(place.name, x, y);
     }
   }
 
@@ -359,9 +515,11 @@ export class WorldMap {
         piste.difficulty === FREERIDE || piste.type === 'skitour' || piste.type === 'hike';
       const thin = route || piste.type === 'nordic' || piste.type === 'connection';
       ctx.strokeStyle = pisteColour(piste);
-      ctx.globalAlpha = 0.92;
-      ctx.lineWidth = (thin ? 2 : 3) * scale + (withAreas ? 0 : 1);
-      ctx.setLineDash(route ? [7 * scale, 5 * scale] : []);
+      // Solid: translucent, each segment's round end would show darker where they meet.
+      ctx.globalAlpha = 1;
+      // Their ground width when zoomed in; never thinner than a clear line zoomed out.
+      ctx.lineWidth = Math.max(thin ? 1.6 : 2.4, (thin ? 2 : 3) * scale + (withAreas ? 0 : 1));
+      ctx.setLineDash(route ? [Math.max(6, 7 * scale), Math.max(4, 5 * scale)] : []);
       for (const line of piste.lines) this.polyline(line.map(([e, n]) => this.toScreen(e, n)));
     }
     ctx.setLineDash([]);
@@ -407,7 +565,9 @@ export class WorldMap {
         y > this.canvas.clientHeight + 50
       )
         continue;
-      drawRestaurantIcon(ctx, x, y, named ? 9 : 7);
+      const r0 = named ? 9 : 7;
+      if (!tryPlace(x, y - r0, 2 * r0, 2 * r0)) continue; // icons don't pile up on others
+      drawRestaurantIcon(ctx, x, y, r0);
       if (!named) continue;
       const width = ctx.measureText(r.name).width + 10;
       if (!tryPlace(x, y - 28, width, 16)) continue;
@@ -599,6 +759,72 @@ export class WorldMap {
     this.scaleBar.textContent = metres >= 1000 ? `${metres / 1000} km` : `${metres} m`;
   }
 
+  // --- key ---
+
+  /**
+   * What the colours and marks mean: only what this resort has (a run type it has no
+   * runs of isn't listed), in the order a printed piste map's key goes.
+   */
+  private buildKey(list: HTMLUListElement | null): void {
+    if (!list) return;
+    const has = (test: (p: PisteRecord) => boolean) => this.data.pistes.some(test);
+    const route = (p: PisteRecord) =>
+      p.difficulty === FREERIDE || p.type === 'skitour' || p.type === 'hike';
+    const rows: [string, string, string][] = []; // [swatch class, colour, label]
+    for (const code of [1, 2, 3, 4] as const) {
+      if (
+        has(
+          (p) =>
+            (p.type ?? 'downhill') === 'downhill' &&
+            (p.difficulty === code || (code === 4 && p.difficulty === 5)),
+        )
+      )
+        rows.push(['line', DIFFICULTY[code].colour, `${DIFFICULTY[code].name} piste`]);
+    }
+    if (has((p) => p.difficulty === FREERIDE))
+      rows.push(['dash', DIFFICULTY[FREERIDE].colour, 'Off-piste itinerary']);
+    for (const type of [
+      'skitour',
+      'hike',
+      'nordic',
+      'snow_park',
+      'sled',
+      'playground',
+      'connection',
+    ] as const) {
+      if (has((p) => p.type === type && !(type !== 'skitour' && type !== 'hike' && route(p))))
+        rows.push([
+          type === 'skitour' || type === 'hike' ? 'dash' : type === 'snow_park' ? 'area' : 'line',
+          RUN_TYPES[type].colour!,
+          RUN_TYPES[type].name,
+        ]);
+    }
+    const lifts = new Set(this.data.lifts.map((l) => (l.type in LIFT_COLOURS ? l.type : 'drag')));
+    const liftNames: Record<string, string> = {
+      cable_car: 'Cable car',
+      gondola: 'Gondola',
+      mixed_lift: 'Gondola and chairs',
+      chair_lift: 'Chairlift',
+      drag: 'Drag lift',
+    };
+    for (const type of ['cable_car', 'gondola', 'mixed_lift', 'chair_lift', 'drag']) {
+      if (lifts.has(type)) rows.push(['lift', LIFT_COLOURS[type] ?? DRAG_COLOUR, liftNames[type]!]);
+    }
+    rows.push(['arrow', '#2b2f36', 'Direction of travel']);
+    if (this.data.restaurants.length) rows.push(['restaurant', RESTAURANT_COLOUR, 'Restaurant']);
+    if (this.data.peaks.length) rows.push(['peak', '#1e1e24', 'Summit']);
+    if (this.data.borders.length) rows.push(['border', BORDER_TEXT, 'National border']);
+    for (const [swatch, colour, label] of rows) {
+      const li = document.createElement('li');
+      li.innerHTML = '<span class="map-key-swatch"></span><span></span>';
+      const sw = li.firstElementChild as HTMLElement;
+      sw.classList.add(`map-key-${swatch}`);
+      sw.style.setProperty('--swatch', colour);
+      li.lastElementChild!.textContent = label;
+      list.appendChild(li);
+    }
+  }
+
   // --- place list ---
 
   private buildList(): void {
@@ -606,6 +832,7 @@ export class WorldMap {
     for (const place of this.data.places) {
       const li = document.createElement('li');
       li.className = `map-place map-place-${place.kind}`;
+      li.dataset.kind = place.kind;
       li.dataset.search = fold(`${place.name} ${place.detail}`);
       li.innerHTML =
         '<span class="map-place-icon"></span><span class="map-place-name"></span><span class="map-place-detail"></span>';
@@ -630,7 +857,10 @@ export class WorldMap {
   private filterList(): void {
     const q = fold(this.search.value.trim());
     for (const li of this.list.children as HTMLCollectionOf<HTMLElement>) {
-      li.hidden = q !== '' && !li.dataset.search!.includes(q);
+      // Switching a kind off takes it off the list as well as the map (starts always stay).
+      const kind = li.dataset.kind as keyof typeof this.show;
+      const shown = !(kind in this.show) || this.show[kind];
+      li.hidden = !shown || (q !== '' && !li.dataset.search!.includes(q));
     }
   }
 

@@ -131,6 +131,14 @@ export interface ResortFeatures {
   restaurants?: Restaurant[];
   /** National borders on the map (from pipeline/borders.py); missing in older builds. */
   borders?: Border[];
+  /** Named towns, villages and hamlets for map labels (pipeline `map_places`); missing in
+   *  older builds. */
+  places?: {
+    name: string;
+    kind: 'town' | 'village' | 'suburb' | 'hamlet' | 'neighbourhood';
+    east: number;
+    north: number;
+  }[];
 }
 
 /** A national border line across the map (local metres) and the country either side. */

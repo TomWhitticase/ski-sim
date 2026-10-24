@@ -413,6 +413,31 @@ def utc_offset_hours(timezone: str) -> float:
     return offset.total_seconds() / 3600
 
 
+#: How prominent each kind of place is on the map (bigger first).
+PLACE_RANK = {"town": 0, "village": 1, "suburb": 2, "hamlet": 3, "neighbourhood": 4}
+
+
+def map_places(places: list[dict], frame: LocalFrame, extent) -> list[dict]:
+    """Named towns, villages, hamlets and neighbourhoods on the near terrain, for labels on
+    the world map (resort villages like "Méribel-Mottaret" or "Courchevel 1850" are mostly
+    places too). Biggest first, then by name; duplicates (same name within 300 m) once."""
+    out: list[dict] = []
+    for p in places:
+        tags = p.get("tags", {})
+        name = features.display_name(tags)
+        kind = tags.get("place")
+        if not name or kind not in PLACE_RANK or p.get("type") != "node":
+            continue
+        e, n = frame.to_local(p["lon"], p["lat"])
+        if not (extent.west <= e <= extent.east and extent.south <= n <= extent.north):
+            continue
+        if any(q["name"] == name and math.hypot(q["east"] - e, q["north"] - n) < 300 for q in out):
+            continue
+        out.append({"name": name, "kind": kind, "east": round(e, 1), "north": round(n, 1)})
+    out.sort(key=lambda q: (PLACE_RANK[q["kind"]], q["name"]))
+    return out
+
+
 def write_resort_index(out_root: Path) -> Path:
     """`resorts.json`: every built resort, for the sim's ski-area menu."""
     resorts = []
@@ -517,6 +542,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         {"type": "node", "lat": p.lat, "lon": p.lon, "tags": {"name": n, "place": "village"}}
         for p, n in zip(cfg.places, cfg.place_names, strict=True)
     ]
+    feature_data["places"] = map_places(places, frame, near_grid.extent)
     start_bases = base_finder.find_bases(
         places,
         feature_data["lifts"],

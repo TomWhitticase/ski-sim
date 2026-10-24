@@ -1951,6 +1951,145 @@ dialog.stacked::backdrop {
   pointer-events: none;
 }
 
+/* The map's key (ui/world-map.ts buildKey): bottom left, above the scale bar. */
+.map-key {
+  position: absolute;
+  left: 20px;
+  bottom: 48px;
+  max-width: 400px;
+  max-height: calc(100% - 120px);
+  overflow: auto;
+  padding: 7px 10px;
+  font: 500 11px var(--font-ui);
+  color: var(--fg);
+  zoom: var(--ui-scale);
+}
+
+.map-key summary {
+  cursor: pointer;
+  font-weight: 700;
+  list-style: none;
+}
+
+.map-key summary::after {
+  content: ' ▾';
+  color: var(--muted);
+}
+
+.map-key:not([open]) summary::after {
+  content: ' ▸';
+}
+
+.map-key-list {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 4px 14px;
+  margin: 8px 0 2px;
+  padding: 0;
+  list-style: none;
+}
+
+.map-key-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.map-key-swatch {
+  flex: none;
+  width: 18px;
+  height: 12px;
+  position: relative;
+}
+
+.map-key-line::before,
+.map-key-lift::before,
+.map-key-dash::before,
+.map-key-border::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 4px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--swatch);
+}
+
+.map-key-lift::before {
+  height: 3px;
+  top: 4.5px;
+  box-shadow: 0 0 0 1.5px #fff;
+}
+
+.map-key-lift::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: 0 0 0 1.5px #fff;
+  right: -2px;
+}
+
+.map-key-dash::before {
+  background: repeating-linear-gradient(90deg, var(--swatch) 0 6px, transparent 6px 10px);
+}
+
+.map-key-border::before {
+  height: 2px;
+  top: 5px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--swatch) 0 7px,
+    transparent 7px 9px,
+    var(--swatch) 9px 11px,
+    transparent 11px 13px
+  );
+}
+
+.map-key-area::before {
+  content: '';
+  position: absolute;
+  inset: 0 2px;
+  border-radius: 3px;
+  background: var(--swatch);
+  opacity: 0.6;
+}
+
+.map-key-arrow::before {
+  content: '›';
+  position: absolute;
+  inset: -6px 0 0;
+  text-align: center;
+  font: 800 18px/1 var(--font-ui);
+  color: var(--swatch);
+}
+
+.map-key-restaurant::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: -1px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: 0 0 0 1.5px #fff;
+}
+
+.map-key-peak::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 11px solid var(--swatch);
+}
+
 .map-scale {
   position: absolute;
   left: 20px;

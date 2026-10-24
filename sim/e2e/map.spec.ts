@@ -146,6 +146,23 @@ test('M and Esc still close the map after clicking a filter checkbox', async ({ 
   }
 });
 
+test('the map has a key, and switching a kind off takes it off the list too', async ({ page }) => {
+  await load(page);
+  await page.keyboard.press('KeyM');
+  const map = page.locator('#world-map');
+  // The key lists what this resort has.
+  await expect(map.locator('.map-key-list li', { hasText: 'Red piste' })).toBeVisible();
+  await expect(map.locator('.map-key-list li', { hasText: 'Chairlift' })).toBeVisible();
+  const lifts = map.locator('.map-place[data-kind="lift"]');
+  await expect(lifts.first()).toBeVisible();
+  await map.locator('label', { has: page.locator('[data-show="lift"]') }).click();
+  await expect(lifts.first()).toBeHidden();
+  await expect(map.locator('.map-place[data-kind="peak"]').first()).toBeVisible();
+  await map.locator('label', { has: page.locator('[data-show="lift"]') }).click();
+  await expect(lifts.first()).toBeVisible();
+  await page.screenshot({ path: 'test-results/views/world-map.png' });
+});
+
 test('Esc closes the map while typing in its search box (M still types)', async ({ page }) => {
   await load(page);
   await page.keyboard.press('KeyM');

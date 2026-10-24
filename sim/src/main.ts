@@ -803,6 +803,14 @@ async function main(): Promise<void> {
       pistes: pisteData.pistes,
       restaurants,
       buildings: features.buildings,
+      mapPlaces:
+        features.places ??
+        (manifest.bases ?? []).map((b) => ({
+          name: b.name,
+          kind: 'village' as const,
+          east: b.east,
+          north: b.north,
+        })),
       borders: features.borders ?? [],
       groundHeight: (east, north) => groundHeight(east, -north),
       toLatLon: (east, north) => frame.toLatLon(east, north),
