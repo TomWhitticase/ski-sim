@@ -314,3 +314,102 @@ test('a host moving resort takes the party along', async ({ context }) => {
   await guest.waitForURL(/resort=arlberg.*join=/, { timeout: 30_000 });
   expect(errors.filter((e) => !/WebSocket|relay/i.test(e))).toEqual([]);
 });
+
+test('friends on one chair sit side by side, and stay in their seats', async ({ context }) => {
+  test.setTimeout(240_000);
+  const errors: string[] = [];
+  // Both beside the Cascades chairlift's bottom station.
+  const CASCADES = 'at=45.295119,6.577488,2256&heading=108&pitch=-5';
+  const host = await open(context, CASCADES, errors);
+  await host.keyboard.press('KeyN');
+  const modal = host.locator('#mp-panel');
+  await setName(host, 'Alice');
+  await modal.locator('.mp-host').click();
+  await expect(modal.locator('.mp-code')).toHaveText(/^[A-Z2-9]{6}$/);
+  const code = (await modal.locator('.mp-code').textContent())!;
+  const guest = await open(context, `${CASCADES}&join=${code}`, errors);
+  await guest.keyboard.press('KeyN');
+  await setName(guest, 'Bob');
+  await expect(guest.locator('#mp-panel .mp-status')).toHaveText('Connected');
+  for (const page of [guest, host]) {
+    await page.locator('#menu-back').click();
+    await page.locator('#resume').click();
+  }
+  // Let the guest's lift clock settle onto the host's, so both catch the same chair.
+  await guest.waitForTimeout(3000);
+  for (const page of [host, guest]) {
+    await expect(page.locator('#prompt')).toContainText('ride Cascades');
+  }
+  await Promise.all([host.keyboard.press('KeyE'), guest.keyboard.press('KeyE')]);
+
+  type Ride = { phase: string; line: number; carrier: number; seat: number };
+  const ride = (page: Page) =>
+    page.evaluate(() => {
+      const r = (window.__sim as unknown as { ride: Ride }).ride;
+      return { phase: r.phase, line: r.line, carrier: r.carrier, seat: r.seat };
+    });
+  await expect.poll(async () => (await ride(host)).phase, { timeout: 30_000 }).toBe('riding');
+  await expect.poll(async () => (await ride(guest)).phase, { timeout: 30_000 }).toBe('riding');
+  // Wait for any seat swap to settle (the guest gives way to the host).
+  await host.waitForTimeout(2000);
+  const a = await ride(host);
+  const b = await ride(guest);
+  expect(b.line).toBe(a.line);
+  expect(b.carrier).toBe(a.carrier);
+  expect(b.seat).not.toBe(a.seat);
+
+  // Each page, over ~1.5 s of frames: the other rider in their own chair's frame (it
+  // mustn't move), and your own feet in it (a seat apart from theirs).
+  const watch = (page: Page, other: number) =>
+    page.evaluate(
+      (other) =>
+        new Promise<{ spread: number; them: number[]; me: number[] }>((done) => {
+          const s = window.__sim as unknown as {
+            scene: import('three').Scene;
+            lifts: { carrierMatrix: (l: number, c: number, m: import('three').Matrix4) => void };
+            ride: { line: number; carrier: number; position: import('three').Vector3 };
+          };
+          const root = s.scene.getObjectByName(`player-${other}`)!.children.find((c) => c.visible)!;
+          const Matrix4 = root.matrix.constructor as typeof import('three').Matrix4;
+          const m = new Matrix4();
+          const local = (p: import('three').Vector3) =>
+            p.clone().applyMatrix4(m.clone().invert()).toArray();
+          const seen: number[][] = [];
+          let me: number[] = [];
+          let frames = 0;
+          const step = () => {
+            s.lifts.carrierMatrix(s.ride.line, s.ride.carrier, m);
+            seen.push(local(root.position));
+            me = local(s.ride.position);
+            if (++frames < 90) requestAnimationFrame(step);
+            else {
+              let spread = 0;
+              for (const p of seen)
+                spread = Math.max(spread, Math.hypot(...p.map((v, k) => v - seen[0]![k]!)));
+              done({ spread, them: seen[seen.length - 1]!, me });
+            }
+          };
+          requestAnimationFrame(step);
+        }),
+      other,
+    );
+  const guestSees = await watch(guest, 0);
+  const hostSees = await watch(host, 1);
+  for (const view of [guestSees, hostSees]) {
+    expect(view.spread).toBeLessThan(0.02); // glued to the chair
+    expect(Math.abs(view.them[0]! - view.me[0]!)).toBeGreaterThan(0.4); // a seat apart
+    expect(Math.abs(view.them[1]! - view.me[1]!)).toBeLessThan(0.05);
+  }
+  // Both pages agree where each sits.
+  expect(guestSees.them[0]).toBeCloseTo(hostSees.me[0]!, 1);
+  expect(hostSees.them[0]).toBeCloseTo(guestSees.me[0]!, 1);
+
+  // Chase view from behind the chair: both riders side by side.
+  await guest.keyboard.press('KeyV');
+  await guest.waitForTimeout(500);
+  await guest.screenshot({ path: 'test-results/views/multiplayer-chair-guest.png' });
+  await host.keyboard.press('KeyV');
+  await host.waitForTimeout(500);
+  await host.screenshot({ path: 'test-results/views/multiplayer-chair-host.png' });
+  expect(errors).toEqual([]);
+});

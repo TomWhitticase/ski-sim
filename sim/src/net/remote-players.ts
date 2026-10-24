@@ -1,6 +1,7 @@
 import {
   Euler,
   Group,
+  Matrix4,
   type PerspectiveCamera,
   Quaternion,
   type Scene,
@@ -27,6 +28,11 @@ const SPIRIT_OPACITY = 0.4;
 const PEGMAN_TOP_SPEED = FLY.speed * 3;
 const ZERO = new Vector3();
 const OCCLUSION_SAMPLES = 32;
+const grip = new Matrix4();
+const gripQ = new Quaternion();
+
+/** A carrier's grip (world) on this lift system, false if there's no such carrier. */
+export type CarrierFrame = (line: number, carrier: number, out: Matrix4) => boolean;
 
 /** Tag and minimap colours, by player number. */
 export const PLAYER_COLOURS = [
@@ -96,11 +102,26 @@ class RemoteAvatar {
   }
 
   /** Pose whichever model this mode uses from `this.state`; hide the rest. */
-  pose(dt: number, groundHeight: (x: number, z: number) => number): void {
+  pose(
+    dt: number,
+    groundHeight: (x: number, z: number) => number,
+    carrierFrame: CarrierFrame,
+  ): void {
     const { pose, mode, flags } = this.state;
     this.position.fromArray(pose, SLOT.position);
     this.velocity.fromArray(pose, SLOT.velocity);
     this.rotation.fromArray(pose, SLOT.rotation);
+    const c = SLOT.carrier;
+    if (flags & Flag.OnCarrier) {
+      if (carrierFrame(pose[c]!, pose[c + 1]!, grip)) {
+        // On our own copy of their carrier, so they move exactly with it.
+        this.position.fromArray(pose, c + 3).applyMatrix4(grip);
+        this.position.toArray(pose, SLOT.position);
+        this.rotation.premultiply(gripQ.setFromRotationMatrix(grip));
+      } else {
+        this.rotation.identity(); // not a lift we know: their interpolated position
+      }
+    }
     this.up.fromArray(pose, SLOT.up);
     if (this.up.lengthSq() < 0.5) this.up.set(0, 1, 0);
     else this.up.normalize();
@@ -207,6 +228,7 @@ export class RemotePlayers {
     private readonly scene: Scene,
     private readonly tags: HTMLElement,
     private readonly groundHeight: (x: number, z: number) => number,
+    private readonly carrierFrame: CarrierFrame,
   ) {}
 
   /** Positions for the minimap and world map: (east, north), colour and name. */
@@ -254,7 +276,7 @@ export class RemotePlayers {
       avatar.rename(p.name);
       avatar.visible = p.interp.sample(now, avatar.state);
       avatar.root.visible = avatar.visible;
-      if (avatar.visible) avatar.pose(dt, this.groundHeight);
+      if (avatar.visible) avatar.pose(dt, this.groundHeight, this.carrierFrame);
     }
     this.updateTags(camera);
   }

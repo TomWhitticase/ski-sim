@@ -711,6 +711,12 @@ async function main(): Promise<void> {
       resort: resortId,
       tags: $('#labels'),
       groundHeight,
+      carrierFrame: (line, carrier, out) => {
+        const l = lifts.lines[line];
+        if (!l || carrier >= l.op.carriers) return false;
+        lifts.carrierMatrix(line, carrier, out);
+        return true;
+      },
       sample: (out) => {
         sampleAvatar(body ?? mode, { fly, ski, glider, ride, sled }, out);
         if (body) addSpirit(out, fly);
@@ -754,6 +760,8 @@ async function main(): Promise<void> {
     parseRoomCode(params.get('join') ?? ''),
     hostAfterLoad,
   );
+
+  ride.others = (line, carrier) => multiplayer.ridersOn(line, carrier);
 
   party = {
     note: () =>
@@ -1208,6 +1216,7 @@ async function main(): Promise<void> {
       waypoint,
       lifts,
       ski,
+      ride,
       sled,
       environment,
       clock,

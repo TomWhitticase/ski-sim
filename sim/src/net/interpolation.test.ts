@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { type AvatarMode, createState, SLOT } from './codec';
+import { type AvatarMode, createState, Flag, SLOT } from './codec';
 import { INTERP_DELAY, Interpolator, MAX_EXTRAPOLATION } from './interpolation';
 
 /** A player moving east at `speed` m/s, sampled at sender time `t` (ms). */
@@ -83,5 +83,37 @@ describe('Interpolator', () => {
 
   it('has nothing to draw before the first state', () => {
     expect(new Interpolator().sample(1000, createState())).toBe(false);
+  });
+});
+
+describe('Interpolator on a lift', () => {
+  const riding = (t: number, carrier: number, seatX: number) => {
+    const s = at(t, 0, 'ride');
+    s.flags = Flag.OnCarrier;
+    s.pose[SLOT.carrier] = 3;
+    s.pose[SLOT.carrier + 1] = carrier;
+    s.pose[SLOT.carrier + 2] = 1;
+    s.pose[SLOT.carrier + 3] = seatX;
+    return s;
+  };
+
+  it('blends the seat within one carrier but never the carrier or seat indices', () => {
+    const interp = new Interpolator();
+    interp.push(riding(0, 7, 0), SKEW);
+    interp.push(riding(100, 7, 0.5), SKEW + 100);
+    const out = createState();
+    interp.sample(SKEW + INTERP_DELAY + 50, out);
+    expect(out.pose[SLOT.carrier + 3]).toBeCloseTo(0.25);
+    expect(out.pose[SLOT.carrier + 1]).toBe(7);
+  });
+
+  it('jumps, not glides, between carriers', () => {
+    const interp = new Interpolator();
+    interp.push(riding(0, 7, 0), SKEW);
+    interp.push(riding(100, 8, 0.5), SKEW + 100);
+    const out = createState();
+    interp.sample(SKEW + INTERP_DELAY + 40, out);
+    expect(out.pose[SLOT.carrier + 1]).toBe(7);
+    expect(out.pose[SLOT.carrier + 3]).toBe(0);
   });
 });

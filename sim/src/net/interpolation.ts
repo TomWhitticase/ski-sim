@@ -1,4 +1,4 @@
-import { blendPose, type PlayerState, POSE_LENGTH, SLOT } from './codec';
+import { blendPose, type PlayerState, POSE_LENGTH, sameCarrier, SLOT } from './codec';
 
 /** Remote players are drawn this far in the past, so there's usually a sample either side (ms). */
 export const INTERP_DELAY = 100;
@@ -76,8 +76,8 @@ export class Interpolator {
     const a = this.samples[i]!;
     const b = this.samples[i + 1]!;
     const f = (t - a.time) / (b.time - a.time);
-    if (a.mode !== b.mode || jumped(a, b)) {
-      // Switching mode or teleporting: show one or the other, never a blend.
+    if (a.mode !== b.mode || !sameCarrier(a, b) || jumped(a, b)) {
+      // Switching mode or carrier, or teleporting: show one or the other, never a blend.
       copyState(f < 0.5 ? a : b, out);
     } else {
       blendPose(a.pose, b.pose, f, out.pose);
