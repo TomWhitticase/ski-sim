@@ -1,6 +1,7 @@
 import type { PerspectiveCamera, Scene, Vector3 } from 'three/webgpu';
 
 import { DAY_SECONDS, type TimeOfDay } from '../env/time-of-day';
+import type { SharedWeather } from '../env/weather-control';
 import { type GameRules, sameRules } from '../game/rules';
 import { MultiplayerMenu } from '../ui/multiplayer-menu';
 import { activity } from '../ui/party-hud';
@@ -53,6 +54,10 @@ export interface MultiplayerSim {
   ownRules(): GameRules;
   /** The rules in force changed (the host's arrived or changed, or you left the party). */
   rulesChanged(): void;
+  /** Host: the weather (choice, date, data) the party shares. */
+  weather(): SharedWeather;
+  /** Guest: the host's weather. */
+  followWeather(weather: SharedWeather): void;
 }
 
 /** How long a dropped guest keeps trying to get back into the party (ms). */
@@ -230,6 +235,11 @@ export class Multiplayer {
     return out;
   }
 
+  /** The weather changed (a new choice, or its data arrived): a host tells guests. */
+  weatherChanged(): void {
+    this.session?.pushWeather();
+  }
+
   /** Host changed the time of day: tell guests straight away. */
   clockChanged(): void {
     this.session?.pushClock();
@@ -300,6 +310,8 @@ export class Multiplayer {
         follow: (c) => this.follow(c),
         rules: () => this.partyRules ?? this.sim.ownRules(),
         followRules: (r) => this.followRules(r),
+        weather: () => this.sim.weather(),
+        followWeather: (w) => this.sim.followWeather(w),
       },
       {
         roster: () => {

@@ -21,12 +21,13 @@ export class TimeMenu extends OptionsTab {
   private readonly ratesEl: HTMLElement;
   private readonly lockHint: HTMLElement;
   private dragging = false;
+  private locked = false;
   private shown = -1;
 
   constructor(
     el: HTMLElement,
     private readonly clock: TimeOfDay,
-    private readonly presets: TimePreset[],
+    private presets: TimePreset[],
     private readonly sunElevation: () => number,
     private readonly onChange: () => void,
   ) {
@@ -53,12 +54,7 @@ export class TimeMenu extends OptionsTab {
     time.append(field);
 
     this.presetsEl = section(body, 'Presets', 'setup-presets');
-    for (const p of presets) {
-      const b = button('setup-preset', `${p.name} · ${formatTime(p.seconds)}`);
-      b.dataset.preset = p.name;
-      b.addEventListener('click', () => this.set(p.seconds));
-      this.presetsEl.append(b);
-    }
+    this.setPresets(presets);
 
     this.ratesEl = section(body, 'Time speed', 'setup-options');
     this.ratesEl.setAttribute('role', 'radiogroup');
@@ -76,8 +72,23 @@ export class TimeMenu extends OptionsTab {
     this.sync(true);
   }
 
+  /** The sun's times for another day (the weather picked a date). */
+  setPresets(presets: TimePreset[]): void {
+    this.presets = presets;
+    this.presetsEl.replaceChildren(
+      ...presets.map((p) => {
+        const b = button('setup-preset', `${p.name} · ${formatTime(p.seconds)}`);
+        b.dataset.preset = p.name;
+        b.addEventListener('click', () => this.set(p.seconds));
+        b.disabled = this.locked;
+        return b;
+      }),
+    );
+  }
+
   /** In someone else's game the host sets the time: `hint` says so, and nothing's editable. */
   setLocked(hint: string | null): void {
+    this.locked = !!hint;
     this.lockHint.textContent = hint ?? '';
     this.lockHint.hidden = !hint;
     for (const input of this.el.querySelectorAll<HTMLInputElement | HTMLButtonElement>(

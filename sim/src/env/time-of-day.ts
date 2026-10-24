@@ -108,3 +108,36 @@ export function dayPresets(elevationAt: (seconds: number) => number): TimePreset
   // Round to the minute so the slider and label agree.
   return presets.map((p) => ({ ...p, seconds: wrap(Math.round(p.seconds / 60) * 60) }));
 }
+
+/**
+ * A time zone's offset from UTC (hours) at local noon on `date` (YYYY-MM-DD), so a summer
+ * day gets summer time. Null if the zone is unknown.
+ */
+export function zoneOffsetHours(zone: string, date: string): number | null {
+  try {
+    const noon = Date.parse(`${date}T12:00:00Z`);
+    const name = new Intl.DateTimeFormat('en-GB', { timeZone: zone, timeZoneName: 'longOffset' })
+      .formatToParts(noon)
+      .find((p) => p.type === 'timeZoneName')?.value;
+    const m = /GMT(?:([+-])(\d{1,2})(?::(\d{2}))?)?$/.exec(name ?? '');
+    if (!m) return null;
+    const hours = Number(m[2] ?? 0) + Number(m[3] ?? 0) / 60;
+    return m[1] === '-' ? -hours : hours;
+  } catch {
+    return null;
+  }
+}
+
+/** The local date (YYYY-MM-DD) and seconds since local midnight at `now` in a UTC offset. */
+export function localNow(now: number, utcOffsetHours: number): { date: string; seconds: number } {
+  const local = new Date(now + utcOffsetHours * 3_600_000);
+  return {
+    date: local.toISOString().slice(0, 10),
+    seconds: local.getUTCHours() * 3600 + local.getUTCMinutes() * 60 + local.getUTCSeconds(),
+  };
+}
+
+/** `date` (YYYY-MM-DD) moved by `days`. */
+export function addDays(date: string, days: number): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+}

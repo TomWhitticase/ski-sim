@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { EVERYTHING_ON, type GameRules, REALISTIC } from '../game/rules';
 import type { PlayerState } from './codec';
+import type { SharedWeather } from '../env/weather-control';
 import type { SharedClock } from './room';
 import { type Control, FIND_TIMEOUT, NetSession, PEER_TIMEOUT, type Role } from './session';
 import type { Transport } from './transport';
@@ -59,7 +60,13 @@ function player(
   hub: ReturnType<typeof createHub>,
   role: Role,
   name: string,
-  opts: { resort?: string; clock?: SharedClock; since?: number; rules?: GameRules } = {},
+  opts: {
+    resort?: string;
+    clock?: SharedClock;
+    since?: number;
+    rules?: GameRules;
+    weather?: SharedWeather;
+  } = {},
 ) {
   const log = {
     ended: [] as string[],
@@ -69,6 +76,7 @@ function player(
     yielded: 0,
     followed: [] as SharedClock[],
     rules: [] as GameRules[],
+    weather: [] as SharedWeather[],
   };
   let x = 0;
   const world = {
@@ -82,6 +90,9 @@ function player(
     follow: (c: SharedClock) => log.followed.push(c),
     rules: () => opts.rules ?? { ...EVERYTHING_ON },
     followRules: (r: GameRules) => log.rules.push(r),
+    weather: () =>
+      opts.weather ?? { choice: { mode: 'clear' as const }, date: '2026-02-15', day: null },
+    followWeather: (w: SharedWeather) => log.weather.push(w),
   };
   const transport = hub.join();
   const session = new NetSession(
@@ -292,6 +303,27 @@ describe('NetSession', () => {
     guest.transport.sendControl({ t: 'rules', rules: EVERYTHING_ON } satisfies Control);
     run(hub, [host.session, guest.session], 100);
     expect(host.log.rules).toEqual([]);
+  });
+
+  it("guests get the host's weather on joining and whenever it changes", () => {
+    const hub = createHub();
+    const weather: SharedWeather = {
+      choice: { mode: 'past', date: '2018-01-04' },
+      date: '2018-01-04',
+      day: null,
+    };
+    const host = player(hub, 'host', 'Ana', { weather });
+    const guest = player(hub, 'guest', 'Ben');
+    run(hub, [host.session, guest.session], 300);
+    expect(guest.log.weather.at(-1)).toEqual(weather);
+    weather.choice = { mode: 'clear' };
+    host.session.pushWeather();
+    run(hub, [host.session, guest.session], 100);
+    expect(guest.log.weather.at(-1)?.choice).toEqual({ mode: 'clear' });
+    // A host doesn't take weather from anyone.
+    guest.transport.sendControl({ t: 'weather', weather } satisfies Control);
+    run(hub, [host.session, guest.session], 100);
+    expect(host.log.weather).toEqual([]);
   });
 
   it('ignores rules from anyone but the host, and cleans what arrives', () => {

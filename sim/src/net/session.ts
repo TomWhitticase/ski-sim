@@ -6,6 +6,7 @@ import {
   encodeState,
   type PlayerState,
 } from './codec';
+import type { SharedWeather } from '../env/weather-control';
 import { type GameRules, sanitizeRules } from '../game/rules';
 import { Interpolator } from './interpolation';
 import { advanceShared, cleanName, DEFAULT_NAME, MAX_PLAYERS, type SharedClock } from './room';
@@ -17,7 +18,7 @@ const shownName = (name: string) => cleanName(name) || DEFAULT_NAME;
 export type Role = 'host' | 'guest';
 
 /** Bump when the wire format changes, so mismatched builds refuse rather than garble. */
-export const NET_VERSION = 4;
+export const NET_VERSION = 5;
 /** States sent per second. */
 export const SEND_HZ = 12;
 /** A peer silent for this long has gone (ms). */
@@ -38,6 +39,8 @@ export type Control =
   | { t: 'sync'; clock: SharedClock }
   /** The host's game rules, which the whole party plays by. */
   | { t: 'rules'; rules: GameRules }
+  /** The host's weather: its choice, the date, and the data (guests fetch nothing). */
+  | { t: 'weather'; weather: SharedWeather }
   | { t: 'end' }
   | { t: 'bye' }
   /** The host is leaving: the party carries on under the next host (no waiting). */
@@ -67,6 +70,10 @@ export interface SessionWorld {
   rules(): GameRules;
   /** Guest: the host's rules arrived (on joining, and whenever it changes them). */
   followRules(rules: GameRules): void;
+  /** Host: the weather the party skis in. */
+  weather(): SharedWeather;
+  /** Guest: the host's weather arrived (on joining, and whenever it changes). */
+  followWeather(weather: SharedWeather): void;
 }
 
 export interface SessionEvents {
@@ -213,6 +220,12 @@ export class NetSession {
     this.transport.sendControl({ t: 'rules', rules: this.world.rules() });
   }
 
+  /** Host: send the weather now (it was just changed, or its data arrived). */
+  pushWeather(): void {
+    if (this.role !== 'host' || this.over || this.players.size === 0) return;
+    this.transport.sendControl({ t: 'weather', weather: this.world.weather() });
+  }
+
   /** Your name changed: the host updates the roster. */
   rename(): void {
     if (this.over) return;
@@ -295,6 +308,7 @@ export class NetSession {
       this.transport.sendControl({ t: 'welcome', player: guest.player }, peer);
       this.transport.sendControl({ t: 'sync', clock: this.world.clock() }, peer);
       this.transport.sendControl({ t: 'rules', rules: this.world.rules() }, peer);
+      this.transport.sendControl({ t: 'weather', weather: this.world.weather() }, peer);
       this.broadcastRoster();
       return;
     }
@@ -351,6 +365,8 @@ export class NetSession {
       this.world.follow(advanceShared(m.clock, this.rtt / 2000));
     } else if (m.t === 'rules') {
       this.world.followRules(sanitizeRules(m.rules));
+    } else if (m.t === 'weather') {
+      if (m.weather && typeof m.weather === 'object') this.world.followWeather(m.weather);
     } else if (m.t === 'end') {
       this.end('The host ended the game');
     } else if (m.t === 'handover') {

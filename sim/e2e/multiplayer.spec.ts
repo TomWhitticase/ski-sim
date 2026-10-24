@@ -1,5 +1,7 @@
 import { type BrowserContext, expect, type Page, test } from '@playwright/test';
 
+import { answer, SCENES } from './weather-mock';
+
 // Two players on the frozen lake (ground ~2415.5 m): the host skis east, and the guest
 // stands ~23 m west of them, looking east at them.
 const HOST_AT = 'at=45.28856,6.5752,2417.2&heading=90&pitch=-5';
@@ -21,6 +23,7 @@ type Sim = {
   ski: { feet: { x: number; y: number; z: number } };
   lifts: { time: number };
   clock: { seconds: number; rate: number };
+  weather: { status: string; date: string };
 };
 const sim = <T>(page: Page, fn: (s: Sim) => T) =>
   page.evaluate(`(${fn.toString()})(window.__sim)`) as Promise<T>;
@@ -509,5 +512,52 @@ test('friends on one chair sit side by side, and stay in their seats', async ({ 
   await host.keyboard.press('KeyV');
   await host.waitForTimeout(500);
   await host.screenshot({ path: 'test-results/views/multiplayer-chair-host.png' });
+  expect(errors).toEqual([]);
+});
+
+test("guests ski in the host's weather, fetching nothing, with the Weather tab locked", async ({
+  context,
+}) => {
+  test.setTimeout(240_000);
+  const errors: string[] = [];
+  // Open-Meteo mocked; who asks is counted.
+  const asked: Page[] = [];
+  await context.route('**/*open-meteo.com/**', async (route) => {
+    asked.push(route.request().frame().page());
+    await route.fulfill({ json: answer(new URL(route.request().url()), SCENES['heavy-snow']!) });
+  });
+
+  const host = await open(context, HOST_AT, errors);
+  await host.keyboard.press('KeyN');
+  const modal = host.locator('#mp-panel');
+  await setName(host, 'Alice');
+  await modal.locator('.mp-host').click();
+  await expect(modal.locator('.mp-code')).toHaveText(/^[A-Z2-9]{6}$/);
+  const code = (await modal.locator('.mp-code').textContent())!;
+  const guest = await open(context, `${GUEST_AT}&join=${code}`, errors);
+  await expect.poll(() => sim(guest, (s) => s.multiplayer.debug.connected)).toBe(true);
+
+  // The host picks a past day (C → "A past day": a year ago today).
+  await host.keyboard.press('KeyC');
+  await host.locator('#opt-weather [data-mode="past"]').click();
+  await expect(host.locator('#opt-weather .weather-summary')).toContainText('Heavy snow');
+  const date = await sim(host, (s) => s.weather.date);
+
+  // The guest gets the day, its data and the sun's date with it, and asks no one.
+  await expect.poll(() => sim(guest, (s) => s.weather.status)).toBe('ready');
+  expect(await sim(guest, (s) => s.weather.date)).toBe(date);
+  expect(asked.filter((p) => p === guest)).toEqual([]);
+  expect(asked.filter((p) => p === host)).toHaveLength(1);
+  await guest.keyboard.press('KeyC');
+  const tab = guest.locator('#opt-weather');
+  await expect(tab.locator('.time-locked')).toHaveText(
+    'In a multiplayer game the host sets the weather.',
+  );
+  await expect(tab.locator('[data-mode="clear"]')).toBeDisabled();
+  await expect(tab.locator('.weather-summary')).toContainText('Heavy snow');
+
+  // Clear on the host clears it for the guest.
+  await host.locator('#opt-weather [data-mode="clear"]').click();
+  await expect.poll(() => sim(guest, (s) => s.weather.status)).toBe('off');
   expect(errors).toEqual([]);
 });
