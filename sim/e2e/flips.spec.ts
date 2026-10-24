@@ -108,8 +108,8 @@ test('holding ] off a big jump lands a backflip', async ({ page }) => {
   await start(page);
   await page.keyboard.press('KeyV'); // chase camera
   await launch(page, 10); // ~2 s of air
-  await releaseAt(page, 'BracketRight', 290); // momentum and spotting bring it round
-  await page.keyboard.down('BracketRight');
+  await releaseAt(page, 'KeyE', 290); // momentum and spotting bring it round
+  await page.keyboard.down('KeyE');
   await snapshot(page, 100, 'test-results/views/flip-back-chase.png');
   await snapshot(page, 160, 'test-results/views/flip-back-side.png', true);
   const landing = await landed(page);
@@ -117,7 +117,7 @@ test('holding ] off a big jump lands a backflip', async ({ page }) => {
   const settle = await page.evaluate(
     () => (window.__sim as unknown as { ski: { flip: number } }).ski.flip,
   );
-  await page.keyboard.up('BracketRight');
+  await page.keyboard.up('KeyE');
   expect(landing.flips).toBe(1);
   expect(landing.outcome).not.toBe('crash');
   expect(Math.abs(settle)).toBeLessThan(0.7);
@@ -131,12 +131,12 @@ test('holding [ does a front flip', async ({ page }) => {
   await start(page);
   await page.keyboard.press('KeyV');
   await launch(page, 10);
-  await releaseAt(page, 'BracketLeft', -290);
-  await page.keyboard.down('BracketLeft');
+  await releaseAt(page, 'KeyQ', -290);
+  await page.keyboard.down('KeyQ');
   await snapshot(page, -110, 'test-results/views/flip-front-chase.png');
   await snapshot(page, -200, 'test-results/views/flip-front-side.png', true);
   const landing = await landed(page);
-  await page.keyboard.up('BracketLeft');
+  await page.keyboard.up('KeyQ');
   expect(landing.flips).toBe(-1);
   expect(landing.outcome).not.toBe('crash');
 });
@@ -144,11 +144,11 @@ test('holding [ does a front flip', async ({ page }) => {
 test('first person turns the view with the flip, and recovers on landing', async ({ page }) => {
   await start(page);
   await launch(page, 10);
-  await releaseAt(page, 'BracketRight', 290);
-  await page.keyboard.down('BracketRight');
+  await releaseAt(page, 'KeyE', 290);
+  await page.keyboard.down('KeyE');
   await snapshot(page, 200, 'test-results/views/flip-first-person.png');
   await landed(page);
-  await page.keyboard.up('BracketRight');
+  await page.keyboard.up('KeyE');
   await page.waitForTimeout(300);
   // Back upright: the camera's up vector points up again.
   const up = await page.evaluate(() => {
@@ -163,8 +163,8 @@ test('[ and ] lean you forward and back on the snow', async ({ page }) => {
   await start(page);
   await page.keyboard.press('KeyV');
   for (const [key, name] of [
-    ['BracketLeft', 'forward'],
-    ['BracketRight', 'back'],
+    ['KeyQ', 'forward'],
+    ['KeyE', 'back'],
   ]) {
     await page.keyboard.down(key!);
     await page.waitForTimeout(600);
@@ -180,9 +180,9 @@ test('over-rotating into the snow crashes, then you get back up', async ({ page 
   await start(page);
   await page.keyboard.press('KeyV');
   await launch(page, 6); // ~1.2 s: not enough air for a full turn
-  await page.keyboard.down('BracketRight');
+  await page.keyboard.down('KeyE');
   const landing = await landed(page);
-  await page.keyboard.up('BracketRight');
+  await page.keyboard.up('KeyE');
   expect(landing.outcome).toBe('crash');
   await page.waitForTimeout(400);
   await page.screenshot({ path: 'test-results/views/flip-crash.png' });

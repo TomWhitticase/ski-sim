@@ -266,7 +266,11 @@ export class SkiControls {
     this.look.apply(input, (80 * Math.PI) / 180);
     const turn = input.turn;
     const pivot = input.down('KeyS');
-    const lean = (input.down('BracketLeft') ? 1 : 0) - (input.down('BracketRight') ? 1 : 0);
+    // Q / E lean forward / back (flips in the air); E at a lift boards it instead (main).
+    // [ and ] still work, and the touch buttons send them.
+    const leanForward = input.down('KeyQ') || input.down('BracketLeft');
+    const leanBack = input.down('KeyE') || input.down('BracketRight');
+    const lean = (leanForward ? 1 : 0) - (leanBack ? 1 : 0);
     if (this.crashed) {
       // Down in the snow: no steering. The physics swings you round to face downhill,
       // and your view follows so you get up looking down the slope.
