@@ -372,6 +372,9 @@ NO_FLOOR = -1e9
 # floor like real resort stations.
 NO_CEILING = 1e9
 HALL_HEADROOM = 0.6
+#: How far past a station's walls buildings are cut back to (m). Halls have walls at the
+#: edge of their footprint; a chair's hood sits ~0.8 m inside it, and drags have none.
+FLUSH = {"gondola": 0.0, "cabin": 0.0, "chair": 0.0, "drag": 0.8}
 # Room left round the carriers (m): below the lowest point (skis, cabin floor) and beside
 # the widest (an 8-seat chair, a cabin) as they swing.
 CARRIER_CLEARANCE = 1.5
@@ -389,7 +392,16 @@ def cut_volumes(lifts: list[dict], terminals: list[dict]) -> list[tuple]:
     stay (`_plane_roof`); `from height` is its lowest point."""
     cuts = []
     for t in terminals:
-        cuts.append((hall_polygon(t), NO_FLOOR, t["pad"] + t["roofTop"] + HALL_HEADROOM, "hall"))
+        # Flush with the station's walls (CUT_MARGIN apart, so no faces coincide): a
+        # station set into a building reads as part of it, with no gap to squeeze through.
+        cuts.append(
+            (
+                hall_polygon(t, FLUSH[t["kind"]]),
+                NO_FLOOR,
+                t["pad"] + t["roofTop"] + HALL_HEADROOM,
+                "hall",
+            )
+        )
         side = t.get("entrance")
         if side:
             cuts.append(
@@ -403,7 +415,7 @@ def cut_volumes(lifts: list[dict], terminals: list[dict]) -> list[tuple]:
         half = CARRIER_HALF_WIDTH[kind] * ((lift.get("occupancy") or 4) if kind == "chair" else 1)
         width = lift["gauge"] / 2 + half + CARRIER_CLEARANCE
         depth = HANG_DEPTH[kind] + CARRIER_CLEARANCE
-        for a, b in zip(s, s[1:], strict=False):
+        for k, (a, b) in enumerate(zip(s, s[1:], strict=False)):
             ax, ay, bx, by = a["east"], a["north"], b["east"], b["north"]
             span = math.hypot(bx - ax, by - ay)
             if span < 1e-3:
@@ -411,8 +423,9 @@ def cut_volumes(lifts: list[dict], terminals: list[dict]) -> list[tuple]:
             # The rope is level through a station, then runs straight to the next support.
             # Cut in short pieces that follow it, so a climbing rope doesn't slice a tall
             # wedge out of every building it passes over.
-            level_a = _station_length(a, terminals)
-            level_b = span - _station_length(b, terminals)
+            # A lift's first and last supports are its stations.
+            level_a = _station_length(a, terminals) if k == 0 else 0.0
+            level_b = span - (_station_length(b, terminals) if k == len(s) - 2 else 0.0)
 
             def rope(d, a=a, b=b, span=span, level_a=level_a, level_b=level_b):
                 if level_b <= level_a:
@@ -452,8 +465,6 @@ def station_halls(terminals: list[dict]) -> list[tuple[Polygon, float]]:
 
 def _station_length(support: dict, terms: list[dict]) -> float:
     """How far the rope runs level from this support (its terminal's hall), else 0."""
-    if support.get("kind") != "station":
-        return 0.0
     for t in terms:
         if math.hypot(t["east"] - support["east"], t["north"] - support["north"]) < 1.0:
             return t["length"]
@@ -612,7 +623,9 @@ def cut_buildings(
                                 lo, sloped = _plane_roof(q, floor)
                                 if sloped and lo + sloped["rise"] <= p["top"]:
                                     stub_top, roof = lo, sloped
-                            next_pieces.append({**p, "polygon": q, "top": stub_top, "roof": roof})
+                            next_pieces.append(
+                                {**p, "polygon": q, "top": stub_top, "roof": roof, "inner": True}
+                            )
                         if z1 < p["top"] and p_top - z1 >= MIN_SLAB:  # above it: raised
                             next_pieces.append(
                                 {
@@ -621,6 +634,7 @@ def cut_buildings(
                                     "base": max(z1, p["base"]),
                                     "roof": _clip_roof(p["roof"], q),
                                     "raised": True,
+                                    "inner": True,
                                 }
                             )
                 pieces = next_pieces
@@ -628,12 +642,21 @@ def cut_buildings(
                 out.append(b)
                 continue
             stats["cut"] += 1
-            kept = [
-                p
-                for p in pieces
-                if p["polygon"].area >= 4
-                and not p["polygon"].buffer(-MIN_PIECE_WIDTH / 2, join_style=2).is_empty
-            ]
+            # Slices left beside a cut go, including thin arms of a bigger remainder (an
+            # opening: shrink by half the width, grow back); pieces kept above or below one
+            # (in strips that follow the rope) are part of what's left and stay.
+            kept = []
+            for p in pieces:
+                if p.get("inner"):
+                    if p["polygon"].area >= 4:
+                        kept.append(p)
+                    continue
+                half = MIN_PIECE_WIDTH / 2
+                opened = p["polygon"].buffer(-half, join_style=2).buffer(half, join_style=2)
+                opened = opened.intersection(p["polygon"])
+                for q in _polygons(opened):
+                    if q.area >= 4:
+                        kept.append({**p, "polygon": q, "roof": _clip_roof(p["roof"], q)})
             from shapely.ops import unary_union
 
             left = unary_union([p["polygon"] for p in kept]).area if kept else 0.0

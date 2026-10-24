@@ -198,6 +198,8 @@ const VIEWS = [
   },
   { name: 'station-chair-fixed', query: 'at=45.32557,6.53075,1662&heading=4&pitch=-8' },
   { name: 'station-gondola', query: 'at=45.27297,6.60583,2818&heading=118&pitch=-6' },
+  // Lift crossings: one line passes over the other on a pair of taller towers.
+  { name: 'crossing-moutiere', query: 'at=45.29289,6.56499,2134&heading=239&pitch=0' },
   { name: 'tower-chair', query: 'at=45.33980,6.57504,2644&heading=297&pitch=2' },
   { name: 'tower-gondola', query: 'at=45.28142,6.59322,2528&heading=199&pitch=2' },
   // Snow parks: VT Park's halfpipe from below and the side, and Open Park's meandering lines.

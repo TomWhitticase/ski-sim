@@ -109,7 +109,7 @@ def test_buildings_are_cut_only_where_and_as_high_as_lifts_need():
     # The block stays above the walkway tunnel, and above the station: it sits in the
     # building's ground floor.
     assert raised and min(b["base"] for b in raised) >= 2000 + WALK_HEIGHT
-    hall = hall_polygon(terms[0])
+    hall = hall_polygon(terms[0], 0.0)  # the station's walls
     over = [b for b in raised if Polygon(b["footprint"]).intersection(hall).area > 0.5]
     assert over and min(b["base"] for b in over) >= 2000 + terms[0]["roofTop"]
     # Nothing at ground level inside the hall.
@@ -132,9 +132,10 @@ def test_a_small_building_mostly_cut_away_goes_altogether():
     terms = plan([lift(duration=200)])
     for t in terms:
         t["pad"] = 2000 if t["end"] == "bottom" else 2300
-    hall = hall_polygon(terms[0])
+    hall = hall_polygon(terms[0], 0.0)  # the station walls
     minx, miny, maxx, maxy = hall.bounds
-    # A 9 x 9 m chalet overlapping the hall's side by 7 m: 2 m of it would be left.
+    # A low 9 x 9 m shed overlapping the hall's side by 7 m (no storey above the station
+    # to keep): only a 2 m slice of it would be left.
     chalet = {
         "id": 5,
         "type": "house",
@@ -144,14 +145,43 @@ def test_a_small_building_mostly_cut_away_goes_altogether():
             [maxx + 2, miny + 11],
             [maxx - 7, miny + 11],
         ],
-        "top": 2012,
+        "top": 2004,
         "base": 2000,
     }
     out, stats = cut_buildings(
         [chalet], cut_volumes([lift(duration=200)], terms), station_halls(terms)
     )
     assert not [b for b in out if b["id"] // 100 == 5 or b["id"] == 5]
-    assert stats["removedAsSliver"] == 1
+    assert stats.get("removedAsSliver", 0) + stats["removedAsStation"] == 1
+
+
+def test_a_long_building_beside_a_station_loses_the_slice_but_keeps_its_ends():
+    from ski_sim_pipeline.terminals import MIN_PIECE_WIDTH, cut_volumes, station_halls
+
+    terms = plan([lift(duration=200)])
+    for t in terms:
+        t["pad"] = 2000 if t["end"] == "bottom" else 2300
+    minx, miny, maxx, maxy = hall_polygon(terms[0], 0.0).bounds
+    # A 9 m deep block running past both ends of the hall, 7 m of its depth over it.
+    block = {
+        "id": 6,
+        "type": "house",
+        "footprint": [
+            [maxx - 7, miny - 10],
+            [maxx + 2, miny - 10],
+            [maxx + 2, maxy + 10],
+            [maxx - 7, maxy + 10],
+        ],
+        "top": 2004,
+        "base": 2000,
+    }
+    out, _ = cut_buildings([block], cut_volumes([lift(duration=200)], terms), station_halls(terms))
+    # Full-height pieces are what's beside the cuts (lower ones run under the rope, in
+    # strips that join up).
+    pieces = [Polygon(b["footprint"]) for b in out if b["id"] // 100 == 6 and b["top"] == 2004]
+    assert pieces  # the end past the hall stays
+    for p in pieces:  # ...and nothing thinner than MIN_PIECE_WIDTH is left beside it
+        assert not p.buffer(-MIN_PIECE_WIDTH / 2 + 0.05, join_style=2).is_empty
 
 
 def test_a_ramp_never_carves_another_terminals_pad():
