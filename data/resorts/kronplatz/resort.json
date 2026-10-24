@@ -1,0 +1,11 @@
+{
+  "id": "kronplatz",
+  "name": "Kronplatz – Plan de Corones",
+  "country": "IT",
+  "bounds": {
+    "south": 46.6765,
+    "west": 11.8722,
+    "north": 46.8042,
+    "east": 12.0321
+  }
+}

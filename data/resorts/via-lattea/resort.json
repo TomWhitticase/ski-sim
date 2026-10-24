@@ -1,0 +1,11 @@
+{
+  "id": "via-lattea",
+  "name": "Via Lattea",
+  "country": "IT",
+  "bounds": {
+    "south": 44.8886,
+    "west": 6.7294,
+    "north": 45.0437,
+    "east": 6.9448
+  }
+}

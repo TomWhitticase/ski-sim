@@ -202,6 +202,8 @@ const VIEWS = [
     name: 'madonna-di-campiglio',
     query: 'resort=madonna-di-campiglio&at=46.2325,10.8148,2013&heading=112&pitch=-8',
   },
+  { name: 'kronplatz', query: 'resort=kronplatz&at=46.7025,11.9427,1702&heading=244&pitch=-8' },
+  { name: 'via-lattea', query: 'resort=via-lattea&at=44.9449,6.8831,2485&heading=325&pitch=-8' },
   // Lift stations up close: a detachable chair's hood, a fixed-grip bullwheel, a gondola hall.
   {
     name: 'station-chair-detachable',
