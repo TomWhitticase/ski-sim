@@ -25,7 +25,7 @@ import {
   sheaveGeometry,
   towerGeometry,
 } from './carriers';
-import { LoopPath, loopCorners, maxStep, type TerminalFrame } from './loop';
+import { linePoints, LoopPath, loopCorners, maxStep, type TerminalFrame } from './loop';
 import { MAX_CARRIERS, type Operation, operation } from './operation';
 import { createTerminals, type Obstacle, type SignMount } from './terminals';
 
@@ -161,10 +161,21 @@ export class LiftLine {
           .clone()
           .addScaledVector(this.across, side * r)
           .addScaledVector(f.dir, term.load);
+      // Level from the dock out of the hall, then the sagging line (`rope.ts`).
+      const exit = (f: TerminalFrame, side: number) =>
+        f.wheel
+          .clone()
+          .addScaledVector(this.across, side * r)
+          .addScaledVector(f.dir, f.length);
       const track = (side: number) =>
         new Track([
           dock(fb, bottomT, side),
-          ...this.towers.map((p) => p.clone().addScaledVector(this.across, side * r)),
+          ...linePoints(
+            exit(fb, side),
+            this.towers.map((p) => p.clone().addScaledVector(this.across, side * r)),
+            exit(ft, side),
+            lift.catenary,
+          ).map((p) => p.position),
           dock(ft, topT, side),
         ]);
       this.tracks = [track(1), track(-1)];
@@ -178,7 +189,7 @@ export class LiftLine {
           ? STATION_SPEED[base.kind]
           : base.speed;
       this.loop = new LoopPath(
-        loopCorners(fb, ft, this.towers, this.across, lift.gauge),
+        loopCorners(fb, ft, this.towers, this.across, lift.gauge, lift.catenary),
         base.speed,
         stationSpeed,
       );

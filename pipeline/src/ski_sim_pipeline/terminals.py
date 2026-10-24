@@ -26,6 +26,7 @@ import numpy as np
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
+from . import rope
 from .grid import Grid
 
 log = logging.getLogger(__name__)
@@ -60,6 +61,12 @@ WALK_MAX = 25.0
 WALK_HALF_WIDTH = 3.0
 BACK_WALK = (0.8, 4.8)
 WALK_HEIGHT = 4.5
+#: Storeys over a walkway stay only as an arcade: with the building still standing at
+#: ground level along both sides of it, at least ARCADE_COVER of a strip this wide (m).
+#: Otherwise the walkway is open to the sky: a block floating over the door on nothing
+#: but the station reads as a tunnel.
+ARCADE_FLANK = 3.0
+ARCADE_COVER = 0.6
 #: Building slabs thinner than this left above a cut are dropped, not floated.
 MIN_SLAB = 2.0
 #: Rope corridor cut piece length (m): the cut follows the rope height this finely.
@@ -325,6 +332,26 @@ def _walk_rect(t: dict, side: str, length: float) -> Polygon:
     )
 
 
+def _walk_flanks(t: dict, side: str, length: float) -> tuple[Polygon, Polygon]:
+    """Strips ARCADE_FLANK wide either side of a walkway, along its whole length: where
+    a building must still stand at ground level for its storeys over the walkway to
+    stay (an arcade)."""
+    w = t["width"] / 2
+    r = t["gauge"] / 2
+    f = ARCADE_FLANK
+    if side == "side":
+        at = t["load"] if t["end"] == "bottom" else t["unload"]
+        u0, u1, v0, v1 = at - WALK_HALF_WIDTH, at + WALK_HALF_WIDTH, w, w + length
+        return _rect(t, u0 - f, u0, v0, v1), _rect(t, u1, u1 + f, v0, v1)
+    if side == "back":
+        u0, u1 = -t["back"] - length, -t["back"]
+        v0, v1 = r + BACK_WALK[0], r + BACK_WALK[1]
+    else:
+        u0, u1 = -t["back"] - t["ramp"]["length"], t["unload"]
+        v0, v1 = r - t["ramp"]["halfWidth"], r + t["ramp"]["halfWidth"]
+    return _rect(t, u0, u1, v0 - f, v0), _rect(t, u0, u1, v1, v1 + f)
+
+
 def _blocked(polygon: Polygon, tree, footprints: list[Polygon]) -> float:
     hits = [footprints[int(i)] for i in tree.query(polygon)]
     if not hits or polygon.area <= 0:  # degenerate walkway (zero-length ramp)
@@ -405,7 +432,14 @@ def cut_volumes(lifts: list[dict], terminals: list[dict]) -> list[tuple]:
         side = t.get("entrance")
         if side:
             cuts.append(
-                (_walk_rect(t, side, t["walk"]), NO_FLOOR, t["pad"] + WALK_HEIGHT, "walkway")
+                (
+                    _walk_rect(t, side, t["walk"]),
+                    NO_FLOOR,
+                    t["pad"] + WALK_HEIGHT,
+                    "walkway",
+                    None,
+                    _walk_flanks(t, side, t["walk"]),
+                )
             )
     for lift in lifts:
         kind = KIND.get(lift["type"])
@@ -415,23 +449,22 @@ def cut_volumes(lifts: list[dict], terminals: list[dict]) -> list[tuple]:
         half = CARRIER_HALF_WIDTH[kind] * ((lift.get("occupancy") or 4) if kind == "chair" else 1)
         width = lift["gauge"] / 2 + half + CARRIER_CLEARANCE
         depth = HANG_DEPTH[kind] + CARRIER_CLEARANCE
+        cat = lift.get("catenary")
         for k, (a, b) in enumerate(zip(s, s[1:], strict=False)):
             ax, ay, bx, by = a["east"], a["north"], b["east"], b["north"]
             span = math.hypot(bx - ax, by - ay)
             if span < 1e-3:
                 continue
-            # The rope is level through a station, then runs straight to the next support.
+            # The rope is level through a station, then sags to the next support (`rope.py`).
             # Cut in short pieces that follow it, so a climbing rope doesn't slice a tall
             # wedge out of every building it passes over.
             # A lift's first and last supports are its stations.
-            level_a = _station_length(a, terminals) if k == 0 else 0.0
-            level_b = span - (_station_length(b, terminals) if k == len(s) - 2 else 0.0)
+            a = _with_exit(a, terminals) if k == 0 else a
+            b = _with_exit(b, terminals) if k == len(s) - 2 else b
+            level_a, level_b, _ = rope.free_span(a, b)
 
-            def rope(d, a=a, b=b, span=span, level_a=level_a, level_b=level_b):
-                if level_b <= level_a:
-                    return a["top"] + (b["top"] - a["top"]) * d / span
-                f = min(max((d - level_a) / (level_b - level_a), 0.0), 1.0)
-                return a["top"] + (b["top"] - a["top"]) * f
+            def rope_h(d, a=a, b=b, cat=cat):
+                return rope.along(a, b, d, cat)
 
             n = max(1, math.ceil(span / CABLE_STEP))
             for k in range(n):
@@ -442,7 +475,7 @@ def cut_volumes(lifts: list[dict], terminals: list[dict]) -> list[tuple]:
                         (ax + (bx - ax) * d1 / span, ay + (by - ay) * d1 / span),
                     ]
                 ).buffer(width, cap_style="flat")
-                hs = [rope(d) for d in (d0, d1, level_a, level_b) if d0 <= d <= d1]
+                hs = [rope_h(d) for d in (d0, d1, level_a, level_b) if d0 <= d <= d1]
                 low = NO_FLOOR if kind == "drag" else min(hs) - depth
                 in_station = d1 <= level_a + 1e-6 or d0 >= level_b - 1e-6
                 ceiling = max(hs) + 1.5 if in_station else NO_CEILING
@@ -452,8 +485,8 @@ def cut_volumes(lifts: list[dict], terminals: list[dict]) -> list[tuple]:
                 if kind != "drag" and not in_station:
                     ux, uy = (bx - ax) / span, (by - ay) / span
                     x0, y0 = ax + ux * d0, ay + uy * d0
-                    grade = (rope(d1) - rope(d0)) / (d1 - d0)
-                    floor = (x0, y0, ux, uy, rope(d0) - depth, grade)
+                    grade = (rope_h(d1) - rope_h(d0)) / (d1 - d0)
+                    floor = (x0, y0, ux, uy, rope_h(d0) - depth, grade)
                 cuts.append((piece, low, ceiling, "cable", floor))
     return cuts
 
@@ -463,12 +496,19 @@ def station_halls(terminals: list[dict]) -> list[tuple[Polygon, float]]:
     return [(hall_polygon(t), t["pad"] + t["roofTop"] + 0.6) for t in terminals]
 
 
-def _station_length(support: dict, terms: list[dict]) -> float:
-    """How far the rope runs level from this support (its terminal's hall), else 0."""
+def _with_exit(support: dict, terms: list[dict]) -> dict:
+    """A station support with its hall's `exit` (where the level rope ends), if it lacks
+    one (supports straight from `features.extract_lifts`)."""
+    if support.get("exit"):
+        return support
     for t in terms:
         if math.hypot(t["east"] - support["east"], t["north"] - support["north"]) < 1.0:
-            return t["length"]
-    return 0.0
+            exit_point = [
+                t["east"] + t["dir"][0] * t["length"],
+                t["north"] + t["dir"][1] * t["length"],
+            ]
+            return {**support, "exit": exit_point}
+    return support
 
 
 def _split_holes(polygon: Polygon) -> list[Polygon]:
@@ -604,6 +644,7 @@ def cut_buildings(
             for i in tree.query(polygon):
                 shape, z0, z1 = cuts[int(i)][:3]
                 floor = cuts[int(i)][4] if len(cuts[int(i)]) > 4 else None
+                flanks = cuts[int(i)][5] if len(cuts[int(i)]) > 5 else None
                 margin_shape = shape.buffer(CUT_MARGIN, join_style=2)
                 next_pieces = []
                 for p in pieces:
@@ -635,6 +676,7 @@ def cut_buildings(
                                     "roof": _clip_roof(p["roof"], q),
                                     "raised": True,
                                     "inner": True,
+                                    "flanks": flanks or p.get("flanks"),
                                 }
                             )
                 pieces = next_pieces
@@ -657,6 +699,7 @@ def cut_buildings(
                 for q in _polygons(opened):
                     if q.area >= 4:
                         kept.append({**p, "polygon": q, "roof": _clip_roof(p["roof"], q)})
+            kept = _arcades_only(kept)
             from shapely.ops import unary_union
 
             left = unary_union([p["polygon"] for p in kept]).area if kept else 0.0
@@ -679,6 +722,28 @@ def cut_buildings(
                     }
                 )
     return out, stats
+
+
+def _arcades_only(pieces: list[dict]) -> list[dict]:
+    """Drop storeys left over a walkway unless the building stands beside it on both
+    sides at ground level (ARCADE_COVER of each flank strip alongside the piece)."""
+    from shapely.ops import unary_union
+
+    ground = unary_union([p["polygon"] for p in pieces if not p["raised"]])
+    out = []
+    for p in pieces:
+        flanks = p.get("flanks")
+        if p["raised"] and flanks:
+            near = p["polygon"].buffer(ARCADE_FLANK + 0.5, join_style=2)
+            ok = True
+            for flank in flanks:
+                part = flank.intersection(near)
+                if part.area < 0.5 or ground.intersection(part).area < ARCADE_COVER * part.area:
+                    ok = False
+            if not ok:
+                continue
+        out.append(p)
+    return out
 
 
 def conflicts(buildings: list[dict], cuts: list[tuple]) -> list[str]:

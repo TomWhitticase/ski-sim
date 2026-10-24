@@ -128,14 +128,24 @@ def smooth_lift(lift: dict, terminals: list[dict], ground) -> dict:
     profile = LIFT_PROFILES[lift["type"]]
     stats = {"dropped": 0, "adjusted": 0, "inserted": 0, "unresolved": 0}
     bottom, top = terminals
+    # Where the rope leaves each hall: it's level from the bullwheel to here (`rope.py`).
+    for sup, t in ((lift["supports"][0], bottom), (lift["supports"][-1], top)):
+        sup["exit"] = [
+            round(t["east"] + t["dir"][0] * t["length"], 2),
+            round(t["north"] + t["dir"][1] * t["length"], 2),
+        ]
     s = _drop_crowding(lift["supports"], bottom, kind, stats)
     s = list(reversed(_drop_crowding(list(reversed(s)), top, kind, stats)))
-    for _ in range(3):
+
+    def smooth(s: list[dict]) -> list[dict]:
         stats["unresolved"] = 0
         _smooth_end(s, bottom, kind, profile, ground, stats)
         rev = list(reversed(s))
         _smooth_end(rev, top, kind, profile, ground, stats)
-        s = list(reversed(rev))
+        return list(reversed(rev))
+
+    for attempt in range(5):
+        s = smooth(s)
         # Re-check ground clearance between supports (synthetic towers where needed).
         out = [s[0]]
         # Spans touching a station start at platform height by design: only ask them
@@ -151,6 +161,8 @@ def smooth_lift(lift: dict, terminals: list[dict], ground) -> dict:
             break
         s = _drop_crowding(out, bottom, kind, stats)
         s = list(reversed(_drop_crowding(list(reversed(s)), top, kind, stats)))
+        if attempt == 4:
+            s = smooth(s)  # the last towers added still need fitting to the approach
     lift["supports"] = [
         {k: (round(v, 2) if isinstance(v, float) else v) for k, v in x.items()} for x in s
     ]

@@ -203,3 +203,63 @@ def test_a_ramp_never_carves_another_terminals_pad():
     unload = np.array([second_top["east"] + second_top["dir"][0] * second_top["unload"] + 2.5])
     unload_n = np.array([second_top["north"] + second_top["dir"][1] * second_top["unload"]])
     assert ground(unload, unload_n)[0] == pytest.approx(second_top["pad"], abs=0.3)
+
+
+def test_storeys_over_a_walkway_stay_only_as_an_arcade():
+    """A block the station sits in, with a bay jutting out over the station's side door:
+    nothing stands beside the walkway at ground level, so the bay's storeys would float
+    over the door. They go (the walkway is open to the sky), while the block's storeys
+    over the station hall stay. A walkway through the middle of a block (built-up on both
+    sides) keeps its storeys: that's an arcade."""
+    from ski_sim_pipeline.terminals import (
+        WALK_HEIGHT,
+        _walk_rect,
+        choose_entrances,
+        conflicts,
+        cut_volumes,
+        station_halls,
+    )
+
+    terms = plan([lift(duration=200)])
+    for t in terms:
+        t["pad"] = 2000 if t["end"] == "bottom" else 2300
+    bottom = terms[0]
+    w = bottom["width"] / 2
+    at = bottom["load"]
+    # The block covers the hall and everything behind it; the bay sits over the door.
+    block = {
+        "id": 8,
+        "type": "apartments",
+        "footprint": [
+            [-30, -20],
+            [w + 0.5, -20],
+            [w + 0.5, at - 3.5],
+            [w + 7, at - 3.5],
+            [w + 7, at + 3.5],
+            [w + 0.5, at + 3.5],
+            [w + 0.5, 40],
+            [-30, 40],
+        ],
+        "top": 2020,
+        "base": 1999,
+    }
+    choose_entrances(terms, [block])
+    assert bottom["entrance"] == "side"
+    cuts = cut_volumes([lift(duration=200)], terms)
+    out, _ = cut_buildings([block], cuts, station_halls(terms))
+    walk = _walk_rect(bottom, "side", bottom["walk"])
+    over_walk = [b for b in out if Polygon(b["footprint"]).intersection(walk).area > 0.5]
+    assert over_walk == []
+    hall = hall_polygon(bottom, 0.0)
+    assert any(
+        b.get("raised") and Polygon(b["footprint"]).intersection(hall).area > 0.5 for b in out
+    )
+    assert conflicts(out, cuts) == []
+
+    # Through the middle of a wide block: storeys over the walkway stay.
+    wide = {**block, "footprint": [[-30, -20], [40, -20], [40, 40], [-30, 40]]}
+    out, _ = cut_buildings([wide], cuts, station_halls(terms))
+    arcade = [
+        b for b in out if b.get("raised") and Polygon(b["footprint"]).intersection(walk).area > 0.5
+    ]
+    assert arcade and min(b["base"] for b in arcade) >= 2000 + WALK_HEIGHT
