@@ -457,6 +457,9 @@ export class SkierModel {
     }
   }
 
+  /** Hand and pole-tip heights above the snow (skier frame) after the last `apply`. */
+  readonly clearance = { hands: [0, 0], tips: [0, 0] };
+
   /** `up`: the direction the body balances along, in the skier's (slope-aligned) frame. */
   apply(stance: Stance, up: Vector3 = Y_AXIS): void {
     this.lastStance = stance;
@@ -543,6 +546,14 @@ export class SkierModel {
       const hand = stance.grip
         ? new Vector3(side * stance.grip.x, stance.grip.y, stance.grip.z)
         : handLocal.applyMatrix4(this.chest.matrix);
+      // Leaning into a carve, the inside hand would go into the snow: like a real skier,
+      // bring it up and forward over the snow, and never let a hand below HAND_CLEARANCE.
+      const inside = stance.grip ? 0 : smoothstep(0.12, 0.5, side * up.x) * (1 - sit);
+      if (!stance.grip) {
+        hand.y += 0.22 * inside;
+        hand.z -= 0.18 * inside;
+        hand.y = Math.max(hand.y, HAND_CLEARANCE * (1 - sit));
+      }
       const elbow = solveJoint(shoulder, hand, UPPER_ARM, FOREARM, new Vector3(side, -0.3, 0.6));
       stretch(limb.upperArm, shoulder, elbow);
       const wrist = elbow.clone().lerp(hand, 0.85);
@@ -552,7 +563,19 @@ export class SkierModel {
 
       const pole = this.poles[i]!;
       pole.position.copy(hand);
-      pole.rotation.set(-stance.poleSweep, 0, side * 0.12 + stance.lean * 0.6);
+      // The inside pole swings out to the side; then either pole is swept back until its
+      // tip clears the snow (it trails, lightly off it, rather than spearing in).
+      const roll = side * (0.12 + 0.35 * inside) + stance.lean * 0.6;
+      let sweep = stance.poleSweep;
+      const tip = new Vector3();
+      for (let k = 0; k < 30; k++) {
+        pole.rotation.set(-sweep, 0, roll);
+        tip.set(0, -POLE_TIP, 0).applyEuler(pole.rotation).add(hand);
+        if (tip.y >= TIP_CLEARANCE || stance.grip) break;
+        sweep += 0.05;
+      }
+      this.clearance.hands[i] = hand.y;
+      this.clearance.tips[i] = tip.y;
     });
   }
 }
@@ -652,6 +675,10 @@ function poleGripGeometry(): BufferGeometry {
 /** Boot sole above the base of the ski. */
 const BOOT_SOLE = UNDERFOOT + 0.026;
 const ANKLE_HEIGHT = 0.2; // ankle joint above the base of the ski, inside the boot
+/** Lowest a gloved hand goes above the snow, and a pole tip (m); pole grip to tip. */
+const HAND_CLEARANCE = 0.42;
+const TIP_CLEARANCE = 0.06;
+const POLE_TIP = 1.15;
 /** The cuff's hinge (the ankle rivets), in the ski's frame; the cuff's built-in lean. */
 const CUFF_PIVOT = new Vector3(0, ANKLE_HEIGHT, 0.03);
 const CUFF_LEAN = 0.18;

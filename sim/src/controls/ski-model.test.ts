@@ -1,7 +1,8 @@
 import { Vector3 } from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
 
-import { createSkiGeometry, skiProfile } from './ski-model';
+import { createSkiGeometry, SkierModel, skiProfile } from './ski-model';
+import { initialStance } from './ski-stance';
 
 describe('skiProfile', () => {
   it('has a sidecut: narrower at the waist than at the shovel and tail', () => {
@@ -59,5 +60,25 @@ describe('solveJoint', () => {
       new Vector3(0, 0, -1),
     );
     expect(knee.y).toBeCloseTo(2 - 0.43, 2);
+  });
+});
+
+describe('SkierModel arms', () => {
+  it.each([1, -1])('keeps hands and pole tips out of the snow in a deep carve (lean %i)', (dir) => {
+    const model = new SkierModel();
+    const stance = { ...initialStance(), crouch: 0.4, lean: dir * 0.95 };
+    // Balance line tilted 55° into the turn, as in a hard carve.
+    const up = new Vector3(dir * Math.sin(0.96), Math.cos(0.96), 0);
+    model.apply(stance, up);
+    for (const h of model.clearance.hands) expect(h).toBeGreaterThanOrEqual(0.4);
+    for (const t of model.clearance.tips) expect(t).toBeGreaterThanOrEqual(0.05);
+  });
+
+  it('leaves the arms alone skiing straight', () => {
+    const model = new SkierModel();
+    model.apply(initialStance());
+    const [l, r] = model.clearance.hands;
+    expect(l).toBeCloseTo(r!, 5);
+    expect(l).toBeGreaterThan(0.6);
   });
 });

@@ -137,11 +137,11 @@ class TerminalBuilder {
   ) {
     y0 = clearOfGround(y0);
     y1 = clearOfGround(y1);
-    const g = (
+    const shape =
       round > 0
         ? new RoundedBoxGeometry(Math.abs(v1 - v0), y1 - y0, Math.abs(u1 - u0), 2, round)
-        : new BoxGeometry(Math.abs(v1 - v0), y1 - y0, Math.abs(u1 - u0))
-    ).toNonIndexed();
+        : new BoxGeometry(Math.abs(v1 - v0), y1 - y0, Math.abs(u1 - u0));
+    const g = shape.index ? shape.toNonIndexed() : shape; // RoundedBox is already
     const centre = this.world((u0 + u1) / 2, (v0 + v1) / 2, (y0 + y1) / 2);
     // Box local x → ±v, local z → u. The uphill track (+v) is left of the line at some
     // terminals and right at others; a mirrored basis would turn the box inside out (its
