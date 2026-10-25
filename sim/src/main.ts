@@ -1706,6 +1706,8 @@ async function main(): Promise<void> {
       airborne: mode === 'ski' && ski.airborne,
       tucked: mode === 'ski' && ski.tucked,
       fastForward: ride.fastForward,
+      names: labels.isVisible('lift') || labels.isVisible('peak') || labels.isVisible('restaurant'),
+      pistes: pisteColours,
     });
     labels.update(camera);
     waypoint.update(camera, here);

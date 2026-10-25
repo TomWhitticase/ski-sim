@@ -74,7 +74,7 @@ const TOUCH_TIPS = [
   'Left thumb steers: push forward to skate, pull back to snowplough.',
   'Drag on the right half of the screen to look around.',
   'On the map, touch and hold anywhere to go there.',
-  'Stop with the stick pushed sideways is a hockey stop.',
+  'Hold Stop and flick the stick left or right: a hockey stop that way.',
   'The paraglider opens even mid-air; the snowmobile comes to you.',
 ];
 

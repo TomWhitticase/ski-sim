@@ -10,7 +10,7 @@ import {
   stickFollow,
   stickKeys,
   stickVector,
-  stopKey,
+  stopSide,
 } from './touch-input';
 
 const env = { coarse: false, anyFine: true, maxTouchPoints: 0, override: null };
@@ -126,8 +126,16 @@ describe('stick keys', () => {
     expect(stickKeys('fly', 1)).toEqual([]);
   });
 
-  it('makes Stop a hockey stop with the stick sideways, else a plough', () => {
-    expect(stopKey(0)).toBe('ShiftLeft');
-    expect(stopKey(-0.7)).toBe('KeyS');
+  it('makes Stop a hockey stop to the side the stick points, else a plough', () => {
+    expect(stopSide(0, 0)).toBe(0);
+    expect(stopSide(0, 0.2)).toBe(0); // a wobble isn't a side
+    expect(stopSide(0, -0.7)).toBe(1); // stick left: skis swing left (+1, as Input.turn)
+    expect(stopSide(0, 0.7)).toBe(-1);
+  });
+
+  it('keeps the hockey stop once chosen, until the stick goes the other way', () => {
+    expect(stopSide(1, 0)).toBe(1); // thumb eased back or left the stick
+    expect(stopSide(1, -0.2)).toBe(1);
+    expect(stopSide(1, 0.7)).toBe(-1);
   });
 });

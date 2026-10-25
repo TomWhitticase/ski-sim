@@ -60,6 +60,10 @@
         <div id="marker-hint" class="glass" hidden>
           <span class="marker-dot"></span>Marker <span data-distance></span>
           <span class="marker-key teleport-hint"><kbd>J</kbd> teleport</span>
+          <!-- J on a touchscreen. -->
+          <button class="marker-go touch-only teleport-hint" type="button" data-key="KeyJ">
+            Go to marker
+          </button>
         </div>
         <!-- Quick toggles: always on screen, small, lit when on. -->
         <div id="toggles"></div>
@@ -321,10 +325,14 @@
                 <dd>Drag to look around</dd>
                 <dt>Buttons</dt>
                 <dd>Jump, tuck and stop; flips in the air; up, down and speed for the drone</dd>
+                <dt>Stop</dt>
+                <dd>Snowplough; with the stick pushed left or right, a hockey stop that way</dd>
                 <dt>Prompts</dt>
-                <dd>Tap "Ride …" to board a lift</dd>
+                <dd>Tap "Ride …" to board a lift, "Go to marker" to go there</dd>
                 <dt>Tools</dt>
-                <dd>Pause, map, drone, paraglider, snowmobile, view, labels, fullscreen</dd>
+                <dd>
+                  Pause, map, drone, paraglider, snowmobile, view, labels, piste colours, fullscreen
+                </dd>
                 <dt>Map</dt>
                 <dd>Pinch to zoom, tap for a marker, touch and hold to go there</dd>
               </dl>
