@@ -31,6 +31,7 @@ from . import (
 from . import bases as base_finder
 from .config import MAX_GRID_SIZE, Area, Extent, ResortConfig, load_resort
 from .export import write_heightmap
+from .fingerprint import fingerprint
 from .frame import LocalFrame
 from .grid import (
     Grid,
@@ -695,6 +696,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     manifest = {
         "version": MANIFEST_VERSION,
         "generatedAt": now,
+        "build": fingerprint(resort_dir),
         "resort": {
             "id": cfg.id,
             "name": cfg.name,

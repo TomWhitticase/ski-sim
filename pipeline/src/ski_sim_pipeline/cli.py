@@ -4,6 +4,7 @@ uv run ski-sim init <resort-id> --name "Name" --country FR --ski-area "Val Thore
 uv run ski-sim init <resort-id> --name "Name" --country FR --bbox S,W,N,E
 uv run ski-sim build <resort-id> [<resort-id> ...]
 uv run ski-sim build --all
+uv run ski-sim build --stale [--dry-run]
 """
 
 from __future__ import annotations
@@ -17,7 +18,8 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from .build import build
+from .build import MANIFEST_VERSION, build
+from .fingerprint import stale_reason
 from .sources import osm
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -62,6 +64,17 @@ def resort_ids(resorts_dir: Path) -> list[str]:
     return sorted(p.parent.name for p in resorts_dir.glob("*/resort.json"))
 
 
+def stale_resorts(resorts_dir: Path, out_root: Path) -> dict[str, str]:
+    """Every resort whose build doesn't match its config and the current pipeline, with
+    the reason, in name order."""
+    reasons = {}
+    for resort_id in resort_ids(resorts_dir):
+        reason = stale_reason(resorts_dir / resort_id, out_root / resort_id, MANIFEST_VERSION)
+        if reason:
+            reasons[resort_id] = reason
+    return reasons
+
+
 def build_each(ids: list[str], build_one: Callable[[str], object]) -> list[str]:
     """Build resorts one after another (they share the raw caches and `resorts.json`, and
     each build needs several GB of memory). A failure is logged and the rest still build;
@@ -89,6 +102,14 @@ def main() -> None:
     )
     build_cmd.add_argument(
         "--all", action="store_true", help="Every resort with a config in data/resorts/"
+    )
+    build_cmd.add_argument(
+        "--stale",
+        action="store_true",
+        help="Every resort whose build is missing or out of date (pipeline or config changed)",
+    )
+    build_cmd.add_argument(
+        "--dry-run", action="store_true", help="With --stale: list them and why, build nothing"
     )
     init_cmd = sub.add_parser("init", help="Create a resort config from a ski area or bbox")
     init_cmd.add_argument("resort", nargs="?", help="Resort id (default: slug of --name)")
@@ -134,9 +155,21 @@ def main() -> None:
 
     if args.command == "build":
         resorts_dir = DATA_DIR / "resorts"
-        if args.all == bool(args.resorts):
-            parser.error("give resort ids or --all, not both or neither")
-        ids = resort_ids(resorts_dir) if args.all else args.resorts
+        if sum((args.all, args.stale, bool(args.resorts))) != 1:
+            parser.error("give resort ids, --all or --stale (just one)")
+        if args.dry_run and not args.stale:
+            parser.error("--dry-run goes with --stale")
+        if args.stale:
+            reasons = stale_resorts(resorts_dir, DATA_DIR / "processed")
+            for resort_id, reason in reasons.items():
+                log.info("Stale: %s (%s)", resort_id, reason)
+            if not reasons:
+                log.info("Every resort is up to date")
+            if args.dry_run or not reasons:
+                return
+            ids = list(reasons)
+        else:
+            ids = resort_ids(resorts_dir) if args.all else args.resorts
         for resort_id in ids:
             if not (resorts_dir / resort_id / "resort.json").exists():
                 parser.error(f"No resort config at {resorts_dir / resort_id / 'resort.json'}")

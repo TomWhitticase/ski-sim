@@ -26,6 +26,8 @@ The project is built by Claude Code, so **everything must be operable from text 
 uv run ski-sim init <id> --name "Name" --country FR --bbox S,W,N,E   # or --ski-area "OSM name"
 uv run ski-sim build <id> [<id>...] # fetch sources (cached in data/raw), write data/processed/<id>
 uv run ski-sim build --all         # every resort in data/resorts, one after another
+uv run ski-sim build --stale [--dry-run]   # only resorts whose build is out of date (and why)
+scripts/rebuild-stale.sh [--dry-run|--publish]  # the same, retrying flaky fetches; --publish uploads after
 uv run pytest                                # tests
 uv run ruff check . && uv run ruff format --check .
 
@@ -63,6 +65,7 @@ Built resorts are snapshots of the pipeline that built them: a pipeline change r
 - **Format changes** (anything the sim reads differently: a renamed or moved field, a new required file, a changed encoding) bump `MANIFEST_VERSION` in `pipeline/.../build.py` and `SUPPORTED_VERSION` in `sim/src/resort/manifest.ts` together. The sim refuses any other version, so every resort must then be rebuilt before it loads. Take the next number after the highest on `main` *and* any open branch; two branches once both used 8.
 - **Other pipeline changes** (better buildings, grading, land cover...) leave old builds loadable but without the improvement until rebuilt.
 - **Rebuilding everything:** `uv run ski-sim build --all` builds every resort in `data/resorts/` in turn. It reuses the download caches, so it's processing only. A failed resort is logged and the rest still build; it exits non-zero and lists the failures at the end. Builds run one at a time on purpose: they share the caches and `resorts.json`, and each uses several GB of memory.
+- **Stale builds:** each manifest records what built it (`build`: a hash of the pipeline's code and `uv.lock`, and of the resort's `resort.json`; `fingerprint.py`). `ski-sim build --stale` rebuilds every resort whose hashes or manifest version no longer match, or that was never built; `--dry-run` lists them with the reason. `scripts/rebuild-stale.sh` runs it up to three passes (a failed fetch stays stale, so the next pass retries it) and, with `--publish`, runs `publish-data.sh` only once every resort is current. Downloaded sources aren't hashed (the caches never change), so after deleting `data/raw/osm/` for fresh OSM edits, use `--all`. It runs on this Mac, not in CI: the 16 GB source cache lives here.
 - **Caches** (`data/raw/<source>/`) are kept forever. OSM responses are keyed by query text, so a changed query fetches afresh; delete `data/raw/osm/` to pick up newer OSM edits. Terrain and land-cover tiles never change. A new source downloads its own tiles once.
 - **Deploying a format change:** the live site reads the published data in R2, not the branch's, and a publish is live at once. Data at the new version breaks the deployed code, and new code breaks the old data, so rebuild everything, push to `main`, and run `scripts/publish-data.sh` the moment the deploy finishes (a minute or two of broken loads). Format changes that stay readable by the old code avoid that window.
 
