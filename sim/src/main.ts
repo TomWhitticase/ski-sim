@@ -47,6 +47,7 @@ import { planWeatherSites } from './env/weather-field';
 import { weatherProvenance } from './env/weather-source';
 import { ObstacleIndex } from './features/obstacles';
 import { createBuildings } from './features/buildings';
+import { airfieldSolids, createAirfields } from './features/airfields';
 import { createRestaurants, terraceSolids } from './features/restaurants';
 import type { ResortFeatures } from './features/types';
 import { Heightmap } from './geo/heightmap';
@@ -104,6 +105,7 @@ import {
   liftLabel,
   peakLabel,
   restaurantLabel,
+  aerodromeLabel,
 } from './ui/labels';
 import { LAST_RESORT_KEY, MainMenu, type ResortEntry, type StartChoice } from './ui/main-menu';
 import { SkiSetupMenu } from './ui/ski-setup-menu';
@@ -560,6 +562,10 @@ async function main(): Promise<void> {
     },
   );
   const restaurants = features.restaurants ?? [];
+  const airfields = features.airfields
+    ? createAirfields(features.airfields, (east, north) => groundHeight(east, -north))
+    : null;
+  if (airfields) scene.add(airfields.root);
   scene.add(
     nearTerrain.object,
     farTerrain.object,
@@ -645,6 +651,10 @@ async function main(): Promise<void> {
     })),
     ...lifts.obstacles,
     ...terraceSolids(restaurants, (east, north) => groundHeight(east, -north)),
+    // Snowbanks, edge markers and windsock masts (hangars are buildings).
+    ...(features.airfields
+      ? airfieldSolids(features.airfields, (east, north) => groundHeight(east, -north))
+      : []),
   ]);
   const towers = new ObstacleIndex(lifts.towerObstacles());
   scene.add(lifts.root, createLiftSigns(lifts.lines, lifts.signMounts));
@@ -731,6 +741,7 @@ async function main(): Promise<void> {
       ...restaurants.map((r) =>
         restaurantLabel(r, r.building !== null ? buildingsById.get(r.building) : undefined),
       ),
+      ...(features.airfields?.aerodromes ?? []).map(aerodromeLabel),
     ],
     groundHeight,
     { lift: prefs.lift, peak: prefs.peak, restaurant: prefs.restaurant },
@@ -953,8 +964,10 @@ async function main(): Promise<void> {
         pisteData.pistes,
         restaurants,
         features.buildings,
+        features.airfields,
       ),
       pistes: pisteData.pistes,
+      airfields: features.airfields,
       restaurants,
       buildings: features.buildings,
       mapPlaces:
@@ -1630,6 +1643,7 @@ async function main(): Promise<void> {
     }
     const cloudWind = windVelocity(conditions.wind, conditions.windFrom, cloudWindV);
     clouds.blow(dt, cloudWind.x, cloudWind.z);
+    airfields?.update(weatherWind, conditions.windFrom, weatherClock);
     environment.setWeather(conditions, sunlitAt(conditions.cloud, weatherClock));
     const light = daylight(environment.sun.elevation);
     weatherFx.update(

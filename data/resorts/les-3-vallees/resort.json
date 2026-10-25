@@ -12,5 +12,30 @@
     "lat": 45.2981,
     "lon": 6.5803,
     "heading": 200
-  }
+  },
+  "runways": [
+    {
+      "icao": "LFLJ",
+      "ref": "04/22",
+      "length": 537,
+      "width": 40,
+      "slope": 18.6,
+      "elevations": {
+        "high": 2006
+      },
+      "source": "Published: 537 x 40 m asphalt, gradient 18.6%, aerodrome elevation 2,006 m (SIA via OpenAIP, Wikipedia)"
+    },
+    {
+      "icao": "LFKX",
+      "ref": "15/33",
+      "length": 406,
+      "width": 15,
+      "slope": 11,
+      "elevations": {
+        "low": 1691,
+        "high": 1719
+      },
+      "source": "Published: 406 x 15 m, 1,691 m at the threshold, 1,719 m at the top, central part 11% (Wikipedia)"
+    }
+  ]
 }

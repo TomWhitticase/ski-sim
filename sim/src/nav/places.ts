@@ -1,9 +1,9 @@
-import type { Building, Lift, Peak, Restaurant } from '../features/types';
+import type { Aerodrome, Airfields, Building, Lift, Peak, Restaurant } from '../features/types';
 import { type PisteRecord, pisteColour, pisteKind, pisteTitle } from '../pistes/pistes';
 import type { Extent } from '../resort/manifest';
 import type { Pose } from './pose';
 
-export type PlaceKind = 'start' | 'peak' | 'lift' | 'piste' | 'restaurant';
+export type PlaceKind = 'start' | 'peak' | 'lift' | 'piste' | 'restaurant' | 'airfield';
 
 export interface Place {
   kind: PlaceKind;
@@ -119,6 +119,38 @@ function footprintArea(b: Building): number {
   return sum / 2;
 }
 
+/**
+ * An airfield seen from its runway's lower end (where you'd land, if you flew), standing
+ * on the runway looking up it; a heliport from 60 m off to the south. Without a runway, from the south.
+ */
+export function aerodromeViewpoint(a: Aerodrome, fields?: Airfields): Pose {
+  const runway =
+    a.kind === 'airfield'
+      ? fields?.runways
+          .filter((r) => Math.hypot(...mid(r.line, a)) < 600)
+          .sort((x, y) => y.length - x.length)[0]
+      : undefined;
+  if (runway) {
+    const low = runway.ends[0] <= runway.ends[1] ? 0 : 1;
+    const line = low === 0 ? runway.line : [...runway.line].reverse();
+    const [a0, a1] = [line[0]!, line[line.length - 1]!];
+    const heading = bearing(a0[0], a0[1], a1[0], a1[1]);
+    // On the runway just in from its lower threshold: further back, a runway built up on
+    // a bank above the slope hides behind it.
+    const inside = 15;
+    const east = a0[0] + Math.sin(heading * RAD) * inside;
+    const north = a0[1] + Math.cos(heading * RAD) * inside;
+    return { east, north, altitude: runway.ends[low] + 2, heading, pitch: 2 };
+  }
+  return { east: a.east, north: a.north - 60, altitude: a.ground + 2, heading: 0, pitch: -5 };
+}
+
+/** Offset (east, north) from the place to the middle of a line. */
+function mid(line: [number, number][], a: { east: number; north: number }): [number, number] {
+  const [p, q] = [line[0]!, line[line.length - 1]!];
+  return [(p[0] + q[0]) / 2 - a.east, (p[1] + q[1]) / 2 - a.north];
+}
+
 const LIFT_TYPES: Record<string, string> = {
   cable_car: 'Cable car',
   gondola: 'Gondola',
@@ -151,6 +183,7 @@ export function buildPlaces(
   pistes: PisteRecord[] = [],
   restaurants: Restaurant[] = [],
   buildings: Building[] = [],
+  airfields?: Airfields,
 ): Place[] {
   const centre = { east: spawn.east, north: spawn.north };
   const places: Place[] = [{ kind: 'start', name: resortName, detail: 'Start', pose: spawn }];
@@ -187,6 +220,16 @@ export function buildPlaces(
       detail: `Restaurant · ${Math.round(r.ground).toLocaleString('en-GB')} m`,
       pose: restaurantViewpoint(r, building),
       lookAt: { east: r.east, north: r.north, altitude: (r.ground + top) / 2 },
+    });
+  }
+  for (const a of airfields?.aerodromes ?? []) {
+    const ele = a.ele ?? a.ground;
+    places.push({
+      kind: 'airfield',
+      name: a.name,
+      detail: `${a.kind === 'heliport' ? 'Heliport' : 'Airfield'} · ${Math.round(ele).toLocaleString('en-GB')} m`,
+      pose: aerodromeViewpoint(a, airfields),
+      lookAt: { east: a.east, north: a.north, altitude: a.ground + 2 },
     });
   }
   for (const peak of peaks) {

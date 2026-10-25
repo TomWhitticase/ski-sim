@@ -105,6 +105,8 @@ class ResortConfig:
     # none): treated like OSM villages when finding start points.
     places: tuple[GeoPoint, ...] = ()
     place_names: tuple[str, ...] = ()
+    # Published runway figures to validate airfields against (`airfields.RunwayRef`).
+    runways: tuple = ()
 
 
 # Defaults that make a resort config just id + name + country + lat/lon bounds.
@@ -286,6 +288,21 @@ def load_resort(path: Path, cover: Extent | None = None) -> ResortConfig:
         area=_area(b, origin) if b else None,
         places=tuple(GeoPoint(p["lat"], p["lon"]) for p in raw.get("places", [])),
         place_names=tuple(p["name"] for p in raw.get("places", [])),
+        runways=tuple(_runway_ref(r) for r in raw.get("runways", [])),
+    )
+
+
+def _runway_ref(raw: dict):
+    from .airfields import RunwayRef
+
+    return RunwayRef(
+        icao=raw["icao"],
+        ref=raw.get("ref"),
+        length=raw.get("length"),
+        width=raw.get("width"),
+        slope=raw.get("slope"),
+        elevations=tuple((k, float(v)) for k, v in raw.get("elevations", {}).items()),
+        source=raw.get("source"),
     )
 
 

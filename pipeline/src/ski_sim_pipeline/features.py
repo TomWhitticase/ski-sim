@@ -64,7 +64,13 @@ LIFT_PROFILES = {
 }
 
 SKIPPED_BUILDING_TYPES = {"ruins", "roof", "construction"}
-BUILDING_TYPE_HEIGHTS = {"church": 14.0, "chapel": 7.0, "garage": 3.0, "service": 4.0}
+BUILDING_TYPE_HEIGHTS = {
+    "church": 14.0,
+    "chapel": 7.0,
+    "garage": 3.0,
+    "service": 4.0,
+    "hangar": 8.0,
+}
 STATION_BUILDING_HEIGHT = 8.0
 STATION_MATCH_DISTANCE = 15.0
 # Shorter ways are mapped station pieces (e.g. a turn at an angle station), not lifts.
@@ -275,7 +281,8 @@ def estimate_height(tags: dict, area: float) -> tuple[float, str]:
         return levels * 3.0 + 1.5, "osm-levels"
     if "aerialway" in tags and "building" not in tags:
         return STATION_BUILDING_HEIGHT, "estimate"
-    if (h := BUILDING_TYPE_HEIGHTS.get(tags.get("building", ""))) is not None:
+    kind = "hangar" if tags.get("aeroway") == "hangar" else tags.get("building", "")
+    if (h := BUILDING_TYPE_HEIGHTS.get(kind)) is not None:
         return h, "estimate"
     for limit, height in ((25, 3.5), (100, 6.0), (400, 10.0), (1500, 15.0)):
         if area < limit:
@@ -312,6 +319,8 @@ def extract_buildings(
         g = ground(ring[:, 0], ring[:, 1])
         top = max(float(g.mean()) + height, float(g.max()) + 2.0)
         kind = "lift_station" if is_station else tags.get("building")
+        if tags.get("aeroway") == "hangar" or kind == "hangar":
+            kind = "hangar"
         buildings.append(
             {
                 "id": el["id"],
@@ -363,7 +372,7 @@ def dedupe_buildings(buildings: list[dict]) -> list[dict]:
 
 
 FLAT_ROOF_TYPES = {"industrial", "warehouse", "garage", "garages", "service", "commercial"}
-ROOF_PITCH = {"church": 40.0, "chapel": 40.0, "lift_station": 14.0}
+ROOF_PITCH = {"church": 40.0, "chapel": 40.0, "lift_station": 14.0, "hangar": 8.0}
 DEFAULT_PITCH = 24.0
 MAX_RIDGE_RISE = 7.0
 

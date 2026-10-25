@@ -14,6 +14,8 @@ const POSES = {
   // answered here, nothing fetched), and the same pose with no weather.
   'sea-of-cloud': 'at=45.2760,6.5620,3500&heading=355&pitch=-12&weather=sea',
   'sea-of-cloud-clear': 'at=45.2760,6.5620,3500&heading=355&pitch=-12',
+  // Courchevel's altiport from the approach: runway paint, snowbanks, aprons, buildings.
+  'courchevel-altiport': 'at=45.40096,6.63968,1965&heading=224&pitch=-3',
 };
 
 /** Open-Meteo's answer: saturated below 2,600 m north of the ridge, dry elsewhere. */

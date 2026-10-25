@@ -680,6 +680,14 @@ body:not(.skiing) .hud-ski-only {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M6 3v5a2 2 0 0 0 4 0V3M8 10v11'/%3E%3Cpath d='M17 21V3c-1.9.6-3 2.7-3 6v4h3'/%3E%3C/svg%3E");
 }
 
+.label[data-icon='airfield'] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M12 2.5c.9 0 1.5.9 1.5 2V9l7 4.5v2l-7-2.2V18l2.5 2v1.5L12 20.5l-4 1V20l2.5-2v-4.7l-7 2.2v-2l7-4.5V4.5c0-1.1.6-2 1.5-2z'/%3E%3C/svg%3E");
+}
+
+.label[data-icon='heliport'] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M9 7.5v9M15 7.5v9M9 12h6'/%3E%3C/svg%3E");
+}
+
 .label[data-icon='chair'] {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M2 5.5 22 2.5M12 4v6'/%3E%3Cpath d='M7 10v7h11M7 17v3M17 17v3'/%3E%3C/svg%3E");
 }
@@ -2130,6 +2138,34 @@ body.rules-no-lift-skip [data-touch='skip'] {
     var(--swatch) 9px 11px,
     transparent 11px 13px
   );
+}
+
+.map-key-runway::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 3px;
+  height: 6px;
+  background: var(--swatch);
+}
+
+.map-key-helipad::before {
+  content: 'H';
+  position: absolute;
+  left: 3px;
+  top: -2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1.5px solid #fff;
+  box-sizing: border-box;
+  background: var(--swatch);
+  color: #fff;
+  font:
+    700 8px/10px system-ui,
+    sans-serif;
+  text-align: center;
 }
 
 .map-key-area::before {

@@ -1,7 +1,7 @@
 import { type PerspectiveCamera, Vector3 } from 'three/webgpu';
 
 import type { Extent } from '../resort/manifest';
-import type { Building, Lift, Peak, Restaurant } from '../features/types';
+import type { Aerodrome, Building, Lift, Peak, Restaurant } from '../features/types';
 import { liftTypeName } from '../nav/places';
 
 export type LabelKind = 'lift' | 'peak' | 'restaurant';
@@ -22,7 +22,8 @@ export interface LabelSpec {
   icon?: LabelIcon;
 }
 
-export type LabelIcon = 'peak' | 'restaurant' | 'chair' | 'gondola' | 'cable-car' | 'drag';
+export type LabelIcon =
+  'peak' | 'restaurant' | 'chair' | 'gondola' | 'cable-car' | 'drag' | 'airfield' | 'heliport';
 
 /** The icon for a lift type: chairs, gondolas (and mixed), cable cars, and the drags. */
 export function liftIcon(type: string): LabelIcon {
@@ -95,6 +96,30 @@ export function restaurantLabel(r: Restaurant, building?: Building): LabelSpec {
     position: new Vector3(east, top + 3, -north),
     maxDistance: 2200,
     tier: 0.5,
+  };
+}
+
+/** "Airfield · LFLJ · 2,006 m", "Heliport · 1,850 m". */
+export function aerodromeDetail(a: Aerodrome): string {
+  const ele = `${Math.round(a.ele ?? a.ground).toLocaleString('en-GB')} m`;
+  return [a.kind === 'heliport' ? 'Heliport' : 'Airfield', a.icao, ele].filter(Boolean).join(' · ');
+}
+
+/**
+ * Airfield and heliport names go with the lift names (1): they're ways up the mountain
+ * too, and rank like them. Over the runway's middle, showing from as far as a lift's.
+ */
+export function aerodromeLabel(a: Aerodrome): LabelSpec {
+  return {
+    kind: 'lift',
+    name: a.name,
+    detail: aerodromeDetail(a),
+    icon: a.kind === 'heliport' ? 'heliport' : 'airfield',
+    position: new Vector3(a.east, a.ground + 12, -a.north),
+    maxDistance: a.kind === 'heliport' ? 3000 : 7000,
+    // Like a lift's: the nearer of the two wins an overlap.
+    tier: 0,
+    farTier: 2,
   };
 }
 

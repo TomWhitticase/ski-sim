@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Lift, Peak } from '../features/types';
-import { liftIcon, liftLabel, peakLabel } from './labels';
+import { aerodromeDetail, aerodromeLabel, liftIcon, liftLabel, peakLabel } from './labels';
 
 const support = (east: number, top: number) => ({
   east,
@@ -87,5 +87,41 @@ describe('lift icons', () => {
     for (const t of ['drag_lift', 't-bar', 'j-bar', 'platter', 'rope_tow', 'magic_carpet']) {
       expect(liftIcon(t)).toBe('drag');
     }
+  });
+});
+
+describe('aerodromeLabel', () => {
+  it('names the airfield over its runway, with the lifts (1)', () => {
+    const label = aerodromeLabel({
+      id: 1,
+      name: 'Altiport de Courchevel',
+      kind: 'airfield',
+      icao: 'LFLJ',
+      iata: 'CVF',
+      east: 10,
+      north: 20,
+      ground: 1980,
+      ele: 2006,
+    });
+    expect(label.kind).toBe('lift');
+    expect(label.icon).toBe('airfield');
+    expect(label.detail).toBe('Airfield · LFLJ · 2,006 m');
+    expect(label.position.z).toBe(-20);
+  });
+
+  it('describes a heliport without a code', () => {
+    expect(
+      aerodromeDetail({
+        id: 2,
+        name: 'Héliport de Champlan',
+        kind: 'heliport',
+        icao: null,
+        iata: null,
+        east: 0,
+        north: 0,
+        ground: 1352.4,
+        ele: null,
+      }),
+    ).toBe('Heliport · 1,352 m');
   });
 });

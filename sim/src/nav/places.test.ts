@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Lift, Peak } from '../features/types';
-import { bearing, buildPlaces, liftViewpoint, peakViewpoint } from './places';
+import type { Aerodrome, Lift, Peak, Runway } from '../features/types';
+import { aerodromeViewpoint, bearing, buildPlaces, liftViewpoint, peakViewpoint } from './places';
+
+const pose0 = { east: 0, north: 0, altitude: 0, heading: 0, pitch: 0 };
+const extent = { west: -1000, east: 1000, south: -1000, north: 1000 };
 
 describe('bearing', () => {
   it('is clockwise from north', () => {
@@ -90,5 +93,60 @@ describe('groundedPose', () => {
     );
     expect(plain.altitude).toBeCloseTo(2501.8);
     expect(plain.pitch).toBe(-10);
+  });
+});
+
+describe('aerodromeViewpoint', () => {
+  const courchevel: Aerodrome = {
+    id: 1,
+    name: 'Altiport de Courchevel',
+    kind: 'airfield',
+    icao: 'LFLJ',
+    iata: 'CVF',
+    east: 0,
+    north: 0,
+    ground: 1980,
+    ele: 2006,
+  };
+  const runway: Runway = {
+    id: 2,
+    ref: '22/04',
+    designators: ['22', '04'],
+    // Drawn from the 22 end (the top, north-east) down to the 04 end.
+    line: [
+      [190, 190],
+      [-190, -190],
+    ],
+    length: 537,
+    width: 40,
+    heading: 225,
+    surface: 'asphalt',
+    winter: 'cleared',
+    ends: [2006, 1940],
+    source: 'osm',
+  };
+  const fields = {
+    aerodromes: [courchevel],
+    runways: [runway],
+    taxiways: [],
+    aprons: [],
+    helipads: [],
+    windsocks: [],
+    snowbanks: [],
+    markers: [],
+  };
+
+  it('stands on the runway at its lower end, looking up it', () => {
+    const pose = aerodromeViewpoint(courchevel, fields);
+    expect(pose.east).toBeCloseTo(-190 + 15 / Math.SQRT2);
+    expect(pose.north).toBeCloseTo(-190 + 15 / Math.SQRT2);
+    expect(pose.heading).toBeCloseTo(45);
+  });
+
+  it('is in the teleport list', () => {
+    const places = buildPlaces('X', pose0, [], [], extent, [], [], [], fields);
+    const place = places.find((p) => p.kind === 'airfield')!;
+    expect(place.name).toBe('Altiport de Courchevel');
+    expect(place.detail).toBe('Airfield · 2,006 m');
   });
 });

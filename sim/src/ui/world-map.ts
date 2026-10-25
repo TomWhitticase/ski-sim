@@ -1,4 +1,4 @@
-import type { Border, Lift, Peak, Restaurant } from '../features/types';
+import type { Airfields, Border, Lift, Peak, Restaurant } from '../features/types';
 import type { Place } from '../nav/places';
 import { RESTAURANT_COLOUR, drawBorders, drawRestaurantIcon } from './map-icons';
 import {
@@ -33,6 +33,8 @@ export interface WorldMapData {
    *  resort's start villages). */
   mapPlaces?: MapPlace[];
   borders: Border[];
+  /** Runways, taxiways, aprons and helipads (missing in older builds). */
+  airfields?: Airfields;
   places: Place[];
   groundHeight: (east: number, north: number) => number;
   toLatLon: (east: number, north: number) => { lat: number; lon: number };
@@ -70,6 +72,11 @@ const LIFT_COLOURS: Record<string, string> = {
 };
 const DRAG_COLOUR = '#7048e8';
 const BORDER_TEXT = '#862e9c';
+/** Airfield surfaces: paved (cleared) and snow, as the pipeline's minimap draws them. */
+export const AIRFIELD_COLOURS = { paved: '#4e5056', snow: '#b2bac6', label: '#2f3a4a' };
+/** Airfield names show from this zoom in; heliports' from closer. */
+const AIRFIELD_NAMES_MPP = 30;
+const HELIPORT_NAMES_MPP = 8;
 /** Restaurant names appear once zoomed in this far (metres per pixel); dots before that. */
 const RESTAURANT_NAMES_MPP = 5;
 
@@ -274,6 +281,7 @@ export class WorldMap {
     const bare = !!(this.base?.complete && this.base.naturalWidth > 0);
     ctx.drawImage(bare ? this.base! : data.image, x0, y0, x1 - x0, y1 - y0);
     const shapes = bare || this.mpp < cell;
+    if (shapes) this.drawAirfields();
     if (shapes) this.drawBuildings();
     if (shapes && this.show.piste) this.drawPisteLines(cell, bare);
     if (bare && this.show.piste && this.mpp < ARROWS_MPP) this.drawRunArrows(cell);
@@ -302,6 +310,7 @@ export class WorldMap {
     this.drawPlayer();
     this.drawMarker();
     this.drawPlaceNames(tryPlace);
+    this.drawAirfieldNames(tryPlace);
     if (this.show.lift) this.drawLifts(tryPlace);
     if (this.show.piste && this.mpp < 6) this.drawPisteNames(tryPlace);
     if (this.show.peak) this.drawPeaks(tryPlace);
@@ -466,6 +475,88 @@ export class WorldMap {
       ctx.strokeText(place.name, x, y);
       ctx.fillStyle = '#2b2f36';
       ctx.fillText(place.name, x, y);
+    }
+  }
+
+  /**
+   * Runways, taxiways and aprons as shapes at their ground width (never under 2 px), and
+   * helipads as a ringed H (a dot zoomed out).
+   */
+  private drawAirfields(): void {
+    const fields = this.data.airfields;
+    if (!fields) return;
+    const { ctx } = this;
+    const colour = (w: string) =>
+      w === 'cleared' ? AIRFIELD_COLOURS.paved : AIRFIELD_COLOURS.snow;
+    for (const apron of fields.aprons) {
+      ctx.fillStyle = colour(apron.winter);
+      ctx.beginPath();
+      apron.ring.forEach(([e, n], i) => {
+        const [x, y] = this.toScreen(e, n);
+        if (i) ctx.lineTo(x, y);
+        else ctx.moveTo(x, y);
+      });
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'round';
+    for (const strip of [...fields.taxiways, ...fields.runways]) {
+      ctx.strokeStyle = colour(strip.winter);
+      ctx.lineWidth = Math.max(2, strip.width / this.mpp);
+      this.polyline(strip.line.map(([e, n]) => this.toScreen(e, n)));
+    }
+    // A runway's centreline, once it's wide enough to show one.
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.setLineDash([6, 5]);
+    ctx.lineWidth = 1;
+    for (const r of fields.runways) {
+      if (r.width / this.mpp < 6) continue;
+      this.polyline(r.line.map(([e, n]) => this.toScreen(e, n)));
+    }
+    ctx.setLineDash([]);
+    ctx.lineCap = 'round';
+    for (const pad of fields.helipads) {
+      const [x, y] = this.toScreen(pad.east, pad.north);
+      const r = Math.max(4, pad.size / 2 / this.mpp);
+      ctx.fillStyle = pad.winter === 'cleared' ? AIRFIELD_COLOURS.paved : '#fff';
+      ctx.strokeStyle = pad.winter === 'cleared' ? '#fff' : '#c92a2a';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      if (r < 6) continue;
+      const h = r * 0.55;
+      ctx.beginPath();
+      ctx.moveTo(x - h * 0.6, y - h);
+      ctx.lineTo(x - h * 0.6, y + h);
+      ctx.moveTo(x + h * 0.6, y - h);
+      ctx.lineTo(x + h * 0.6, y + h);
+      ctx.moveTo(x - h * 0.6, y);
+      ctx.lineTo(x + h * 0.6, y);
+      ctx.stroke();
+    }
+  }
+
+  /** "Altiport de Courchevel": airfields from AIRFIELD_NAMES_MPP in, heliports closer. */
+  private drawAirfieldNames(
+    tryPlace: (cx: number, top: number, w: number, h: number) => boolean,
+  ): void {
+    const { ctx } = this;
+    ctx.font = '600 12px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const a of this.data.airfields?.aerodromes ?? []) {
+      if (this.mpp > (a.kind === 'heliport' ? HELIPORT_NAMES_MPP : AIRFIELD_NAMES_MPP)) continue;
+      const [x, y] = this.toScreen(a.east, a.north);
+      const name = `${a.kind === 'heliport' ? 'Ⓗ' : '✈'} ${a.name}`;
+      const width = ctx.measureText(name).width + 12;
+      if (!tryPlace(x, y - 26, width, 18)) continue;
+      ctx.fillStyle = AIRFIELD_COLOURS.label;
+      this.pill(x - width / 2, y - 26, width, 18);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(name, x, y - 17);
     }
   }
 
@@ -816,6 +907,13 @@ export class WorldMap {
       if (lifts.has(type)) rows.push(['lift', LIFT_COLOURS[type] ?? DRAG_COLOUR, liftNames[type]!]);
     }
     rows.push(['arrow', '#2b2f36', 'Direction of travel']);
+    const fields = this.data.airfields;
+    const strips = [...(fields?.runways ?? []), ...(fields?.taxiways ?? [])];
+    if (strips.some((r) => r.winter === 'cleared'))
+      rows.push(['runway', AIRFIELD_COLOURS.paved, 'Runway, cleared']);
+    if (strips.some((r) => r.winter !== 'cleared'))
+      rows.push(['runway', AIRFIELD_COLOURS.snow, 'Snow runway']);
+    if (fields?.helipads.length) rows.push(['helipad', AIRFIELD_COLOURS.paved, 'Helipad']);
     if (this.data.restaurants.length) rows.push(['restaurant', RESTAURANT_COLOUR, 'Restaurant']);
     if (this.data.peaks.length) rows.push(['peak', '#1e1e24', 'Summit']);
     if (this.data.borders.length) rows.push(['border', BORDER_TEXT, 'National border']);
@@ -833,7 +931,14 @@ export class WorldMap {
   // --- place list ---
 
   private buildList(): void {
-    const icons = { start: '⌂', lift: '⇡', peak: '▲', piste: '●', restaurant: '🍴' };
+    const icons = {
+      start: '⌂',
+      lift: '⇡',
+      peak: '▲',
+      piste: '●',
+      restaurant: '🍴',
+      airfield: '✈',
+    };
     for (const place of this.data.places) {
       const li = document.createElement('li');
       li.className = `map-place map-place-${place.kind}`;
