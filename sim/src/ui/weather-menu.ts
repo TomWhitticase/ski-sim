@@ -1,14 +1,8 @@
 import { formatTime } from '../env/time-of-day';
-import {
-  type Conditions,
-  compass,
-  conditionsAt,
-  describe,
-  describeSky,
-  formatVisibility,
-} from '../env/weather';
+import { type Conditions, compass, describe, describeSky, formatVisibility } from '../env/weather';
 import type { WeatherChoice, WeatherState } from '../env/weather-control';
-import { FIRST_DATE } from '../env/weather-source';
+import { conditionsAt } from '../env/weather-field';
+import { FIRST_DATE, modelName } from '../env/weather-source';
 import { OptionsTab } from './options-hub';
 
 /** Which of the three the choice is, for the radio buttons. */
@@ -42,7 +36,8 @@ export class WeatherMenu extends OptionsTab {
     /** The clock (seconds after local midnight) and setting it. */
     private readonly clock: { seconds: number; set(seconds: number): void },
     /** Height (m) to show the hour strip for: where you are. */
-    private readonly altitude: () => number,
+    /** Where the camera is: local metres and height. */
+    private readonly place: () => { east: number; north: number; altitude: number },
     /** The instant (ms UTC) for a time of day on the shown date. */
     private readonly instant: (seconds: number) => number,
     private readonly onChoose: (choice: WeatherChoice) => void,
@@ -100,7 +95,7 @@ export class WeatherMenu extends OptionsTab {
     credit.className = 'weather-credit';
     credit.innerHTML =
       'Weather data by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> ' +
-      '(ERA5 reanalysis, CC BY 4.0), fetched only while weather is on.';
+      '(archived weather models and ERA5 reanalysis, CC BY 4.0), fetched only while weather is on.';
     body.append(credit);
     this.sync(true);
   }
@@ -158,7 +153,7 @@ export class WeatherMenu extends OptionsTab {
         : w.status === 'error'
           ? w.message
           : w.status === 'ready' && w.day
-            ? `${w.day.source === 'archive' ? 'Reanalysis' : 'Weather model'} for ${formatDate(w.date)}`
+            ? `${formatDate(w.date)} · ${modelName(w.day)}`
             : 'Bluebird: no cloud, no wind.';
     this.status.classList.toggle('error', w.status === 'error');
     this.showConditions(w.conditions);
@@ -184,6 +179,7 @@ export class WeatherMenu extends OptionsTab {
         'Cloud',
         `${Math.round(c.cloud * 100)} % · low ${Math.round(c.cloudLow * 100)} · mid ${Math.round(c.cloudMid * 100)} · high ${Math.round(c.cloudHigh * 100)}`,
       ],
+      ['Cloud deck', deckWords(c, this.place().altitude)],
       [
         'Falling',
         c.precipitation === 'none'
@@ -202,11 +198,11 @@ export class WeatherMenu extends OptionsTab {
   private showHours(): void {
     const day = this.weather.day;
     if (!day) return;
-    const altitude = this.altitude();
+    const { east, north, altitude } = this.place();
     const hour = Math.floor(this.clock.seconds / 3600);
     const cells: HTMLElement[] = [];
     for (let h = 0; h < 24; h++) {
-      const c = conditionsAt(day, this.instant(h * 3600 + 1800), altitude);
+      const c = conditionsAt(day, this.instant(h * 3600 + 1800), altitude, east, north);
       const b = button('weather-hour', '');
       b.dataset.hour = String(h);
       b.classList.toggle('selected', h === hour);
@@ -230,6 +226,19 @@ export class WeatherMenu extends OptionsTab {
     this.hours.replaceChildren(...cells);
     this.hours.setAttribute('aria-label', `Hourly: ${describeSky(this.weather.conditions)} now`);
   }
+}
+
+/** "1,850–2,400 m · 90 % · you're above it" */
+function deckWords(c: Conditions, altitude: number): string {
+  if (!(c.cloudCover > 0.02)) return 'none';
+  const m = (x: number) => `${Math.round(x / 10) * 10}`.replace(/\B(?=(\d{3})+$)/g, ',');
+  const where =
+    altitude > c.cloudTop
+      ? "you're above it"
+      : altitude < c.cloudBase
+        ? 'over you'
+        : "you're in it";
+  return `${m(c.cloudBase)}–${m(c.cloudTop)} m · ${Math.round(c.cloudCover * 100)} % · ${where}`;
 }
 
 /** "Thursday 4 January 2018" */

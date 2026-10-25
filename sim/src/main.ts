@@ -41,8 +41,10 @@ import { sunPosition } from './env/sun-position';
 import { dayPresets, formatRate, formatTime, loadTime, saveTime } from './env/time-of-day';
 import { CLEAR, describe as describeWeather, gustyWind } from './env/weather';
 import { WeatherState } from './env/weather-control';
-import { sunlitAt, WeatherFx } from './env/weather-fx';
-import { WEATHER_PROVENANCE, weatherHeights } from './env/weather-source';
+import { CloudDeck } from './env/cloud-layer';
+import { sunlitAt, WeatherFx, windVelocity } from './env/weather-fx';
+import { planWeatherSites } from './env/weather-field';
+import { weatherProvenance } from './env/weather-source';
 import { ObstacleIndex } from './features/obstacles';
 import { createBuildings } from './features/buildings';
 import { createRestaurants, terraceSolids } from './features/restaurants';
@@ -336,7 +338,9 @@ async function main(): Promise<void> {
   menu.loading(resortId);
   document.title = `${manifest.resort.name} · ski-sim`;
   // The data credits live in Options → Data & credits.
-  showCredits($('#opt-credits .modal-body'), [...manifest.provenance, WEATHER_PROVENANCE]);
+  const credits = (day: Parameters<typeof weatherProvenance>[0]) =>
+    showCredits($('#opt-credits .modal-body'), [...manifest.provenance, weatherProvenance(day)]);
+  credits(null);
   // Downloads are the first 80% of the bar; building the world is the rest.
   const downloads = new Downloads((fraction, bytes) =>
     menu.progress(`Downloading map data · ${formatBytes(bytes)}`, fraction * 0.8),
@@ -453,11 +457,20 @@ async function main(): Promise<void> {
 
   // Weather (C): Clear, Live or a past day from Open-Meteo. Picking a day moves the sim's
   // date (the sun's path) too; nothing is fetched until the player turns it on.
+  // Where the camera is, in local metres (the weather field is laid out in them).
+  const here = () => worldToEnu(camera.position.x, camera.position.z);
+  const weatherAt = (seconds: number) => {
+    const { east, north } = here();
+    weather.update(simDate(seconds).getTime(), east, north, camera.position.y);
+  };
   const weather = new WeatherState({
     resort: resortId,
-    lat: originLat,
-    lon: originLon,
-    elevations: weatherHeights(features.lifts),
+    country: manifest.resort.country,
+    // A grid of points over the lifts, each at the ground height there.
+    plan: planWeatherSites(features.lifts, near.extent, (e, n) =>
+      near.contains(e, n) ? near.sample(e, n) : far.sample(e, n),
+    ),
+    latLon: (east, north) => frame.toLatLon(east, north),
     zone: manifest.timezone?.name ?? null,
     utcOffsetHours: manifest.timezone?.utcOffsetHours ?? 1,
     defaultDate: BLUEBIRD_DATE,
@@ -475,7 +488,9 @@ async function main(): Promise<void> {
       clockSet();
     },
     changed: () => {
-      weather.update(simDate(clock.seconds).getTime(), camera.position.y);
+      weatherAt(clock.seconds);
+      cloudsChanged = true;
+      credits(weather.day);
       weatherMenu.sync(true);
       multiplayer.weatherChanged();
     },
@@ -484,12 +499,16 @@ async function main(): Promise<void> {
     $('#opt-weather'),
     weather,
     clock,
-    () => camera.position.y,
+    () => ({ ...here(), altitude: camera.position.y }),
     (seconds) => simDate(seconds).getTime(),
     (choice) => weather.choose(choice),
     clockSet,
   );
   const weatherFx = new WeatherFx(scene);
+  // The cloud deck, seen from above and below; rebuilt when the field or the camera moves.
+  const clouds = new CloudDeck(scene);
+  let cloudsChanged = true;
+  let cloudField: unknown = null;
 
   menu.progress('Building terrain…', 0.82);
   await nextFrame();
@@ -1376,6 +1395,8 @@ async function main(): Promise<void> {
   let last = performance.now();
   /** Seconds of play, for gusts and passing clouds; when the weather was last worked out. */
   let weatherClock = 0;
+  const cloudWindV = new Vector3();
+  let cloudsBuilt = -1;
   let weatherChecked = -1;
   let weatherWind = 0;
   let lastX = fly.position.x;
@@ -1587,11 +1608,28 @@ async function main(): Promise<void> {
     weatherClock += dt;
     if (weather.day && weatherClock - weatherChecked > 0.25) {
       weatherChecked = weatherClock;
-      weather.update(simDate(clock.seconds).getTime(), camera.position.y);
+      weatherAt(clock.seconds);
       weatherMenu.sync();
     }
     const conditions = weather.day ? weather.conditions : CLEAR;
     weatherWind = gustyWind(conditions, weatherClock);
+    if (weather.field !== cloudField) {
+      cloudField = weather.field;
+      cloudsChanged = true;
+    }
+    // At most five rebuilds a second, however fast the drone flies.
+    if (cloudsChanged || weatherClock - cloudsBuilt > 0.2) {
+      cloudsBuilt = weatherClock;
+      clouds.update(
+        camera.position,
+        weather.day && weather.field ? (e, n) => weather.layerAt(e, n) : null,
+        groundHeight,
+        cloudsChanged,
+      );
+      cloudsChanged = false;
+    }
+    const cloudWind = windVelocity(conditions.wind, conditions.windFrom, cloudWindV);
+    clouds.blow(dt, cloudWind.x, cloudWind.z);
     environment.setWeather(conditions, sunlitAt(conditions.cloud, weatherClock));
     const light = daylight(environment.sun.elevation);
     weatherFx.update(

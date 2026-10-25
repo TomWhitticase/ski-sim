@@ -28,7 +28,7 @@ async function openMeteo(url: string): Promise<Response> {
     new Date(start + i * 3_600_000).toISOString().slice(0, 16),
   );
   const body = u.searchParams
-    .get('elevation')!
+    .get('latitude')!
     .split(',')
     .map(() => ({
       hourly: {
@@ -50,9 +50,17 @@ function setup(store = memory(), fetcher = openMeteo) {
   const weather = new WeatherState(
     {
       resort: 'les-3-vallees',
-      lat: 45.3,
-      lon: 6.6,
-      elevations: [1500, 2300, 3200],
+      country: 'FR',
+      plan: {
+        grid: { nx: 2, ny: 1, west: -2000, south: 0, east: 2000, north: 0 },
+        points: [
+          { east: -2000, north: 0, elevation: 1500 },
+          { east: 2000, north: 0, elevation: 2300 },
+          { east: 0, north: 0, elevation: 3200 },
+        ],
+        profiles: [{ east: 0, north: 0 }],
+      },
+      latLon: (east, north) => ({ lat: 45.3 + north / 111_000, lon: 6.6 + east / 78_000 }),
       zone: 'Europe/Paris',
       utcOffsetHours: 1,
       defaultDate: '2026-02-15',
@@ -95,7 +103,8 @@ describe('WeatherState', () => {
     expect(log.offsets.at(-1)).toBe(2); // summer time in Paris
     await settle();
     expect(weather.status).toBe('ready');
-    const c = weather.update(Date.parse('2018-07-04T10:00:00Z'), 2300);
+    const c = weather.update(Date.parse('2018-07-04T10:00:00Z'), 2000, 0, 2300);
+    expect(weather.layerAt(0, 0)).not.toBeNull();
     expect(c.precipitation).toBe('snow');
     expect(loadChoice(store, 'les-3-vallees')).toEqual({ mode: 'past', date: '2018-07-04' });
   });
@@ -125,7 +134,7 @@ describe('WeatherState', () => {
     await settle();
     expect(weather.status).toBe('error');
     expect(weather.message).toContain('showing clear skies');
-    expect(weather.update(0, 2000)).toBe(CLEAR);
+    expect(weather.update(0, 0, 0, 2000)).toBe(CLEAR);
   });
 
   it('a guest follows the host (no fetch, nothing saved) and gets its own back after', async () => {
@@ -145,7 +154,14 @@ describe('WeatherState', () => {
     expect(guest.weather.date).toBe('2018-01-04');
     expect(guest.log.dates.at(-1)).toBe('2018-01-04');
     expect(guest.weather.status).toBe('ready');
-    expect(Number.isNaN(guest.weather.day!.levels[0]!.visibility[0])).toBe(true);
+    expect(Number.isNaN(guest.weather.day!.sites[0]!.visibility[0])).toBe(true);
+    // A day from an older build isn't one.
+    guest.weather.follow({
+      choice: { mode: 'past', date: '2018-01-04' },
+      date: '2018-01-04',
+      day: { levels: [] } as never,
+    });
+    expect(guest.weather.day).toBeNull();
     // The guest can't choose while following.
     guest.weather.choose({ mode: 'live' });
     expect(guest.weather.choice.mode).toBe('past');

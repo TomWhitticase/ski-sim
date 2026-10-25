@@ -23,7 +23,12 @@ type Sim = {
   ski: { feet: { x: number; y: number; z: number } };
   lifts: { time: number };
   clock: { seconds: number; rate: number };
-  weather: { status: string; date: string };
+  weather: {
+    status: string;
+    date: string;
+    day: { sites: unknown[] } | null;
+    fieldAt(at: number): { layers: { top: number; cover: number }[] } | null;
+  };
 };
 const sim = <T>(page: Page, fn: (s: Sim) => T) =>
   page.evaluate(`(${fn.toString()})(window.__sim)`) as Promise<T>;
@@ -547,7 +552,16 @@ test("guests ski in the host's weather, fetching nothing, with the Weather tab l
   await expect.poll(() => sim(guest, (s) => s.weather.status)).toBe('ready');
   expect(await sim(guest, (s) => s.weather.date)).toBe(date);
   expect(asked.filter((p) => p === guest)).toEqual([]);
-  expect(asked.filter((p) => p === host)).toHaveLength(1);
+  // The points, then pressure levels (AROME's, then the best match's: the mock has none).
+  expect(asked.filter((p) => p === host)).toHaveLength(3);
+  // The whole field: every point, so both see the same cloud over every place.
+  const field = (s: Sim) => {
+    const f = s.weather.fieldAt(Date.parse(`${s.weather.date}T10:00:00Z`))!;
+    return { sites: s.weather.day!.sites.length, layers: f.layers };
+  };
+  const hostField = await sim(host, field);
+  expect(hostField.sites).toBeGreaterThan(20);
+  expect(await sim(guest, field)).toEqual(hostField);
   await guest.keyboard.press('KeyC');
   const tab = guest.locator('#opt-weather');
   await expect(tab.locator('.time-locked')).toHaveText(
