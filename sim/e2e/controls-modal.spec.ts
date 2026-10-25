@@ -14,6 +14,8 @@ test('controls modal opens from the main menu, in sections, and closes with ✕ 
     'Drone',
     'Paraglider',
     'Snowmobile',
+    'Plane',
+    'Helicopter',
     'View & sound',
   ]);
   await expect(modal.locator('dt', { hasText: /^G$/ })).toBeVisible();
