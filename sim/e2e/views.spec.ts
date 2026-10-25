@@ -37,6 +37,22 @@ const VIEWS = [
     name: 'arlberg-sonnenkopf',
     query: 'resort=arlberg&at=47.0960,10.0560,2200&heading=0&pitch=-12',
   },
+  // Airfields (pipeline/airfields.py): Courchevel's altiport (537 m, up to 18.6%) from the
+  // approach below its bottom (22) end, from its level top, and its threshold paint close
+  // up; Méribel's; the Courchevel heliport's pads; Val Thorens' heliport on the snow; a
+  // windsock.
+  { name: 'airfield-courchevel-approach', query: 'at=45.40096,6.63968,1965&heading=224&pitch=-3' },
+  { name: 'airfield-courchevel-top', query: 'at=45.39560,6.63235,2011&heading=44&pitch=-8' },
+  {
+    name: 'airfield-courchevel-markings',
+    query: 'at=45.39952,6.63778,1975&heading=224&pitch=-45',
+  },
+  { name: 'airfield-meribel', query: 'at=45.41081,6.57540,1716&heading=155&pitch=-4' },
+  // A groomed snow runway (the Val Thorens altisurface): snow and edge markers, no paint.
+  { name: 'airfield-val-thorens', query: 'at=45.28185,6.56690,2452&heading=93&pitch=-10' },
+  { name: 'helipad-courchevel', query: 'at=45.39470,6.63770,2025&heading=320&pitch=-30' },
+  { name: 'helipad-val-thorens', query: 'at=45.29550,6.56500,2136&heading=35&pitch=-35' },
+  { name: 'windsock-courchevel', query: 'at=45.39699,6.63322,2006&heading=0&pitch=8' },
   // A rail in the Tétras snow park above Val Thorens: on legs, off the snow.
   { name: 'park-rail', query: 'at=45.289038,6.573435,2422.7&heading=90&pitch=-18' },
   {

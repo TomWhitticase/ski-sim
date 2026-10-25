@@ -6,6 +6,7 @@ import math
 
 import numpy as np
 from PIL import Image, ImageDraw
+from shapely.geometry import LineString
 
 SNOW = np.array([246, 249, 252], dtype=np.float32)
 SNOW_SHADOW = np.array([150, 170, 200], dtype=np.float32)
@@ -85,11 +86,38 @@ def draw_features(
 
     for building in features["buildings"]:
         draw.polygon([px(e, n) for e, n in building["footprint"]], fill=BUILDING)
+    draw_airfields(draw, features.get("airfields"), px)
     for lift in features["lifts"]:
         points = [px(s["east"], s["north"]) for s in lift["supports"]]
         draw.line(points, fill=LIFT, width=2)
         for x, y in (points[0], points[-1]):
             draw.ellipse((x - 3, y - 3, x + 3, y + 3), fill=LIFT)
+
+
+#: Airfield surfaces on the map: paved (cleared) dark grey, snow surfaces pale grey-blue,
+#: helipads as a ring (the sim's world map draws the same, `ui/world-map.ts`).
+PAVED = (78, 80, 86)
+SNOW_SURFACE = (178, 186, 198)
+HELIPAD = (40, 42, 48)
+
+
+def draw_airfields(draw: ImageDraw.ImageDraw, fields: dict | None, px) -> None:
+    if not fields:
+        return
+
+    def colour(item: dict) -> tuple[int, int, int]:
+        return PAVED if item["winter"] == "cleared" else SNOW_SURFACE
+
+    for apron in fields["aprons"]:
+        draw.polygon([px(e, n) for e, n in apron["ring"]], fill=colour(apron))
+    for strip in (*fields["taxiways"], *fields["runways"]):
+        line = LineString(strip["line"])
+        shape = line.buffer(strip["width"] / 2, cap_style="flat")
+        for poly in getattr(shape, "geoms", [shape]):
+            draw.polygon([px(e, n) for e, n in poly.exterior.coords], fill=colour(strip))
+    for pad in fields["helipads"]:
+        x, y = px(pad["east"], pad["north"])
+        draw.ellipse((x - 3, y - 3, x + 3, y + 3), outline=HELIPAD, width=1)
 
 
 #: Dashed routes on the map: pixels drawn, then pixels skipped, measured along the line.

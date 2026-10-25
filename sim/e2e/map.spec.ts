@@ -263,3 +263,36 @@ test('teleporting from the map before pressing Start still starts the sound', as
     .poll(() => page.evaluate(() => (window as unknown as { audioStarted: number }).audioStarted))
     .toBe(1);
 });
+
+test('airfields: runways and helipads on the map, in its key and the teleport list', async ({
+  page,
+}) => {
+  await load(page, '?resort=les-3-vallees&at=45.3975,6.6350,2100&heading=44&pitch=-10');
+  await page.keyboard.press('KeyM');
+  const map = page.locator('#world-map');
+  await expect(map.locator('.map-key-list li', { hasText: 'Runway, cleared' })).toBeAttached();
+  await expect(map.locator('.map-key-list li', { hasText: 'Snow runway' })).toBeAttached();
+  await expect(map.locator('.map-key-list li', { hasText: 'Helipad' })).toBeAttached();
+  // Zoomed in on the altiport (the map opens on you): runway shapes and its name.
+  const canvas = map.locator('canvas');
+  const box = (await canvas.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  for (let i = 0; i < 6; i++) {
+    await page.mouse.wheel(0, -300);
+    await page.waitForTimeout(80);
+  }
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: 'test-results/views/world-map-courchevel-altiport.png' });
+  const airfield = map.locator('.map-place[data-kind="airfield"]', {
+    hasText: 'Altiport de Courchevel',
+  });
+  await expect(airfield).toBeAttached();
+  await map.locator('.map-search').fill('altiport');
+  await airfield.click();
+  await page.waitForFunction(() => !document.querySelector('#world-map:not([hidden])'), null, {
+    timeout: 15_000,
+  });
+  await page.waitForTimeout(6000); // the sky transition
+  await expectOnGround(page);
+  await page.screenshot({ path: 'test-results/views/teleport-courchevel-altiport.png' });
+});

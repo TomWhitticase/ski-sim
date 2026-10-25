@@ -78,6 +78,13 @@ def fetch_restaurants(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list
     return _query(query, cache_dir, "restaurants")
 
 
+def fetch_airfields(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict]:
+    """Everything tagged `aeroway` (aerodromes, runways, taxiways, aprons, helipads,
+    windsocks, hangars...): nodes, and ways and relations with geometry."""
+    query = f'[out:json][timeout:180];nwr["aeroway"]({_bbox(lonlat_bounds)});out tags geom;'
+    return _query(query, cache_dir, "airfields")
+
+
 def fetch_places(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict]:
     """Named settlements (towns, villages, hamlets, suburbs) within the bounds."""
     query = (

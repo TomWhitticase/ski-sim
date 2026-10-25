@@ -136,6 +136,9 @@ export interface ResortFeatures {
   restaurants?: Restaurant[];
   /** National borders on the map (from pipeline/borders.py); missing in older builds. */
   borders?: Border[];
+  /** Runways, taxiways, aprons, helipads and windsocks (pipeline/airfields.py); missing in
+   *  older builds. */
+  airfields?: Airfields;
   /** Named towns, villages and hamlets for map labels (pipeline `map_places`); missing in
    *  older builds. */
   places?: {
@@ -152,4 +155,89 @@ export interface Border {
   /** Country to the left and right of the line, walking from its first point. */
   left: string | null;
   right: string | null;
+}
+
+/** Winter state: paved and ploughed (snowbanks along it), or a groomed snow surface. */
+export type WinterState = 'cleared' | 'groomed';
+
+/** An airfield's or heliport's name, for labels and the teleport list. */
+export interface Aerodrome {
+  id: number | string;
+  name: string;
+  kind: 'airfield' | 'heliport';
+  icao: string | null;
+  iata: string | null;
+  /** Label position: the middle of the main runway, where there is one. */
+  east: number;
+  north: number;
+  ground: number;
+  /** Published elevation (m), if known. */
+  ele: number | null;
+}
+
+export interface Runway {
+  id: number | string;
+  /** "04/22": designators of the line's first and last end. */
+  ref: string;
+  designators: [string, string];
+  /** Centreline from the first designator's threshold to the other's. */
+  line: [number, number][];
+  length: number;
+  width: number;
+  /** Bearing of the line (deg from north). */
+  heading: number;
+  surface: string | null;
+  winter: WinterState;
+  /** Ground height at each end (m). */
+  ends: [number, number];
+  source: 'osm' | 'ourairports';
+}
+
+export interface Taxiway {
+  id: number;
+  line: [number, number][];
+  width: number;
+  surface: string | null;
+  winter: WinterState;
+}
+
+export interface Apron {
+  id: number;
+  name: string | null;
+  ring: [number, number][];
+  surface: string | null;
+  winter: WinterState;
+}
+
+export interface Helipad {
+  id: number;
+  name: string | null;
+  east: number;
+  north: number;
+  /** The mapped outline, if it's a way. */
+  ring: [number, number][] | null;
+  shape: 'square' | 'circle';
+  /** Side (or diameter) of the pad (m), and the bearing of its long side. */
+  size: number;
+  heading: number;
+  surface: string | null;
+  winter: WinterState;
+  /** On a building's (flat) roof. */
+  roof: boolean;
+  building: number | null;
+  /** Height of the pad surface (m). */
+  top: number;
+}
+
+export interface Airfields {
+  aerodromes: Aerodrome[];
+  runways: Runway[];
+  taxiways: Taxiway[];
+  aprons: Apron[];
+  helipads: Helipad[];
+  windsocks: { id: number; east: number; north: number; ground: number }[];
+  /** Ploughed snowbank lines beside cleared surfaces (with gaps to ski through). */
+  snowbanks: [number, number][][];
+  /** Edge markers on groomed snow surfaces: [east, north, ground]. */
+  markers: [number, number, number][];
 }

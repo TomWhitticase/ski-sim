@@ -11,8 +11,10 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 from rasterio.warp import Resampling
+from shapely.geometry import Point
 
 from . import (
+    airfields,
     approach,
     borders,
     crossings,
@@ -39,7 +41,7 @@ from .grid import (
     sample_bilinear,
     stitch_far_to_near,
 )
-from .sources import copernicus, ign, osm, worldcover
+from .sources import copernicus, ign, osm, ourairports, worldcover
 
 log = logging.getLogger(__name__)
 
@@ -345,6 +347,28 @@ def build_pistes(
     }
 
 
+def collect_airfields(frame: LocalFrame, raw_root: Path, near_grid: Grid) -> dict:
+    """Runways, taxiways, aprons, helipads and windsocks from OSM, filled in from
+    OurAirports. OSM building footprints find the helipads on roofs."""
+    lonlat = frame.bounds_in("EPSG:4326", near_grid.extent)
+    airports, our_runways = ourairports.load(raw_root, lonlat)
+    rings = [
+        features._project(frame, el["geometry"][:-1])
+        for el in osm.fetch_features(lonlat, raw_root)
+        if "building" in el.get("tags", {})
+        and len(el.get("geometry") or []) >= 4
+        and el["geometry"][0] == el["geometry"][-1]
+    ]
+    return airfields.collect(
+        osm.fetch_airfields(lonlat, raw_root),
+        frame,
+        near_grid.extent,
+        airports,
+        our_runways,
+        rings,
+    )
+
+
 def validate_peaks(peaks: list[dict], extent) -> list[dict]:
     """Check DEM summit heights against every OSM peak in the resort area that has a
     published elevation (no hand-picked list needed). Logs a summary and the outliers."""
@@ -547,6 +571,12 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         graded["climbAfter"],
         graded["maxFill"],
     )
+    # Airfields after the pistes (a runway is level across even where a run crosses it)
+    # and before terminals and buildings, which are placed on the result.
+    log.info("Building airfields (OpenStreetMap, OurAirports)")
+    fields = collect_airfields(frame, raw_root, near_grid)
+    airfield_grading = airfields.grade(fields, near, near_grid)
+    log.info("Built into the terrain: %s", airfield_grading)
     stitch_far_to_near(far, far_grid, near, near_grid)
 
     log.info("Building lifts and buildings (OpenStreetMap)")
@@ -585,6 +615,21 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         pistes.summarise(piste_runs, lambda e, n: sample_bilinear(near, near_grid, e, n)),
         start_bases,
     )
+
+    # Airfield records on the final ground (after terminals and hut sites), with rooftop
+    # helipads on their buildings.
+    def ground_now(e, n):
+        return sample_bilinear(near, near_grid, e, n)
+
+    terminal_pads = [
+        Point(t["east"], t["north"]).buffer((t["length"] + t["back"] + t["width"]) / 2)
+        for lift in feature_data["lifts"]
+        for t in lift["terminals"]
+    ]
+    feature_data["airfields"] = airfields.finish(
+        fields, ground_now, feature_data["buildings"], terminal_pads
+    )
+    runway_checks = airfields.validate(fields, ground_now, cfg.runways)
     log.info("Building pistes (OpenStreetMap)")
     pistes_meta = build_pistes(frame, raw_root, near, near_grid, out_dir, ours, feature_data)
     piste_records = json.loads((out_dir / "pistes.json").read_text())["pistes"]
@@ -609,6 +654,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         feature_data,
         # Skiable off-piste routes (not walking ones) get a glade through any forest.
         {r["index"] for r in piste_runs if not r["groomed"] and r["type"] != "hike"},
+        airfields.clearing_shapes(fields),
     )
 
     log.info("Writing outputs to %s", out_dir)
@@ -676,6 +722,21 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
             "buildings": len(feature_data["buildings"]),
             "peaks": len(feature_data["peaks"]),
             "restaurants": len(feature_data["restaurants"]),
+            "airfields": {
+                "aerodromes": len(feature_data["airfields"]["aerodromes"]),
+                "runways": len(feature_data["airfields"]["runways"]),
+                "helipads": len(feature_data["airfields"]["helipads"]),
+                "graded": airfield_grading,
+                # The paint isn't data: the sim draws it to the standard.
+                "markings": {
+                    "synthetic": True,
+                    "basis": "ICAO Annex 14 Vol. I/II (threshold, designator, centreline, "
+                    "aiming point and edge markings; helipad H and TLOF), from each "
+                    "runway's OSM ref, width and length",
+                },
+                "winter": "paved surfaces cleared with ploughed snowbanks (gaps every "
+                f"{airfields.BANK_RUN:.0f} m); others groomed snow with edge markers",
+            },
         },
         "landCover": land_cover,
         "validation": {
@@ -684,6 +745,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
             "nearCoverage": coverage,
             "liftClearance": clearance,
             "landCover": land_stats,
+            "runways": runway_checks,
         },
         "provenance": [
             *(
@@ -714,6 +776,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
                 "processedResolution": far_grid.cell_size,
             },
             {"layer": "features", **osm.PROVENANCE},
+            {"layer": "features.airfields", **ourairports.PROVENANCE},
             {
                 "layer": "landCover",
                 **worldcover.PROVENANCE,

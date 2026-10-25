@@ -4,7 +4,7 @@ sim shades the terrain with and places trees from.
 Each layer is the fraction of a cell covered by that class (WorldCover's 10 m classes
 averaged onto our grid). Tree cover is then cleared where trees can't stand: groomed
 pistes, lift corridors and stations, and buildings, with a narrow glade along off-piste
-routes. The sim scatters individual trees
+routes and airfield surfaces with their strips. The sim scatters individual trees
 from the cleared tree cover; their positions, heights and species are synthetic (seeded
 per cell) and only the tree cover itself is data.
 """
@@ -108,10 +108,12 @@ def clearings(
     buildings: list[dict],
     terraces: list[list] | None = None,
     routes: set[int] = frozenset(),
+    extra: list = (),
 ) -> np.ndarray:
     """True where trees must not stand: groomed pistes, lift lines and stations, buildings
-    and restaurant terraces (`terraces`: their rings), and a narrow glade along the line of
-    each off-piste route in `routes` (ROUTE_HALF_WIDTH)."""
+    and restaurant terraces (`terraces`: their rings), a narrow glade along the line of
+    each off-piste route in `routes` (ROUTE_HALF_WIDTH), and the `extra` shapes (airfield
+    surfaces and their strips)."""
     shapes = [geom.buffer(PISTE_MARGIN) for idx, geom, _, _ in piste_shapes if idx in groomed]
     shapes += [
         line.buffer(ROUTE_HALF_WIDTH)
@@ -134,6 +136,7 @@ def clearings(
         polygon = Polygon(ring)
         if polygon.is_valid:
             shapes.append(polygon.buffer(BUILDING_MARGIN))
+    shapes += [s for s in extra if not s.is_empty]
     if not shapes:
         return np.zeros((grid.height, grid.width), dtype=bool)
     return rio_features.rasterize(
@@ -179,6 +182,7 @@ def build(
     groomed: set[int],
     features: dict,
     routes: set[int] = frozenset(),
+    extra_clearings: list = (),
 ) -> tuple[dict, dict, object]:
     """Writes landcover-near.png / landcover-far.png. Returns the manifest entry, stats and
     a sampler of the (cleared) tree cover: `tree_cover(east, north)`."""
@@ -198,7 +202,14 @@ def build(
     stray |= slope_degrees(heights, cell) > MAX_TREE_SLOPE
     terraces = [r["terrace"]["ring"] for r in features.get("restaurants", []) if r["terrace"]]
     cleared = clearings(
-        grid, piste_shapes, groomed, features["lifts"], features["buildings"], terraces, routes
+        grid,
+        piste_shapes,
+        groomed,
+        features["lifts"],
+        features["buildings"],
+        terraces,
+        routes,
+        extra_clearings,
     )
     forest_before = float(tree.sum())
     tree[stray | cleared] = 0
