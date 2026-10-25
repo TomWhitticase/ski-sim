@@ -13,6 +13,7 @@ import { AIRCRAFT_TYPES, type AircraftType, H125, PC6 } from '../controls/aircra
 import { Drone } from '../controls/drone-model';
 import { createGliderRig, type GliderRig, poseGlider } from '../controls/glider-controls';
 import { SkierModel } from '../controls/ski-model';
+import { createSkydiveRig, poseSkydiver, type SkydiveRig } from '../controls/skydive-controls';
 import { initialStance } from '../controls/ski-stance';
 import { createSnowmobile, type SnowmobileParts } from '../controls/snowmobile-model';
 import { createState, Flag, SLOT, slotsToStance } from './codec';
@@ -64,6 +65,7 @@ class RemoteAvatar {
   private sled?: { parts: SnowmobileParts; rider: SkierModel };
   private drone?: Drone;
   private aircraft?: { parts: AircraftParts; pilot: SkierModel; type: AircraftType };
+  private skydiver?: SkydiveRig;
   private time = 0;
   private readonly up = new Vector3();
   private readonly position = new Vector3();
@@ -142,6 +144,8 @@ class RemoteAvatar {
       this.aircraft = this.addAircraft(type);
     }
     const aircraft = type ? this.aircraft! : null;
+    const diving =
+      mode === 'freefall' || mode === 'canopy' ? (this.skydiver ??= this.addSkydiver()) : null;
     this.time += dt;
     // Flying: their drone. Out of body, their skier stands holding its controller.
     const spirit = (flags & Flag.Spirit) !== 0;
@@ -150,6 +154,7 @@ class RemoteAvatar {
     if (this.glider) this.glider.root.visible = !!glider;
     if (this.sled) this.sled.parts.root.visible = !!sled;
     if (this.aircraft) this.aircraft.parts.root.visible = !!aircraft;
+    if (this.skydiver) this.skydiver.root.visible = !!diving;
     if (drone && spirit) {
       // Only its position is sent; the drone works out its velocity (to tilt) from that.
       this.spirit.fromArray(pose, SLOT.spirit).add(this.position);
@@ -184,6 +189,19 @@ class RemoteAvatar {
       parts.body.position.y = pose[SLOT.extra + 1]!;
       rider.setFlyingDrone(spirit);
       rider.apply(this.stance, this.up);
+    } else if (diving) {
+      // Their body's orientation as sent; the canopy along their heading.
+      poseSkydiver(
+        diving,
+        this.position,
+        pose[SLOT.spirit + 3]!,
+        0,
+        pose[SLOT.extra]!,
+        pose[SLOT.extra + 1]!,
+      );
+      diving.pivot.quaternion.copy(this.rotation);
+      diving.skier.apply(this.stance, this.up);
+      tagHeight = pose[SLOT.extra]! > 0.5 ? 6.5 : TAG_HEIGHT;
     } else if (aircraft) {
       const { parts, pilot } = aircraft;
       parts.root.position.copy(this.position);
@@ -221,6 +239,13 @@ class RemoteAvatar {
     parts.seat.add(rider.root);
     this.root.add(parts.root);
     return { parts, rider };
+  }
+
+  private addSkydiver(): SkydiveRig {
+    const rig = createSkydiveRig();
+    rig.skier.setJacket(playerColour(this.player));
+    this.root.add(rig.root);
+    return rig;
   }
 
   private addAircraft(type: AircraftType): {

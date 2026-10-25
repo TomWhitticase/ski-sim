@@ -22,6 +22,10 @@ export interface TouchState {
   names: boolean;
   /** Piste colours are on the snow. */
   pistes: boolean;
+  /** In a plane or helicopter off the ground (you can jump out). */
+  flying?: boolean;
+  /** Skydiving under an open canopy. */
+  canopy?: boolean;
 }
 
 export interface TouchActions {
@@ -89,6 +93,10 @@ const ICONS = {
     '<path d="M3 5h18M12 5v3"/><path d="M6 13a4 4 0 0 1 4-5h3a4 4 0 0 1 4 4v1H6z"/><path d="M17 11h4l1-2M8 16l-1 2h10l-1-2"/>',
   ),
   flaps: svg('<path d="M3 10h12l6 2"/><path d="M15 10l5 6"/>'),
+  turnLeft: svg('<path d="M9 7H15a5 5 0 0 1 0 10h-4"/><path d="M12 4L9 7l3 3"/>'),
+  turnRight: svg('<path d="M15 7H9a5 5 0 0 0 0 10h4"/><path d="M12 4l3 3-3 3"/>'),
+  bail: svg('<circle cx="12" cy="5" r="2"/><path d="M5 10l7 2 7-2M12 12v4l-4 5M12 16l4 5"/>'),
+  canopy: svg('<path d="M3 10c3-5 15-5 18 0"/><path d="M3 10l9 9 9-9M8 9l4 10 4-10"/>'),
   brake: svg('<circle cx="12" cy="12" r="8"/><path d="M8 12h8"/>'),
 };
 
@@ -115,6 +123,7 @@ export class TouchControls {
   private lookTouch: { id: number; x: number; y: number } | null = null;
   private stopping = false;
   private stateKey = '';
+  private lastMode = '';
 
   constructor(
     private readonly root: HTMLElement,
@@ -163,7 +172,7 @@ export class TouchControls {
 
   /** The mode and what's happening in it; shows the buttons that matter. Every frame. */
   update(state: TouchState): void {
-    const key = `${state.mode}|${state.airborne}|${state.tucked}|${state.fastForward}|${state.names}|${state.pistes}`;
+    const key = `${state.mode}|${state.airborne}|${state.tucked}|${state.fastForward}|${state.names}|${state.pistes}|${state.flying}|${state.canopy}`;
     if (key !== this.stateKey) {
       this.stateKey = key;
       for (const { spec, el } of this.buttons) {
@@ -172,6 +181,7 @@ export class TouchControls {
         if (el.hidden && el.classList.contains('down')) this.release(spec, el);
       }
       this.root.dataset.mode = state.mode;
+      this.lastMode = state.mode;
     }
     if (this.kind !== 'touch') return;
     // Stop: a snowplough, or a hockey stop to the side the stick's pushed. While it's
@@ -309,6 +319,36 @@ export class TouchControls {
         hold: 'Space',
         when: (st) => st.mode === 'plane',
       },
+      // Pedals (the cluster fills from the right, so Right comes first to sit right).
+      {
+        id: 'turn-right',
+        label: 'Right',
+        icon: ICONS.turnRight,
+        hold: 'KeyE',
+        when: (st) => st.mode === 'heli',
+      },
+      {
+        id: 'turn-left',
+        label: 'Left',
+        icon: ICONS.turnLeft,
+        hold: 'KeyQ',
+        when: (st) => st.mode === 'heli',
+      },
+      {
+        id: 'bail',
+        label: 'Jump out',
+        icon: ICONS.bail,
+        press: () => this.actions.key(this.lastMode === 'plane' ? 'KeyU' : 'KeyY'),
+        when: (st) => (st.mode === 'plane' || st.mode === 'heli') && !!st.flying,
+      },
+      {
+        id: 'open',
+        label: 'Open',
+        icon: ICONS.canopy,
+        press: () => s.tap('Space'),
+        big: true,
+        when: (st) => st.mode === 'skydive' && !st.canopy,
+      },
       {
         id: 'climb',
         label: 'Up',
@@ -360,7 +400,7 @@ export class TouchControls {
         label: 'Drone',
         icon: ICONS.fly,
         press: () => this.actions.key('KeyF'),
-        when: (st) => st.mode !== 'ride',
+        when: (st) => st.mode !== 'ride' && st.mode !== 'skydive',
         on: (st) => st.mode === 'fly',
       },
       {
@@ -376,7 +416,8 @@ export class TouchControls {
         label: 'Snowmobile',
         icon: ICONS.sled,
         press: () => this.actions.key('KeyB'),
-        when: (st) => st.mode !== 'ride' && st.mode !== 'plane' && st.mode !== 'heli',
+        when: (st) =>
+          st.mode !== 'ride' && st.mode !== 'plane' && st.mode !== 'heli' && st.mode !== 'skydive',
         on: (st) => st.mode === 'sled',
       },
       {
@@ -384,7 +425,7 @@ export class TouchControls {
         label: 'Plane',
         icon: ICONS.plane,
         press: () => this.actions.key('KeyU'),
-        when: (st) => st.mode !== 'ride' && st.mode !== 'heli',
+        when: (st) => st.mode !== 'ride' && st.mode !== 'heli' && st.mode !== 'skydive',
         on: (st) => st.mode === 'plane',
       },
       {
@@ -392,7 +433,7 @@ export class TouchControls {
         label: 'Helicopter',
         icon: ICONS.heli,
         press: () => this.actions.key('KeyY'),
-        when: (st) => st.mode !== 'ride' && st.mode !== 'plane',
+        when: (st) => st.mode !== 'ride' && st.mode !== 'plane' && st.mode !== 'skydive',
         on: (st) => st.mode === 'heli',
       },
       {

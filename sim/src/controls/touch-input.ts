@@ -125,7 +125,7 @@ export function pinchScale(
   return Math.min(max, Math.max(min, mppStart * (spreadStart / spread)));
 }
 
-export type TouchMode = 'fly' | 'ski' | 'glide' | 'ride' | 'sled' | 'plane' | 'heli';
+export type TouchMode = 'fly' | 'ski' | 'glide' | 'ride' | 'sled' | 'plane' | 'heli' | 'skydive';
 
 /**
  * The keys the stick holds down in each mode, on top of its analog axes (`Input.stickX/Y`,

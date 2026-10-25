@@ -277,3 +277,18 @@ describe('PC-6 in the air', () => {
     expect(dive.crashed).toMatch(/Hard landing|Prop strike/);
   });
 });
+
+describe('after a crash', () => {
+  it('stops stepping the moment the crash ends, so it can be reset before flying on', () => {
+    const t = runway(2000);
+    const s = createPlaneState(PC6);
+    s.onGround = false;
+    s.position.set(0, 2000, 0);
+    s.crash = 0.01;
+    s.crashed = 'Prop strike';
+    stepPlane(s, { pitch: -1, roll: 0, yaw: 0, throttle: 1, brake: false, flaps: 0 }, 0.1, PC6, t);
+    expect(s.crash).toBe(0);
+    // Nothing flew (or crashed again) in the rest of the frame.
+    expect(s.position.y).toBeCloseTo(2000, 0);
+  });
+});

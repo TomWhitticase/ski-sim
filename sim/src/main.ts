@@ -30,6 +30,7 @@ import { SLED_TRENCH, SnowTrails } from './fx/snow-trails';
 import { GliderControls } from './controls/glider-controls';
 import { AircraftControls, type AircraftTerrain, BOARD_RANGE } from './controls/aircraft-controls';
 import { H125, PC6 } from './controls/aircraft-types';
+import { SkydiveControls } from './controls/skydive-controls';
 import type { Surface } from './controls/plane-physics';
 import { parkingSpots, pavedAt } from './features/aircraft-parking';
 import { CableIndex } from './features/cables';
@@ -663,6 +664,9 @@ async function main(): Promise<void> {
   const plane = new AircraftControls(PC6, camera, aircraftTerrain, bounds);
   const heli = new AircraftControls(H125, camera, aircraftTerrain, bounds);
   scene.add(plane.root, heli.root);
+  // Bailing out of either: freefall, then the canopy.
+  const skydiver = new SkydiveControls(camera, groundHeight, bounds);
+  scene.add(skydiver.root);
   const aircraftFor = (kind: 'plane' | 'heli') => (kind === 'plane' ? plane : heli);
   // Aircraft waiting at the airfields (a Porter at each runway's top, H125s on helipads).
   const fleet = new ParkedFleet(
@@ -715,7 +719,9 @@ async function main(): Promise<void> {
               ? plane
               : mode === 'heli'
                 ? heli
-                : fly;
+                : mode === 'skydive'
+                  ? skydiver
+                  : fly;
   /** Where you are: fly eye, or skier's / pilot's / rider's feet, or the sled's track. */
   const whereAmI = () =>
     mode === 'ski'
@@ -728,7 +734,9 @@ async function main(): Promise<void> {
             ? sled.position
             : mode === 'plane' || mode === 'heli'
               ? aircraftFor(mode).position
-              : fly.position;
+              : mode === 'skydive'
+                ? skydiver.position
+                : fly.position;
   const spawn: Pose = { ...manifest.spawn, pitch: -8 };
   const inBounds = (p: Pose) =>
     p.east > farExtent.west + 500 &&
@@ -876,7 +884,8 @@ async function main(): Promise<void> {
         return true;
       },
       sample: (out) => {
-        sampleAvatar(body ?? mode, { fly, ski, glider, ride, sled, plane, heli }, out);
+        const avatar = body ?? (mode === 'skydive' ? skydiver.avatarMode : mode);
+        sampleAvatar(avatar, { fly, ski, glider, ride, sled, plane, heli, skydiver }, out);
         if (body) addSpirit(out, fly);
       },
       lifts,
@@ -907,7 +916,14 @@ async function main(): Promise<void> {
         partyHud.notify(text, text.includes('following in') ? 'follow' : text);
       },
       setJacket: (colour) => {
-        for (const model of [ski.model, glider.pilot, sled.rider, plane.pilot, heli.pilot]) {
+        for (const model of [
+          ski.model,
+          glider.pilot,
+          sled.rider,
+          plane.pilot,
+          heli.pilot,
+          skydiver.pilot,
+        ]) {
           model.setJacket(colour);
         }
       },
@@ -1057,6 +1073,7 @@ async function main(): Promise<void> {
     sled.setView(view);
     plane.setView(view);
     heli.setView(view);
+    skydiver.setView(view);
     document.body.classList.toggle('chase', view === 'chase');
     showToggle('view', view === 'first-person', announce);
     localStorage.setItem(VIEW_KEY, view);
@@ -1104,9 +1121,12 @@ async function main(): Promise<void> {
     glider.setActive(mode === 'glide');
     if (body !== 'sled') sled.setActive(mode === 'sled');
     for (const kind of ['plane', 'heli'] as const) {
-      if (body !== kind && aircraftFor(kind).status !== 'away')
-        aircraftFor(kind).setActive(mode === kind);
+      const ctl = aircraftFor(kind);
+      if (body !== kind && (ctl.status === 'riding' || ctl.status === 'parked')) {
+        ctl.setActive(mode === kind);
+      }
     }
+    skydiver.setActive(mode === 'skydive');
     if (body === 'ski') ski.showFrozen();
     else if (body === 'glide') glider.showFrozen();
     else if (body === 'sled') sled.showFrozen();
@@ -1154,7 +1174,9 @@ async function main(): Promise<void> {
               ? sled.velocity
               : mode === 'plane' || mode === 'heli'
                 ? aircraftFor(mode).velocity
-                : fly.currentVelocity
+                : mode === 'skydive'
+                  ? skydiver.velocity
+                  : fly.currentVelocity
     ).clone();
     if (mode === 'ride') ride.leave();
     if (mode === 'sled') {
@@ -1221,6 +1243,25 @@ async function main(): Promise<void> {
     }
     activate();
   };
+  /**
+   * Out of the door in the air: freefall with the aircraft's speed (and a push sideways).
+   * The empty aircraft flies on a few seconds and goes; its airfield spot is free again.
+   */
+  const bailOut = (kind: 'plane' | 'heli') => {
+    const ctl = aircraftFor(kind);
+    const out = ctl.abandon();
+    abandoned = kind;
+    mode = 'skydive';
+    skydiver.jump(out.at, out.velocity, out.heading);
+    activate();
+    partyHud.notify(
+      input.touch
+        ? 'Open your canopy when you like · stick forward to track, back to flare'
+        : 'Space to open your canopy · W track · S flare · E head down',
+    );
+  };
+  /** The aircraft left flying on empty, if any (its airfield spot frees once it's gone). */
+  let abandoned: 'plane' | 'heli' | null = null;
   /** A parked plane or helicopter within reach (yours, or one at the airfield), if any. */
   const nearbyAircraft = (p: Vector3): 'plane' | 'heli' | null => {
     if (!gameRules.aircraft) return null;
@@ -1266,7 +1307,8 @@ async function main(): Promise<void> {
     const ctl = aircraftFor(kind);
     if (mode === kind) {
       if (ctl.canExit) setMode('ski');
-      else partyHud.notify(ctl.onGround ? 'Stop to get out' : 'Land and stop to get out');
+      else if (!ctl.onGround && !ctl.crashing) bailOut(kind);
+      else partyHud.notify('Stop to get out');
       return;
     }
     if (mode === 'ride' || mode === 'plane' || mode === 'heli') return;
@@ -1533,8 +1575,9 @@ async function main(): Promise<void> {
       if (mode === 'fly') {
         if (body) returnToBody();
         else setMode('ski');
-      } else if (mode !== 'ride') {
-        setMode('fly'); // not off a lift: you'd leave your body hanging on the chair
+      } else if (mode !== 'ride' && mode !== 'skydive') {
+        // Not off a lift (you'd leave your body hanging on the chair) or in freefall.
+        setMode('fly');
       }
     } else if (code === 'KeyR' && !worldMap.isOpen && mode === 'fly') {
       setMode('ski'); // your skier comes to the ground below you
@@ -1635,6 +1678,7 @@ async function main(): Promise<void> {
       sled,
       plane,
       heli,
+      skydiver,
       fleet,
       fly,
       environment,
@@ -1793,6 +1837,10 @@ async function main(): Promise<void> {
     if (mode === 'fly') levels.wind = 0; // the drone's camera hears its props, not the wind
     // In a cockpit the slipstream is a muffled hiss under the engine.
     if ((mode === 'plane' || mode === 'heli') && view === 'first-person') levels.wind *= 0.35;
+    // Freefall roars: louder still with speed (head down at 290 km/h).
+    if (mode === 'skydive' && !skydiver.canopyOut) {
+      levels.wind = Math.min(1, 0.55 + 0.45 * Math.min(1, skydiver.airspeed / 80));
+    }
     sound.update(levels);
     sound.setEngine(engineSound(sled.rpm, sled.throttle, mode === 'sled'));
     sound.setDrone('own', mode === 'fly' ? droneSound(fly.currentVelocity.length()) : DRONE_OFF);
@@ -1850,6 +1898,19 @@ async function main(): Promise<void> {
       }
       const landed = controls().update(dt, input);
       if (mode === 'glide' && landed) setMode('ski');
+      if (mode === 'skydive') {
+        const touch = skydiver.state.landed;
+        if (touch?.crash) {
+          // Into the ground: a crash, then on your feet where you hit, at rest.
+          partyHud.notify(touch.sink > 30 ? 'Crashed · no canopy' : 'Crashed · hard landing');
+          sound.thump(8);
+          skydiver.velocity.set(0, 0, 0);
+          setMode('ski');
+        } else if (touch) {
+          sound.thump(touch.sink);
+          setMode('ski'); // running on, with the canopy's momentum
+        }
+      }
       if (mode === 'ride' && landed) unload();
       if (mode === 'ski' && !ski.airborne) {
         const hit = lifts.scoop(ski.feet);
@@ -1860,6 +1921,10 @@ async function main(): Promise<void> {
     if (mode !== 'sled') sled.idle(dt); // a parked sled settles where you left it
     if (mode !== 'plane' && body !== 'plane') plane.idle(dt); // props run down when parked
     if (mode !== 'heli' && body !== 'heli') heli.idle(dt);
+    if (abandoned && aircraftFor(abandoned).status === 'away') {
+      fleet.take(null, aircraftFor(abandoned).type.id); // its airfield's one is back
+      abandoned = null;
+    }
     if (mode === 'plane' || mode === 'heli') {
       const ctl = aircraftFor(mode);
       if (ctl.crashed && !crashNoted) {
@@ -1935,6 +2000,7 @@ async function main(): Promise<void> {
     };
     plane.air = air;
     heli.air = air;
+    skydiver.air = air;
     environment.setWeather(conditions, sunlitAt(conditions.cloud, weatherClock));
     const light = daylight(environment.sun.elevation);
     weatherFx.update(
@@ -2001,8 +2067,10 @@ async function main(): Promise<void> {
               ? sled.speed
               : mode === 'plane' || mode === 'heli'
                 ? aircraftFor(mode).speed
-                : speed;
-    updateSnowFx(dt, ownSpeed);
+                : mode === 'skydive'
+                  ? skydiver.speed
+                  : speed;
+    updateSnowFx(dt, mode === 'skydive' ? skydiver.airspeed : ownSpeed);
     const heading = controls().heading;
     const ground = groundHeight(here.x, here.z);
     // Slope underfoot from the ground either side (2 m), only near the snow.
@@ -2021,19 +2089,34 @@ async function main(): Promise<void> {
     hud.setMarker(w ? (Math.atan2(w.east - east, w.north - north) * 180) / Math.PI : null);
     hud.update({ altitude: here.y, lat, lon, speed: ownSpeed, heading, slope });
     const pilotOf = mode === 'plane' || mode === 'heli' ? aircraftFor(mode) : null;
-    hud.setFlight(
-      pilotOf
-        ? {
-            kind: pilotOf.kind,
-            airspeed: pilotOf.airspeed,
-            vertical: pilotOf.velocity.y,
-            power: pilotOf.kind === 'plane' ? pilotOf.lever : pilotOf.load,
-            flaps: pilotOf.flapSetting,
-            stall: pilotOf.stallWarning,
-            onGround: pilotOf.onGround,
-          }
-        : null,
-    );
+    if (mode === 'skydive') {
+      hud.setMode(skydiver.avatarMode);
+      const agl = skydiver.agl;
+      hud.setFlight({
+        kind: 'skydive',
+        airspeed: skydiver.airspeed,
+        vertical: skydiver.velocity.y,
+        power: 0,
+        flaps: 0,
+        stall: false,
+        onGround: false,
+        agl,
+        warning: skydiver.canopyOut ? null : agl < 600 ? 'PULL' : agl < 1000 ? 'LOW' : null,
+      });
+    } else
+      hud.setFlight(
+        pilotOf
+          ? {
+              kind: pilotOf.kind,
+              airspeed: pilotOf.airspeed,
+              vertical: pilotOf.velocity.y,
+              power: pilotOf.kind === 'plane' ? pilotOf.lever : pilotOf.load,
+              flaps: pilotOf.flapSetting,
+              stall: pilotOf.stallWarning,
+              onGround: pilotOf.onGround,
+            }
+          : null,
+      );
     // Which run is underfoot (only meaningful near the snow).
     const nearSnow = here.y - ground < 60;
     const piste = nearSnow ? pisteLookup.at(east, north) : null;
@@ -2067,6 +2150,8 @@ async function main(): Promise<void> {
       fastForward: ride.fastForward,
       names: labels.isVisible('lift') || labels.isVisible('peak') || labels.isVisible('restaurant'),
       pistes: pisteColours,
+      flying: (mode === 'plane' || mode === 'heli') && !aircraftFor(mode).onGround,
+      canopy: mode === 'skydive' && skydiver.canopyOut,
     });
     labels.update(camera);
     waypoint.update(camera, here);
@@ -2121,7 +2206,7 @@ function poseFromUrl(params: URLSearchParams, frame: LocalFrame, spawn: Pose): P
   };
 }
 
-type Mode = 'fly' | 'ski' | 'glide' | 'ride' | 'sled' | 'plane' | 'heli';
+type Mode = 'fly' | 'ski' | 'glide' | 'ride' | 'sled' | 'plane' | 'heli' | 'skydive';
 const MODE_KEY = 'ski-sim.mode';
 /** Width of the groove each snowmobile ski's keel cuts (m). */
 const SLED_SKI_GROOVE = 0.1;

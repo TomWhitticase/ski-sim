@@ -87,6 +87,32 @@ export class SettingsMenu extends OptionsTab {
     }
     fields.append(field);
 
+    // Options → Controls: what flies a plane or helicopter (keyboard and mouse only).
+    const controls = document.querySelector<HTMLElement>('#opt-controls .modal-body');
+    if (controls) {
+      const fly = document.createElement('section');
+      fly.className = 'desktop-only fly-with';
+      fly.innerHTML =
+        '<h3>Fly aircraft with</h3><div class="setup-field">' +
+        '<div class="setup-options" role="radiogroup"></div>' +
+        '<span class="setup-hint">Arrow keys: the mouse only looks round. Mouse: the arrows work too.</span></div>';
+      const group = fly.querySelector<HTMLElement>('.setup-options')!;
+      for (const [value, label] of [
+        ['mouse', 'Mouse'],
+        ['arrows', 'Arrow keys'],
+      ] as const) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'setup-option';
+        b.textContent = label;
+        b.dataset.flyWith = value;
+        b.setAttribute('role', 'radio');
+        b.addEventListener('click', () => this.set({ flyWith: value }));
+        group.append(b);
+      }
+      controls.prepend(fly);
+    }
+
     el.querySelector('.setup-reset')!.addEventListener('click', () =>
       this.set({ ...DEFAULT_CAMERA }),
     );
@@ -105,6 +131,11 @@ export class SettingsMenu extends OptionsTab {
       input.value = String(cameraSettings[s.key]);
       fillRange(input);
       value.textContent = s.format(cameraSettings[s.key]);
+    }
+    for (const b of document.querySelectorAll<HTMLElement>('[data-fly-with]')) {
+      const on = b.dataset.flyWith === cameraSettings.flyWith;
+      b.classList.toggle('selected', on);
+      b.setAttribute('aria-checked', String(on));
     }
     for (const b of this.el.querySelectorAll<HTMLElement>('[data-invert]')) {
       const on = b.dataset.invert === String(cameraSettings.invertY);

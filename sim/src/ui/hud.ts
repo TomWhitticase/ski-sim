@@ -12,7 +12,7 @@ export interface HudState {
 
 /** What the flight strip shows (plane or helicopter). */
 export interface FlightState {
-  kind: 'plane' | 'heli';
+  kind: 'plane' | 'heli' | 'skydive';
   /** True airspeed (m/s). */
   airspeed: number;
   /** Climb (+) or sink (m/s). */
@@ -23,6 +23,9 @@ export interface FlightState {
   flaps: number;
   stall: boolean;
   onGround: boolean;
+  /** Skydiving: height above the ground (m), and a warning to show ("PULL", "LOW"). */
+  agl?: number;
+  warning?: string | null;
 }
 
 const FLAPS = ['UP', 'T/O', 'LDG'];
@@ -233,7 +236,19 @@ export class Hud {
         : key('F', 'Ski from here');
   }
 
-  setMode(mode: 'fly' | 'ski' | 'glide' | 'ride' | 'sled' | 'plane' | 'heli'): void {
+  setMode(
+    mode:
+      | 'fly'
+      | 'ski'
+      | 'glide'
+      | 'ride'
+      | 'sled'
+      | 'plane'
+      | 'heli'
+      | 'skydive'
+      | 'freefall'
+      | 'canopy',
+  ): void {
     this.root.querySelector('[data-mode]')!.textContent =
       mode === 'ride'
         ? 'LIFT'
@@ -243,7 +258,9 @@ export class Hud {
             ? 'DRONE'
             : mode === 'heli'
               ? 'HELICOPTER'
-              : mode.toUpperCase();
+              : mode === 'skydive'
+                ? 'FREEFALL'
+                : mode.toUpperCase();
   }
 
   /**
@@ -262,12 +279,17 @@ export class Hud {
       const tile = (label: string, field: string, unit = '') =>
         `<div><span class="lab">${label}</span><b><span data-flight="${field}"></span>${unit ? `<span class="unit">${unit}</span>` : ''}</b></div>`;
       el.innerHTML =
-        tile('Airspeed', 'airspeed', 'km/h') +
-        tile('V/S', 'vertical', 'm/s') +
-        tile(state.kind === 'plane' ? 'Power' : 'Torque', 'power', '%') +
-        (state.kind === 'plane'
-          ? tile('Flaps', 'flaps') + '<span class="stall" hidden>STALL</span>'
-          : '');
+        state.kind === 'skydive'
+          ? tile('Airspeed', 'airspeed', 'km/h') +
+            tile('V/S', 'vertical', 'm/s') +
+            tile('Above ground', 'agl', 'm') +
+            '<span class="stall" hidden></span>'
+          : tile('Airspeed', 'airspeed', 'km/h') +
+            tile('V/S', 'vertical', 'm/s') +
+            tile(state.kind === 'plane' ? 'Power' : 'Torque', 'power', '%') +
+            (state.kind === 'plane'
+              ? tile('Flaps', 'flaps') + '<span class="stall" hidden>STALL</span>'
+              : '');
       el.hidden = false;
     }
     const put = (field: string, text: string) => {
@@ -278,9 +300,17 @@ export class Hud {
     put('vertical', formatVertical(state.onGround ? 0 : state.vertical));
     put('power', formatPower(state));
     put('flaps', FLAPS[Math.round(state.flaps)] ?? 'UP');
+    if (state.agl !== undefined) {
+      put('agl', Math.max(0, Math.round(state.agl)).toLocaleString('en-GB'));
+    }
+    const warning =
+      state.kind === 'skydive' ? (state.warning ?? null) : state.stall ? 'STALL' : null;
     const stall = el.querySelector<HTMLElement>('.stall');
-    if (stall && stall.hidden === state.stall) stall.hidden = !state.stall;
-    el.classList.toggle('warning', state.stall);
+    if (stall) {
+      if (warning && stall.textContent !== warning) stall.textContent = warning;
+      if (stall.hidden === !!warning) stall.hidden = !warning;
+    }
+    el.classList.toggle('warning', !!warning);
   }
 
   /** The guide marker's bearing from you (degrees), or null when there's none. */

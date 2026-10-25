@@ -216,8 +216,11 @@ export function stepHeli(
   let left = dt;
   while (left > 1e-6) {
     const h = Math.min(left, MAX_STEP);
+    const crashing = s.crash > 0;
     stepOnce(s, input, h, type, terrain, air);
     left -= h;
+    // A crash just ended: stop, so the controller puts you back on the ground first.
+    if (crashing && s.crash === 0) break;
   }
 }
 

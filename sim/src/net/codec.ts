@@ -5,7 +5,17 @@
 
 import type { Stance } from '../controls/ski-stance';
 
-export const AVATAR_MODES = ['fly', 'ski', 'glide', 'ride', 'sled', 'plane', 'heli'] as const;
+export const AVATAR_MODES = [
+  'fly',
+  'ski',
+  'glide',
+  'ride',
+  'sled',
+  'plane',
+  'heli',
+  'freefall',
+  'canopy',
+] as const;
 export type AvatarMode = (typeof AVATAR_MODES)[number];
 
 /**
@@ -18,8 +28,8 @@ export const SLOT = {
   rotation: 6, // model root quaternion x, y, z, w
   up: 10, // body balance line in the model's frame
   stance: 13, // STANCE_SLOTS values (see stanceToSlots)
-  extra: 37, // glider bank / sled steer / prop or rotor revs, sled suspension / flaps or power
-  spirit: 39, // out of body (Flag.Spirit): where you're flying, x, y, z from the body (m), and yaw
+  extra: 37, // glider bank / sled steer / prop or rotor revs / canopy inflation, sled suspension / flaps or power / canopy bank
+  spirit: 39, // out of body (Flag.Spirit): where you're flying, x, y, z from the body (m), and yaw; skydiving: the heading in its last slot
   // On a lift (Flag.OnCarrier): lift line, carrier and seat indices, then the feet in the
   // carrier's grip frame (m). `rotation` is then relative to the grip too, so receivers
   // put the rider on their own copy of the carrier (the lift clock is shared).

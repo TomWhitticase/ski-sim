@@ -11,6 +11,11 @@ export interface CameraSettings {
   invertY: boolean;
   /** Third-person camera distance (× each mode's default). */
   chaseDistance: number;
+  /**
+   * What flies a plane or helicopter on a desktop: the mouse as the stick (the arrow keys
+   * work too), or the arrow keys alone, the mouse then only looking round.
+   */
+  flyWith: 'mouse' | 'arrows';
 }
 
 export const DEFAULT_CAMERA: Readonly<CameraSettings> = {
@@ -20,9 +25,10 @@ export const DEFAULT_CAMERA: Readonly<CameraSettings> = {
   sensitivity: 1,
   invertY: false,
   chaseDistance: 1,
+  flyWith: 'mouse',
 };
 
-type NumericKey = Exclude<keyof CameraSettings, 'invertY'>;
+type NumericKey = Exclude<keyof CameraSettings, 'invertY' | 'flyWith'>;
 
 export const CAMERA_RANGES: Record<NumericKey, { min: number; max: number; step: number }> = {
   fovFirst: { min: 50, max: 120, step: 1 },
@@ -49,6 +55,7 @@ export function sanitizeCamera(raw: unknown): CameraSettings {
     }
   }
   if (typeof r.invertY === 'boolean') out.invertY = r.invertY;
+  if (r.flyWith === 'mouse' || r.flyWith === 'arrows') out.flyWith = r.flyWith;
   return out;
 }
 
@@ -65,4 +72,22 @@ export function loadCamera(storage: Pick<Storage, 'getItem'>): CameraSettings {
 
 export function saveCamera(storage: Pick<Storage, 'setItem'>): void {
   storage.setItem(KEY, JSON.stringify(cameraSettings));
+}
+
+/** Keyboard stick: full deflection after this long held (s), and back to centre on release. */
+export const KEY_STICK = { rampTime: 0.6, reverse: 3, centre: 0.25 };
+
+/**
+ * One axis of a stick moved by two keys: held, it moves toward full deflection (full over
+ * ~0.6 s, three times as fast when reversing), so a tap is a small correction; let go, it
+ * springs back to centre in ~0.25 s. `dir` is -1, 0 or +1.
+ */
+export function keyStick(current: number, dir: number, dt: number): number {
+  if (dir === 0) {
+    const step = dt / KEY_STICK.centre;
+    return Math.abs(current) <= step ? 0 : current - Math.sign(current) * step;
+  }
+  const reversing = current * dir < 0;
+  const rate = (reversing ? KEY_STICK.reverse : 1) / KEY_STICK.rampTime;
+  return Math.max(-1, Math.min(1, current + dir * rate * dt));
 }

@@ -676,3 +676,142 @@ test('phones without WebGPU get the WebGL 2 renderer, with no errors', async ({ 
   await shot(page, 'webgl-landscape');
   expect(errors).toEqual([]);
 });
+
+/** No two of these visible boxes overlap (a small tolerance for glass edges). */
+async function noOverlap(page: Page, selectors: string[]) {
+  await page.waitForTimeout(300); // after a resize, the layout and the HUD's zoom settle
+  const boxes: { name: string; x: number; y: number; w: number; h: number }[] = [];
+  for (const sel of selectors) {
+    for (const el of await page.locator(sel).all()) {
+      if (!(await el.isVisible())) continue;
+      const b = (await el.boundingBox())!;
+      boxes.push({ name: sel, x: b.x, y: b.y, w: b.width, h: b.height });
+    }
+  }
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i]!;
+      const b = boxes[j]!;
+      const overlap =
+        Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 2 &&
+        Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 2;
+      expect(overlap, `${a.name} overlaps ${b.name}: ${JSON.stringify([a, b])}`).toBe(false);
+    }
+  }
+}
+
+const TOUCH_UI = [
+  '#touch-buttons .touch-btn',
+  '#touch-tools',
+  '#touch-pause',
+  '#hud .hud-stats',
+  '#flight',
+  '#minimap',
+  '#prompt',
+];
+
+test('by touch: the cockpit view, jumping out, freefall and the canopy, upright and sideways', async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  // On the Courchevel heliport, next to a parked H125.
+  await load(page, 'at=45.39642,6.63514,1995&heading=153&pitch=-5');
+  const fingers = await Fingers.on(page);
+  await tapToPlay(page, fingers);
+  // The arrow-key setting is keyboard-only.
+  await expect(page.locator('.fly-with')).toBeHidden();
+  const tool = async (id: string) => {
+    const c = await centre(page, `[data-touch="${id}"]`);
+    await fingers.tap(c.x, c.y);
+  };
+  await tool('heli');
+  await expect.poll(() => mode(page)).toBe('HELICOPTER');
+  // Cockpit (the view tool: the tests start in first person), and a drag looks round.
+  if (await page.locator('body.chase').count()) await tool('view');
+  await expect(page.locator('body')).not.toHaveClass(/\bchase\b/);
+  await page.waitForTimeout(400);
+  const yaw = () =>
+    page.evaluate(() => {
+      const c = (window.__sim as unknown as { camera: import('three').Camera }).camera;
+      return Math.atan2(-c.matrixWorld.elements[8]!, -c.matrixWorld.elements[10]!);
+    });
+  const before = await yaw();
+  await fingers.press(1, 600, 200);
+  await fingers.move(1, 450, 200);
+  await page.waitForTimeout(100);
+  const looked = await yaw();
+  expect(Math.abs(looked - before)).toBeGreaterThan(0.3);
+  await shot(page, 'heli-cockpit-landscape');
+  await fingers.lift(1);
+  await page.setViewportSize(PORTRAIT);
+  await page.waitForTimeout(400);
+  await shot(page, 'heli-cockpit-portrait');
+  await noOverlap(page, TOUCH_UI);
+  await page.setViewportSize(LANDSCAPE);
+  await page.waitForTimeout(300);
+  await noOverlap(page, TOUCH_UI);
+  await tool('view'); // back to chase
+
+  // Up and away, then the Jump out button.
+  const up = await centre(page, '[data-touch="climb"]');
+  await fingers.press(2, up.x, up.y);
+  await expect(page.locator('[data-touch="bail"]')).toBeVisible({ timeout: 15_000 });
+  await page.waitForTimeout(3000);
+  await fingers.lift(2);
+  await page.evaluate(() => {
+    // Higher: 1,200 m above the heliport (a long climb otherwise).
+    type V = { x: number; y: number; z: number };
+    const h = (
+      window.__sim as unknown as {
+        heli: { position: V; yaw: number; mount(a: V, v: V, y: number, r: boolean): void };
+      }
+    ).heli;
+    const p = h.position;
+    const Vec = p.constructor as new (x: number, y: number, z: number) => V;
+    h.mount(new Vec(p.x, p.y + 1200, p.z), new Vec(0, 0, 0), h.yaw, true);
+  });
+  await page.waitForTimeout(500);
+  await shot(page, 'heli-flying-landscape');
+  await noOverlap(page, TOUCH_UI);
+  const bail = await centre(page, '[data-touch="bail"]');
+  await fingers.tap(bail.x, bail.y);
+  await expect.poll(() => mode(page)).toBe('FREEFALL');
+  await expect(page.locator('[data-touch="open"]')).toBeVisible();
+  // The stick tracks (forward) and turns.
+  await fingers.press(3, 150, 300);
+  await fingers.move(3, 180, 220);
+  await page.waitForTimeout(2500);
+  const tracking = await page.evaluate(
+    () =>
+      (window.__sim as unknown as { skydiver: { state: { track: number } } }).skydiver.state.track,
+  );
+  expect(tracking).toBeGreaterThan(0.5);
+  await shot(page, 'freefall-landscape');
+  await noOverlap(page, TOUCH_UI);
+  await page.setViewportSize(PORTRAIT);
+  await page.waitForTimeout(300);
+  await shot(page, 'freefall-portrait');
+  await noOverlap(page, TOUCH_UI);
+  await fingers.lift(3);
+  const open = await centre(page, '[data-touch="open"]');
+  await fingers.tap(open.x, open.y);
+  await expect.poll(() => mode(page)).toBe('CANOPY');
+  await expect(page.locator('[data-touch="open"]')).toBeHidden();
+  await page.waitForTimeout(4000);
+  await shot(page, 'canopy-portrait');
+  await noOverlap(page, TOUCH_UI);
+  await page.setViewportSize(LANDSCAPE);
+  await page.waitForTimeout(300);
+  // Stick back flares the canopy.
+  await fingers.press(4, 150, 250);
+  await fingers.move(4, 150, 330);
+  await page.waitForTimeout(1500);
+  const flare = await page.evaluate(
+    () =>
+      (window.__sim as unknown as { skydiver: { state: { flare: number } } }).skydiver.state.flare,
+  );
+  expect(flare).toBeGreaterThan(0.5);
+  await shot(page, 'canopy-landscape');
+  await noOverlap(page, TOUCH_UI);
+  await fingers.lift(4);
+});

@@ -22,37 +22,66 @@ import { EYE_HEIGHT } from './ski-controls';
 import { type GliderState, stepGlider } from './glider-physics';
 import { initialStance, type Stance } from './ski-stance';
 
+/** A wing's shape: span and chord (m), height over the pilot's feet, arc (rad), cells. */
+export interface WingSpec {
+  span: number;
+  chord: number;
+  height: number;
+  arc: number;
+  cells: number;
+  thickness: number;
+  /** Chord at the tips as a share of the middle's lost (0 = rectangular). */
+  taper: number;
+  /** Cells per colour band, and the colours. */
+  band: number;
+  colours: [number, number, number][];
+  /** Where the risers clip in above the feet (m). */
+  hang: number;
+}
+
 /** Wing: an arched canopy ~10 m across, ~7 m above the pilot. */
-const WING = { span: 10.5, chord: 2.6, height: 7, arc: 0.85, cells: 28, thickness: 0.18 };
 const CELL_COLOURS: [number, number, number][] = [
   [0.95, 0.42, 0.08], // orange
   [0.97, 0.97, 0.98], // white
   [0.04, 0.45, 0.52], // teal (matches the jacket)
 ];
+const WING: WingSpec = {
+  span: 10.5,
+  chord: 2.6,
+  height: 7,
+  arc: 0.85,
+  cells: 28,
+  thickness: 0.18,
+  taper: 0.45,
+  band: 3,
+  colours: CELL_COLOURS,
+  hang: 1.45, // risers clip in around chest height
+};
 const CHASE_DISTANCE = 13;
 /** Seconds after launch before touching the snow counts as landing. */
 const LAUNCH_GRACE = 1.2;
-const HANG_POINT = 1.45; // risers clip in around chest height
 
 /** Point on the wing's arc at spanwise s ∈ [-1, 1], in the pilot's frame. */
-function wingPoint(s: number, chordFrac: number): Vector3 {
-  const radius = WING.span / 2 / Math.sin(WING.arc);
-  const theta = s * WING.arc;
-  const chord = WING.chord * (1 - 0.45 * s * s); // tapered tips
+function wingPoint(spec: WingSpec, s: number, chordFrac: number): Vector3 {
+  const radius = spec.span / 2 / Math.sin(spec.arc);
+  const theta = s * spec.arc;
+  const chord = spec.chord * (1 - spec.taper * s * s); // tapered tips
   return new Vector3(
     radius * Math.sin(theta),
-    WING.height - radius * (1 - Math.cos(theta)),
+    spec.height - radius * (1 - Math.cos(theta)),
     -chord * 0.45 + chord * chordFrac, // leading edge forward (-z)
   );
 }
 
-function createWing(): Group {
+/** The canopy (vertex-coloured cells) and its lines down to the risers. */
+export function createWing(WING: WingSpec): Group {
   const positions: number[] = [];
   const colours: number[] = [];
   const index: number[] = [];
   const rows = 6; // along the chord
   for (let c = 0; c < WING.cells; c++) {
-    const colour = CELL_COLOURS[Math.floor(((c + 1) % 9) / 3)]!;
+    const n = WING.colours.length;
+    const colour = WING.colours[Math.floor(((c + 1) % (n * WING.band)) / WING.band)]!;
     const s0 = -1 + (2 * c) / WING.cells;
     const s1 = -1 + (2 * (c + 1)) / WING.cells;
     for (const top of [true, false]) {
@@ -62,7 +91,7 @@ function createWing(): Group {
         // Airfoil-ish: top surface bulges, thickest near the front third.
         const bulge = top ? WING.thickness * Math.sin(Math.PI * Math.min(1, f * 1.4)) : 0;
         for (const s of [s0, s1]) {
-          const p = wingPoint(s, f);
+          const p = wingPoint(WING, s, f);
           p.y += bulge;
           positions.push(p.x, p.y, p.z);
           const shade = top ? 1 : 0.75;
@@ -92,8 +121,8 @@ function createWing(): Group {
   for (let i = 0; i <= 10; i++) {
     const s = -0.95 + (1.9 * i) / 10;
     for (const f of [0.15, 0.5, 0.85]) {
-      const p = wingPoint(s, f);
-      const riser = new Vector3(Math.sign(s || 1) * 0.22, HANG_POINT, 0);
+      const p = wingPoint(WING, s, f);
+      const riser = new Vector3(Math.sign(s || 1) * 0.22, WING.hang, 0);
       line.push(p.x, p.y, p.z, riser.x, riser.y, riser.z);
     }
   }
@@ -122,7 +151,7 @@ export function createGliderRig(): GliderRig {
   root.name = 'glider';
   const swing = new Group();
   const pilot = new SkierModel();
-  swing.add(pilot.root, createWing());
+  swing.add(pilot.root, createWing(WING));
   root.add(swing);
   return { root, swing, pilot };
 }
