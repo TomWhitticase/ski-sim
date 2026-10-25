@@ -279,3 +279,32 @@ def test_cyrillic_names_without_an_english_one_are_transliterated():
     assert display_name({"name": "Банско"}) == "Bansko"
     assert display_name({"name": "Банско", "name:en": "Bansko town"}) == "Bansko town"
     assert display_name({"name": "Val Thorens"}) == "Val Thorens"
+
+
+def test_wide_and_irregular_footprints_get_hip_roofs():
+    from shapely.geometry import Polygon
+
+    from ski_sim_pipeline.features import HIP_MIN_PITCH, gable_roof
+    from ski_sim_pipeline.terminals import _height_at
+
+    # A 60 x 30 m block: hipped, shallow, the ridge shortened by the half-width each end.
+    roof = gable_roof(Polygon([(0, 0), (60, 0), (60, 30), (0, 30)]), "apartments", None)
+    assert roof["hip"] is True
+    (ax, ay), (bx, by) = roof["ridge"]
+    assert sorted([ax, bx]) == pytest.approx([15, 45]) and ay == by == pytest.approx(15)
+    # The pitch eases from 24° at a 9 m half-width toward HIP_MIN_PITCH at 20 m.
+    pitch = 24 + (HIP_MIN_PITCH - 24) * (15 - 9) / (20 - 9)
+    assert roof["rise"] == pytest.approx(15 * np.tan(np.radians(pitch)), abs=0.05)
+    assert len(roof["faces"]) == 4
+    assert sum(Polygon(f).area for f in roof["faces"]) == pytest.approx(1800, rel=1e-3)
+    b = {"top": 100, "roof": roof}
+    assert _height_at(b, 30, 15) == pytest.approx(100 + roof["rise"])  # on the ridge
+    assert _height_at(b, 0, 15) == pytest.approx(100)  # the hip comes down to the end wall
+    assert _height_at(b, 7.5, 15) == pytest.approx(100 + roof["rise"] / 2)
+    assert _height_at(b, 30, 0) == pytest.approx(100)
+    # An L-shape fills little of its box: hipped too; a plain 20 x 8 m house stays gabled.
+    l_shape = gable_roof(
+        Polygon([(0, 0), (30, 0), (30, 10), (10, 10), (10, 25), (0, 25)]), "yes", None
+    )
+    assert l_shape["hip"] is True
+    assert "hip" not in gable_roof(Polygon([(0, 0), (20, 0), (20, 8), (0, 8)]), "yes", None)

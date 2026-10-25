@@ -86,6 +86,11 @@ export interface Building {
   heightSource: 'osm-height' | 'osm-levels' | 'estimate';
   /** A piece left above a cut (station, walkway, cable): needs an underside. */
   raised?: boolean;
+  /** A raised piece's building's ground-level base: its facade (storeys, the stone
+   *  plinth) counts from here, so a storey over a station has no plinth of its own. */
+  groundBase?: number;
+  /** A chair station's own building: the hood stands inside it, so it's not solid. */
+  shell?: boolean;
   /** What it's used for, where that changes how it's drawn (mountain restaurants). */
   use?: 'restaurant';
   /** Stone basement height above `base` (huts on a slope: up to the uphill ground). */
@@ -96,6 +101,9 @@ export interface Building {
     halfWidth: number;
     rise: number;
     faces: [number, number][][];
+    /** Hip roof: `ridge` is the real ridge segment and the roof also falls away along
+     *  it beyond the ends, by the same slope. */
+    hip?: boolean;
     /** Overhang beyond the walls (m); the faces then cover the eaves too. */
     eaves?: number;
   } | null;

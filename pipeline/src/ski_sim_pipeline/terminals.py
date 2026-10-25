@@ -23,7 +23,7 @@ import logging
 import math
 
 import numpy as np
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
 from . import rope
@@ -73,6 +73,21 @@ MIN_SLAB = 2.0
 CABLE_STEP = 4.0
 #: How far below the cable a carrier and its load reach (m), for building clearance.
 HANG_DEPTH = {"chair": 3.2, "gondola": 4.6, "cabin": 8.5, "drag": 99.0}
+#: A building the station hall covers at least this much of is the station's own
+#: building (OSM maps most of them as plain `building=yes`, with the lift's end node,
+#: the bullwheel, inside). Bigger footprints are residences the station is set into.
+STATION_OVERLAP = 0.4
+STATION_BUILDING_MAX_AREA = 2500.0
+#: A gondola or cable car hall grows to fill its building, up to this (m): behind the
+#: bullwheel, in front of it, and either side of the line.
+HALL_GROW = {"back": 12.0, "length": 36.0, "half": 8.0}
+#: Station buildings are low whatever their footprint area: this much above the pad.
+STATION_HEIGHT = 8.0
+#: A chair station's shell is cut only round the hood itself: this far either side of
+#: the tracks (the hood's half-width is the gauge's plus 1.7 m). A building smaller than
+#: this share of the hall can't hold the hood: it's replaced by the terminal instead.
+HOOD_CLEARANCE = 2.2
+SHELL_MIN_AREA = 0.6
 
 
 def detachable(lift: dict) -> bool:
@@ -313,6 +328,107 @@ def _on_pads(terminals: list[dict], east: np.ndarray, north: np.ndarray) -> np.n
     return mask
 
 
+# --- Station buildings ------------------------------------------------------------------
+
+
+def adopt_station_buildings(
+    terminals: list[dict], buildings: list[dict], heights: np.ndarray, grid: Grid, ground
+) -> dict:
+    """Recognise the buildings that *are* stations by geometry, and fit each station to
+    its building. OSM maps the station building as `building=yes` far more often than
+    `aerialway=station`, with the lift's end node (the bullwheel) inside it; cut as any
+    other building, its ground floor went and its storeys hovered over the hood.
+
+    A building the hall covers STATION_OVERLAP of (or that sits mostly inside the hall)
+    is the station's, unless it's a residence (STATION_BUILDING_MAX_AREA, or an OSM
+    height well above the station's roof: then the station is set into it as before).
+    - It's station-height (STATION_HEIGHT above the pad, or clear of the hood) when its
+      height was estimated: from the footprint area a 1,400 m² gondola station came out
+      five storeys tall.
+    - A gondola or cable car hall grows to fill the building (`HALL_GROW`): the glazed
+      hall then is the building, and whatever footprint is left beyond it is cut as
+      usual. The pad grows with it, and buildings round it are re-seated.
+    - A chair station keeps the building as its shell (`shell` on the building): the hood
+      stands inside, the walls stay (only the hood's own volume, the rope portal and the
+      entrance are cut), and the sim doesn't collide with it. A building too small to
+      hold the hood (SHELL_MIN_AREA) is replaced by the terminal, as before.
+    Returns counts.
+    """
+    from shapely.strtree import STRtree
+
+    footprints = [Polygon(b["footprint"]).buffer(0) for b in buildings]
+    tree = STRtree(footprints)
+    stats = {"stationHeight": 0, "grown": 0, "shells": 0}
+    for t in terminals:
+        hall = hall_polygon(t, 0.0)
+        best = None
+        for i in tree.query(hall):
+            i = int(i)
+            b = buildings[i]
+            fp = footprints[i]
+            if fp.area > STATION_BUILDING_MAX_AREA or b.get("raised") or b.get("use"):
+                continue
+            inter = fp.intersection(hall).area
+            if inter < STATION_OVERLAP * hall.area and inter < 0.5 * fp.area:
+                continue
+            if b["heightSource"] != "estimate" and _full_top(b) > t["pad"] + t["roofTop"] + 6:
+                continue
+            if best is None or inter > best[1]:
+                best = (i, inter)
+        if best is None:
+            continue
+        i, inter = best
+        b, fp = buildings[i], footprints[i]
+        if t["kind"] in ("gondola", "cabin"):
+            if _grow_hall(t, fp, heights, grid, ground, buildings, tree):
+                stats["grown"] += 1
+        elif t["kind"] == "chair" and fp.area >= SHELL_MIN_AREA * hall.area:
+            b["shell"] = True
+            stats["shells"] += 1
+        clear = station_top(t) + ROOF_GAP + MIN_SLAB + 0.5
+        if b["heightSource"] == "estimate":
+            b["top"] = round(t["pad"] + max(STATION_HEIGHT, clear), 2)
+            stats["stationHeight"] += 1
+        elif b.get("shell"):
+            b["top"] = max(b["top"], round(t["pad"] + clear, 2))
+    return stats
+
+
+def _grow_hall(t, fp: Polygon, heights, grid: Grid, ground, buildings: list[dict], tree) -> bool:
+    """Extend a hall's footprint to its building's (within HALL_GROW), re-stamp its pad
+    and re-seat the buildings round it on the new ground. False if nothing changed."""
+    o, d, a = _frame(t)
+    pts = np.asarray(fp.exterior.coords)
+    u = (pts[:, 0] - o[0]) * d[0] + (pts[:, 1] - o[1]) * d[1]
+    v = (pts[:, 0] - o[0]) * a[0] + (pts[:, 1] - o[1]) * a[1]
+    back = round(min(max(t["back"], -float(u.min())), HALL_GROW["back"]), 2)
+    length = round(min(max(t["length"], float(u.max())), HALL_GROW["length"]), 2)
+    half = min(
+        max(t["width"] / 2, float(max(-v.min(), v.max()))), t["gauge"] / 2 + HALL_GROW["half"]
+    )
+    width = round(2 * half, 2)
+    if (back, length, width) == (t["back"], t["length"], t["width"]):
+        return False
+    t.update(back=back, length=length, width=width)
+    reach = max(back, length) + half + PAD_MARGIN + HUT_DEPTH + FALLOFF + 2
+    near = [int(i) for i in tree.query(Point(o).buffer(reach))]
+    before = {}
+    for i in near:
+        ring = np.asarray(buildings[i]["footprint"])
+        before[i] = ground(ring[:, 0], ring[:, 1])
+    u_range, v_range = _pad_ranges(t)
+    _rect_stamp(heights, grid, o, d, a, u_range, v_range, lambda u, v, p=t["pad"]: p + 0 * u)
+    for i in near:
+        b = buildings[i]
+        if b.get("raised"):
+            continue
+        ring = np.asarray(b["footprint"])
+        after = ground(ring[:, 0], ring[:, 1])
+        b["top"] = round(b["top"] + float(after.mean() - before[i].mean()), 2)
+        b["base"] = round(float(after.min()) - 1.0, 2)
+    return True
+
+
 # --- Entrances and walkways -------------------------------------------------------------
 
 
@@ -399,6 +515,13 @@ NO_FLOOR = -1e9
 # floor like real resort stations.
 NO_CEILING = 1e9
 HALL_HEADROOM = 0.6
+#: What the sim draws above `roofTop`: the hall roof's slab (gondola, cable car); and a
+#: fixed-grip chair's drive housing, which tops out this far above the rail instead.
+ROOF_SLAB = 0.3
+FIXED_HOUSING = 1.5
+#: Storeys left above a station sit this far over its roof: close enough that no gap
+#: shows, apart enough that the faces don't z-fight.
+ROOF_GAP = 0.03
 #: How far past a station's walls buildings are cut back to (m). Halls have walls at the
 #: edge of their footprint; a chair's hood sits ~0.8 m inside it, and drags have none.
 FLUSH = {"gondola": 0.0, "cabin": 0.0, "chair": 0.0, "drag": 0.8}
@@ -421,14 +544,12 @@ def cut_volumes(lifts: list[dict], terminals: list[dict]) -> list[tuple]:
     for t in terminals:
         # Flush with the station's walls (CUT_MARGIN apart, so no faces coincide): a
         # station set into a building reads as part of it, with no gap to squeeze through.
-        cuts.append(
-            (
-                hall_polygon(t, FLUSH[t["kind"]]),
-                NO_FLOOR,
-                t["pad"] + t["roofTop"] + HALL_HEADROOM,
-                "hall",
-            )
-        )
+        ceiling = t["pad"] + station_top(t) + ROOF_GAP
+        cuts.append((hall_polygon(t, FLUSH[t["kind"]]), NO_FLOOR, ceiling, "hall"))
+        # A station's own building (`shell`) is cut only round the hood itself.
+        if t["kind"] == "chair":
+            r = t["gauge"] / 2 + HOOD_CLEARANCE
+            cuts.append((_rect(t, -t["back"], t["length"], -r, r), NO_FLOOR, ceiling, "hood"))
         side = t.get("entrance")
         if side:
             cuts.append(
@@ -450,6 +571,7 @@ def cut_volumes(lifts: list[dict], terminals: list[dict]) -> list[tuple]:
         width = lift["gauge"] / 2 + half + CARRIER_CLEARANCE
         depth = HANG_DEPTH[kind] + CARRIER_CLEARANCE
         cat = lift.get("catenary")
+        ends = (_terminal_at(s[0], terminals), _terminal_at(s[-1], terminals))
         for k, (a, b) in enumerate(zip(s, s[1:], strict=False)):
             ax, ay, bx, by = a["east"], a["north"], b["east"], b["north"]
             span = math.hypot(bx - ax, by - ay)
@@ -477,8 +599,13 @@ def cut_volumes(lifts: list[dict], terminals: list[dict]) -> list[tuple]:
                 ).buffer(width, cap_style="flat")
                 hs = [rope_h(d) for d in (d0, d1, level_a, level_b) if d0 <= d <= d1]
                 low = NO_FLOOR if kind == "drag" else min(hs) - depth
-                in_station = d1 <= level_a + 1e-6 or d0 >= level_b - 1e-6
+                in_a = d1 <= level_a + 1e-6
+                in_station = in_a or d0 >= level_b - 1e-6
                 ceiling = max(hs) + 1.5 if in_station else NO_CEILING
+                # Inside a station's own building the ceiling clears the hood or hall.
+                term = (ends[0] if in_a else ends[1]) if in_station else None
+                if term is not None:
+                    ceiling = max(ceiling, term["pad"] + station_top(term) + ROOF_GAP)
                 # What's left below follows the rope down the slope, not 4 m steps: the
                 # floor as a plane (point, direction, height there, gradient along it).
                 floor = None
@@ -491,9 +618,26 @@ def cut_volumes(lifts: list[dict], terminals: list[dict]) -> list[tuple]:
     return cuts
 
 
+def station_top(t: dict) -> float:
+    """Height above the pad of the top of what the sim draws for a station (its hall
+    roof or hood). Storeys left above a station are cut back to just above it."""
+    if t["kind"] in ("gondola", "cabin"):
+        return t["roofTop"] + ROOF_SLAB
+    if t["kind"] == "chair":
+        return t["roofTop"] if t["detachable"] else _rail("chair") + FIXED_HOUSING
+    return t["roofTop"] + HALL_HEADROOM  # drags: the name arch and post
+
+
 def station_halls(terminals: list[dict]) -> list[tuple[Polygon, float]]:
     """Each terminal's hall footprint and roof height, to tell which building *is* it."""
     return [(hall_polygon(t), t["pad"] + t["roofTop"] + 0.6) for t in terminals]
+
+
+def _terminal_at(support: dict, terms: list[dict]) -> dict | None:
+    for t in terms:
+        if math.hypot(t["east"] - support["east"], t["north"] - support["north"]) < 1.0:
+            return t
+    return None
 
 
 def _with_exit(support: dict, terms: list[dict]) -> dict:
@@ -588,6 +732,7 @@ def _plane_roof(q: Polygon, floor: tuple) -> tuple[float, dict | None]:
         "halfWidth": round(span, 3),
         "rise": round(hi - lo, 3),
         "faces": [face],
+        "sloped": True,
     }
 
 
@@ -599,6 +744,10 @@ def _height_at(b: dict, e: float, n: float) -> float:
     (ax, ay), (bx, by) = roof["ridge"]
     length = math.hypot(bx - ax, by - ay)
     d = abs((bx - ax) * (ay - n) - (ax - e) * (by - ay)) / length
+    if roof.get("hip"):
+        # Beyond the ridge's ends the roof falls away along it too (the hips).
+        along = abs(((e - (ax + bx) / 2) * (bx - ax) + (n - (ay + by) / 2) * (by - ay)) / length)
+        d = max(d, along - length / 2)
     k = 1 - d / roof["halfWidth"]
     return b["top"] + roof["rise"] * (k if roof.get("eaves") else max(0.0, k))
 
@@ -626,7 +775,8 @@ def cut_buildings(
     for b in buildings:
         polygon = Polygon(b["footprint"]).buffer(0)
         top = _full_top(b)
-        for hall, roof in halls:
+        shell = bool(b.get("shell"))
+        for hall, roof in () if shell else halls:
             if polygon.intersection(hall).area > 0.5 * polygon.area and top <= roof + 3:
                 stats["removedAsStation"] += 1
                 break
@@ -642,7 +792,10 @@ def cut_buildings(
             ]
             touched = False
             for i in tree.query(polygon):
-                shape, z0, z1 = cuts[int(i)][:3]
+                shape, z0, z1, what = cuts[int(i)][:4]
+                # A station's own building keeps its walls: only the hood is cut from it.
+                if what == ("hood", "hall")[shell]:
+                    continue
                 floor = cuts[int(i)][4] if len(cuts[int(i)]) > 4 else None
                 flanks = cuts[int(i)][5] if len(cuts[int(i)]) > 5 else None
                 margin_shape = shape.buffer(CUT_MARGIN, join_style=2)
@@ -686,11 +839,12 @@ def cut_buildings(
             stats["cut"] += 1
             # Slices left beside a cut go, including thin arms of a bigger remainder (an
             # opening: shrink by half the width, grow back); pieces kept above or below one
-            # (in strips that follow the rope) are part of what's left and stay.
+            # (in strips that follow the rope) are part of what's left and stay. A shell
+            # keeps every wall: they're the station's.
             kept = []
             for p in pieces:
-                if p.get("inner"):
-                    if p["polygon"].area >= 4:
+                if p.get("inner") or shell:
+                    if p["polygon"].area >= (1.0 if shell else 4):
                         kept.append(p)
                     continue
                 half = MIN_PIECE_WIDTH / 2
@@ -699,14 +853,18 @@ def cut_buildings(
                 for q in _polygons(opened):
                     if q.area >= 4:
                         kept.append({**p, "polygon": q, "roof": _clip_roof(p["roof"], q)})
-            kept = _arcades_only(kept)
-            from shapely.ops import unary_union
+            if not shell:
+                kept = _arcades_only(kept)
+            kept = _merge_pieces(kept, b.get("roof"))
 
             left = unary_union([p["polygon"] for p in kept]).area if kept else 0.0
-            if left < MIN_KEPT * polygon.area:
+            if not shell and left < MIN_KEPT * polygon.area:
                 stats["removedAsSliver"] = stats.get("removedAsSliver", 0) + 1
                 continue
             for k, p in enumerate(kept):
+                roof = p["roof"]
+                if roof and "sloped" in roof:
+                    roof = {k2: v for k2, v in roof.items() if k2 != "sloped"}
                 stats["raisedPieces"] += p["raised"]
                 out.append(
                     {
@@ -717,11 +875,59 @@ def cut_buildings(
                         ).tolist(),
                         "base": round(p["base"], 2),
                         "top": round(p["top"], 2),
-                        "roof": p["roof"],
+                        "roof": roof,
                         "raised": p["raised"],
+                        # The facade's storeys and plinth count from the ground, not
+                        # from a raised piece's own base (no stone over a station).
+                        **({"groundBase": b["base"]} if p["raised"] else {}),
                     }
                 )
     return out, stats
+
+
+def _merge_pieces(pieces: list[dict], roof_src: dict | None) -> list[dict]:
+    """Join touching pieces of one building that share a base, top and roof. The rope
+    corridor is cut in CABLE_STEP pieces, so a storey left over a station came out as a
+    row of strips with hairline seams between them."""
+    groups: dict[tuple, list[dict]] = {}
+    for p in pieces:
+        roof = p["roof"]
+        key = (
+            round(p["base"], 2),
+            round(p["top"], 2),
+            bool(p["raised"]),
+            None
+            if roof is None
+            else (
+                tuple(map(tuple, roof["ridge"])),
+                roof["halfWidth"],
+                roof["rise"],
+                roof.get("eaves"),
+                bool(roof.get("sloped")),
+                bool(roof.get("hip")),
+            ),
+        )
+        groups.setdefault(key, []).append(p)
+    out = []
+    for members in groups.values():
+        if len(members) == 1:
+            out.append(members[0])
+            continue
+        merged = unary_union([m["polygon"] for m in members])
+        merged = merged.buffer(0.02, join_style=2).buffer(-0.02, join_style=2)
+        template = members[0]
+        for q in _polygons(merged):
+            roof = template["roof"]
+            if roof is not None:
+                if roof.get("sloped"):
+                    roof = {
+                        **roof,
+                        "faces": [np.round(np.asarray(q.exterior.coords)[:-1], 2).tolist()],
+                    }
+                else:
+                    roof = _clip_roof(roof_src, q)
+            out.append({**template, "polygon": q, "roof": roof})
+    return out
 
 
 def _arcades_only(pieces: list[dict]) -> list[dict]:
@@ -755,8 +961,11 @@ def conflicts(buildings: list[dict], cuts: list[tuple]) -> list[str]:
     for b in buildings:
         polygon = Polygon(b["footprint"]).buffer(0)
         lo, hi = b["base"], _full_top(b)
+        shell = bool(b.get("shell"))
         for i in tree.query(polygon):
             shape, z0, z1, what = cuts[int(i)][:4]
+            if what == ("hood", "hall")[shell]:
+                continue
             floor = cuts[int(i)][4] if len(cuts[int(i)]) > 4 else None
             overlap = polygon.intersection(shape)
             if min(hi, z1) - max(lo, z0) <= 0.05 or overlap.area <= 0.05:

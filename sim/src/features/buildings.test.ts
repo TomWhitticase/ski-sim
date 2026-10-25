@@ -94,6 +94,35 @@ describe('gable roofs', () => {
     },
   };
 
+  it('hip roofs fall away along the ridge beyond its ends', async () => {
+    const { roofHeight } = await import('./buildings');
+    // 40 x 20 m block: ridge from east 10 to 30 at north 10, 10 m half-width, 4 m rise.
+    const hipped: Building = {
+      ...gabled,
+      footprint: [
+        [0, 0],
+        [40, 0],
+        [40, 20],
+        [0, 20],
+      ],
+      roof: {
+        ridge: [
+          [10, 10],
+          [30, 10],
+        ],
+        halfWidth: 10,
+        rise: 4,
+        faces: [],
+        hip: true,
+      },
+    };
+    expect(roofHeight(hipped, 20, 10)).toBeCloseTo(2014); // on the ridge
+    expect(roofHeight(hipped, 0, 10)).toBeCloseTo(2010); // the hip meets the end wall
+    expect(roofHeight(hipped, 5, 10)).toBeCloseTo(2012); // halfway down the hip
+    expect(roofHeight(hipped, 20, 0)).toBeCloseTo(2010); // the eaves
+    expect(roofHeight(hipped, 5, 5)).toBeCloseTo(2012); // the hip's diagonal
+  });
+
   it('peaks the gable ends at the ridge and keeps eaves at the wall top', async () => {
     const { roofHeight } = await import('./buildings');
     expect(roofHeight(gabled, 5, 4)).toBeCloseTo(2014);

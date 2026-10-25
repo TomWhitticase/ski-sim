@@ -279,7 +279,9 @@ def estimate_height(tags: dict, area: float) -> tuple[float, str]:
         return h, "osm-height"
     if (levels := _parse_metres(tags.get("building:levels"))) is not None:
         return levels * 3.0 + 1.5, "osm-levels"
-    if "aerialway" in tags and "building" not in tags:
+    # A station building is low whatever its footprint: Caron's 1,800 m² station would
+    # otherwise come out five storeys tall. Most are `building=yes` as well.
+    if tags.get("aerialway") == "station" or ("aerialway" in tags and "building" not in tags):
         return STATION_BUILDING_HEIGHT, "estimate"
     kind = "hangar" if tags.get("aeroway") == "hangar" else tags.get("building", "")
     if (h := BUILDING_TYPE_HEIGHTS.get(kind)) is not None:
@@ -375,6 +377,16 @@ FLAT_ROOF_TYPES = {"industrial", "warehouse", "garage", "garages", "service", "c
 ROOF_PITCH = {"church": 40.0, "chapel": 40.0, "lift_station": 14.0, "hangar": 8.0}
 DEFAULT_PITCH = 24.0
 MAX_RIDGE_RISE = 7.0
+#: Roofs over half-widths beyond this are hipped: a gable end 20 m wide and 7 m high is a
+#: cliff of wall, and real blocks that wide have hipped or complex roofs. So are
+#: footprints filling less than HIP_FILL of their bounding box (L, T and U shapes), where
+#: a gable along the long axis leaves a wall peaking in the middle of a wing.
+HIP_HALF_WIDTH = 9.0
+HIP_FILL = 0.8
+#: The pitch eases from the default at HIP_HALF_WIDTH to this at HIP_WIDE (the big
+#: residences are shallow-roofed, not tents).
+HIP_MIN_PITCH = 14.0
+HIP_WIDE = 20.0
 
 
 def gable_roof(
@@ -392,36 +404,81 @@ def gable_roof(
     is rise * (1 - |distance to ridge| / halfWidth). With `eaves`, the faces are the
     footprint grown by that much, so the roof overhangs the walls (and dips below their
     tops beyond them, continuing the same planes).
+
+    Wide or irregular footprints (HIP_HALF_WIDTH, HIP_FILL) get a hip roof instead
+    (`hip`): the ridge is shortened by the half-width at each end and the roof also falls
+    away along the ridge beyond its ends, so height = rise * (1 - max(|across|,
+    max(0, |along| - ridge half-length)) / halfWidth): four planar faces (two trapezoids,
+    two triangular hips), split by the ridge and the diagonals from its ends.
     """
     if shape == "flat" or (kind in FLAT_ROOF_TYPES and polygon.area > 600):
         return None
     if polygon.area > 5000:
         return None
-    corners = np.asarray(polygon.minimum_rotated_rectangle.exterior.coords)[:4]
+    box = polygon.minimum_rotated_rectangle
+    corners = np.asarray(box.exterior.coords)[:4]
     e1 = corners[1] - corners[0]
     e2 = corners[2] - corners[1]
     long_axis, short_axis = (e1, e2) if np.hypot(*e1) >= np.hypot(*e2) else (e2, e1)
     half_width = float(np.hypot(*short_axis)) / 2
+    half_length = float(np.hypot(*long_axis)) / 2
     if half_width < 1.5 or half_width > 25:
         return None
     centre = corners.mean(axis=0)
     direction = long_axis / np.hypot(*long_axis)
-    reach = float(np.hypot(*long_axis)) + 10
-    a = centre - direction * reach
-    b = centre + direction * reach
+    across = np.array([-direction[1], direction[0]])
+    fill = polygon.area / max(box.area, 1e-6)
+    hip = eaves == 0 and (half_width > HIP_HALF_WIDTH or fill < HIP_FILL)
     if pitch is None:
         pitch = ROOF_PITCH.get(kind or "", DEFAULT_PITCH)
+        if half_width > HIP_HALF_WIDTH:
+            wide = min(1.0, (half_width - HIP_HALF_WIDTH) / (HIP_WIDE - HIP_HALF_WIDTH))
+            pitch = min(pitch, pitch + (HIP_MIN_PITCH - pitch) * wide)
     rise = min(half_width * math.tan(math.radians(pitch)), MAX_RIDGE_RISE)
 
     cover = polygon.buffer(eaves, join_style="mitre") if eaves > 0 else polygon
-    pieces = [g for g in split(cover, LineString([a, b])).geoms if g.area > 0.05]
-    halves = [np.round(np.asarray(g.exterior.coords)[:-1], 2).tolist() for g in pieces]
+    if hip:
+        ridge_half = max(half_length - half_width, 0.1)
+        a = centre - direction * ridge_half
+        b = centre + direction * ridge_half
+        # The hips first: a V through each ridge end to past the corners cuts the end
+        # triangle off; then the ridge line splits what's between them.
+        reach = half_width * 1.5 + 2
+        pieces = [cover]
+        for end, sign in ((a, -1), (b, 1)):
+            v_line = LineString(
+                [
+                    end + (direction * sign - across) * reach,
+                    end,
+                    end + (direction * sign + across) * reach,
+                ]
+            )
+            pieces = [q for g in pieces for q in split(g, v_line).geoms]
+        ridge_line = LineString(
+            [a - direction * (half_length + 10), b + direction * (half_length + 10)]
+        )
+        middle = []
+        for g in pieces:
+            c = np.asarray(g.centroid.coords[0]) - centre
+            if abs(float(c @ direction)) < ridge_half:
+                middle += list(split(g, ridge_line).geoms)
+            else:
+                middle.append(g)
+        pieces = [g for g in middle if g.area > 0.05]
+    else:
+        reach = half_length * 2 + 10
+        a = centre - direction * reach
+        b = centre + direction * reach
+        pieces = [g for g in split(cover, LineString([a, b])).geoms if g.area > 0.05]
+    faces = [np.round(np.asarray(g.exterior.coords)[:-1], 2).tolist() for g in pieces]
     roof = {
         "ridge": [np.round(a, 2).tolist(), np.round(b, 2).tolist()],
         "halfWidth": round(half_width, 2),
         "rise": round(rise, 2),
-        "faces": halves,
+        "faces": faces,
     }
+    if hip:
+        roof["hip"] = True
     if eaves > 0:
         roof["eaves"] = eaves
     return roof

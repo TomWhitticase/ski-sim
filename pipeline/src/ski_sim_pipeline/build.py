@@ -155,6 +155,16 @@ def build_features(
     log.info("Flattened %d lift terminal pads", len(terms))
 
     buildings, stations = features.extract_buildings(elements, frame, near_grid.extent, ground)
+    # Stations fit their own buildings: station height, gondola halls grown to the
+    # footprint (pads with them), chair stations keeping the building as their shell.
+    adopted = terminals.adopt_station_buildings(terms, buildings, near, near_grid, ground)
+    log.info(
+        "Station buildings: %d at station height, %d halls grown to their building, "
+        "%d chair stations keep their building as a shell",
+        adopted["stationHeight"],
+        adopted["grown"],
+        adopted["shells"],
+    )
     lifts = features.extract_lifts(elements, frame, near_grid.extent, ground, stations, area)
     by_lift: dict[int, list[dict]] = {}
     for t in terms:
@@ -225,7 +235,7 @@ def build_features(
     for lift in lifts:
         lift["terminals"] = by_lift.get(lift["id"], [])
         lift["detachable"] = bool(lift["terminals"] and lift["terminals"][0]["detachable"])
-    cut_stats = {**cut_stats, "steepExits": len(steep), **smooth}
+    cut_stats = {**cut_stats, "steepExits": len(steep), **smooth, **adopted}
 
     for lift in sorted(lifts, key=lambda lift: lift["name"] or ""):
         kinds = [s["kind"] for s in lift["supports"]]

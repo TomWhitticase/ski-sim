@@ -58,7 +58,14 @@ export function roofHeight(b: Building, e: number, n: number): number {
   if (!roof) return b.top;
   const [[ax, ay], [bx, by]] = roof.ridge;
   const len = Math.hypot(bx - ax, by - ay);
-  const d = Math.abs((bx - ax) * (ay - n) - (ax - e) * (by - ay)) / len;
+  let d = Math.abs((bx - ax) * (ay - n) - (ax - e) * (by - ay)) / len;
+  if (roof.hip) {
+    // Beyond the ridge's ends the roof falls away along it too (the hips).
+    const along = Math.abs(
+      ((e - (ax + bx) / 2) * (bx - ax) + (n - (ay + by) / 2) * (by - ay)) / len,
+    );
+    d = Math.max(d, along - len / 2);
+  }
   const k = 1 - d / roof.halfWidth;
   return b.top + roof.rise * (roof.eaves ? k : Math.max(0, k));
 }
@@ -95,6 +102,8 @@ export function buildBuildingGeometry(buildings: Building[]): BufferGeometry {
     const ring = signedArea(b.footprint) < 0 ? [...b.footprint].reverse() : b.footprint;
     const style = facadeStyle(b);
     const wall = 1 + (b.footing ?? 0);
+    // Facade heights count from the ground the building stands on.
+    const v0 = b.groundBase ?? b.base;
 
     // Walls, splitting any edge that crosses the ridge so gable ends peak correctly.
     let u = 0;
@@ -119,12 +128,12 @@ export function buildBuildingGeometry(buildings: Building[]): BufferGeometry {
         const h1 = roofHeight(b, e1, n1);
         const u1 = u + len;
         // With a counter-clockwise ring, outside is to the right of each edge.
-        vertex(e0, b.base, n0, u, 0, style, wall);
-        vertex(e1, b.base, n1, u1, 0, style, wall);
-        vertex(e1, h1, n1, u1, h1 - b.base, style, wall);
-        vertex(e0, b.base, n0, u, 0, style, wall);
-        vertex(e1, h1, n1, u1, h1 - b.base, style, wall);
-        vertex(e0, h0, n0, u, h0 - b.base, style, wall);
+        vertex(e0, b.base, n0, u, b.base - v0, style, wall);
+        vertex(e1, b.base, n1, u1, b.base - v0, style, wall);
+        vertex(e1, h1, n1, u1, h1 - v0, style, wall);
+        vertex(e0, b.base, n0, u, b.base - v0, style, wall);
+        vertex(e1, h1, n1, u1, h1 - v0, style, wall);
+        vertex(e0, h0, n0, u, h0 - v0, style, wall);
         u = u1;
       }
     }
