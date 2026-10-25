@@ -35,10 +35,15 @@ const CONE_BAND: RGB = [0.92, 0.92, 0.9];
 const POLE: RGB = [0.88, 0.88, 0.86];
 const POLE_BAND: RGB = [0.75, 0.08, 0.06];
 
-/** Heights above the ground: the surface sits clear of the terrain's triangles, the
- *  paint just above it. */
-const SURFACE_LIFT = 0.1;
-const PAINT_LIFT = 0.13;
+/**
+ * Heights above the ground. Each kind of surface has its own layer, so where two meet or
+ * overlap (a helipad on an apron, a taxiway into a runway) one is always on top and they
+ * never share a plane; paint sits just above its own surface, under the next one up.
+ */
+export const LAYER = { apron: 0.1, taxiway: 0.14, runway: 0.18, helipad: 0.22 } as const;
+export const PAINT_LIFT = 0.03;
+/** Rooftop pads: just above the roof. */
+const ROOF_LIFT = 0.05;
 /** Draped quads are cut into pieces no longer than this, so they follow the ground. */
 const DRAPE_STEP = 4;
 
@@ -203,8 +208,8 @@ export class Polyline {
 function runway(b: Builder, r: Runway, ground: Ground): void {
   const line = new Polyline(r.line);
   const half = r.width / 2;
-  const surface = (e: number, n: number) => ground(e, n) + SURFACE_LIFT;
-  const paint = (e: number, n: number) => ground(e, n) + PAINT_LIFT;
+  const surface = (e: number, n: number) => ground(e, n) + LAYER.runway;
+  const paint = (e: number, n: number) => ground(e, n) + LAYER.runway + PAINT_LIFT;
   if (r.winter !== 'cleared') return; // a groomed snow runway: the snow, and its markers
   b.drape(
     (s, t) => line.at(s * line.length, half - 2 * half * t),
@@ -227,8 +232,9 @@ function runway(b: Builder, r: Runway, ground: Ground): void {
 function helipad(b: Builder, p: Helipad, ground: Ground): void {
   const snow = p.winter !== 'cleared';
   const base = (e: number, n: number) => (p.roof ? p.top : ground(e, n));
-  const surface = (e: number, n: number) => base(e, n) + (p.roof ? 0.05 : SURFACE_LIFT);
-  const paint = (e: number, n: number) => base(e, n) + (p.roof ? 0.08 : PAINT_LIFT);
+  const lift = p.roof ? ROOF_LIFT : LAYER.helipad;
+  const surface = (e: number, n: number) => base(e, n) + lift;
+  const paint = (e: number, n: number) => base(e, n) + lift + PAINT_LIFT;
   // Pad frame: x across, y along the heading.
   const t = (p.heading * Math.PI) / 180;
   const [ye, yn] = [Math.sin(t), Math.cos(t)];
@@ -428,11 +434,12 @@ export interface AirfieldMeshes {
  */
 export function createAirfields(data: Airfields, ground: Ground): AirfieldMeshes {
   const b = new Builder();
-  const surface = (e: number, n: number) => ground(e, n) + SURFACE_LIFT;
-  const paint = (e: number, n: number) => ground(e, n) + PAINT_LIFT;
-  for (const apron of data.aprons) {
-    if (apron.winter === 'cleared') b.cap(apron.ring, surface, ASPHALT);
+  const apron = (e: number, n: number) => ground(e, n) + LAYER.apron;
+  for (const a of data.aprons) {
+    if (a.winter === 'cleared') b.cap(a.ring, apron, ASPHALT);
   }
+  const surface = (e: number, n: number) => ground(e, n) + LAYER.taxiway;
+  const paint = (e: number, n: number) => ground(e, n) + LAYER.taxiway + PAINT_LIFT;
   for (const t of data.taxiways) {
     if (t.winter !== 'cleared') continue;
     const line = new Polyline(t.line);

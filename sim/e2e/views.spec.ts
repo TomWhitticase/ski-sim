@@ -51,6 +51,8 @@ const VIEWS = [
   // A groomed snow runway (the Val Thorens altisurface): snow and edge markers, no paint.
   { name: 'airfield-val-thorens', query: 'at=45.28185,6.56690,2452&heading=93&pitch=-10' },
   { name: 'helipad-courchevel', query: 'at=45.39470,6.63770,2025&heading=320&pitch=-30' },
+  // Close over the pads on the heliport's tarmac: no flicker where the two meet.
+  { name: 'helipad-courchevel-close', query: 'at=45.39430,6.63700,2018&heading=330&pitch=-35' },
   { name: 'helipad-val-thorens', query: 'at=45.29550,6.56500,2136&heading=35&pitch=-35' },
   { name: 'windsock-courchevel', query: 'at=45.39699,6.63322,2006&heading=0&pitch=8' },
   // A rail in the Tétras snow park above Val Thorens: on legs, off the snow.

@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { InstancedMesh, Matrix4, Vector3 } from 'three/webgpu';
 
-import { airfieldSolids, createAirfields, Polyline, sockPose, WINDSOCK } from './airfields';
+import {
+  airfieldSolids,
+  createAirfields,
+  LAYER,
+  PAINT_LIFT,
+  Polyline,
+  sockPose,
+  WINDSOCK,
+} from './airfields';
 import { ObstacleIndex } from './obstacles';
 import type { Airfields } from './types';
 
@@ -110,5 +118,15 @@ describe('airfields', () => {
     // The sock's +x (its length) points downwind: east, so +x in world.
     const tip = new Vector3(WINDSOCK.length, 0, 0).applyMatrix4(m);
     expect(tip.x - pos.x).toBeGreaterThan(3);
+  });
+});
+
+describe('surface layers', () => {
+  it('stacks every kind on its own plane, paint under the next layer up', () => {
+    // Coincident planes flicker between their colours (a helipad on an apron).
+    const order = [LAYER.apron, LAYER.taxiway, LAYER.runway, LAYER.helipad];
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i]! - order[i - 1]!).toBeGreaterThan(PAINT_LIFT + 0.005);
+    }
   });
 });
