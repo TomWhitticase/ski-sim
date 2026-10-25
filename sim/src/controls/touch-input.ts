@@ -125,13 +125,14 @@ export function pinchScale(
   return Math.min(max, Math.max(min, mppStart * (spreadStart / spread)));
 }
 
-export type TouchMode = 'fly' | 'ski' | 'glide' | 'ride' | 'sled';
+export type TouchMode = 'fly' | 'ski' | 'glide' | 'ride' | 'sled' | 'plane' | 'heli';
 
 /**
  * The keys the stick holds down in each mode, on top of its analog axes (`Input.stickX/Y`,
  * which steer, fly and drive directly). Skiing: push forward to skate and pole, pull back
  * to snowplough. Paragliding: forward is the speed bar, back the brakes. Snowmobile: back
- * brakes (held at a standstill it reverses, as S does). Fly mode is all analog.
+ * brakes (held at a standstill it reverses, as S does). Fly mode, the plane and the
+ * helicopter are all analog (the stick is the control stick or cyclic).
  */
 export function stickKeys(mode: TouchMode, y: number): string[] {
   const forward = y > 0.5;

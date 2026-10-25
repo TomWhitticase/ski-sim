@@ -70,6 +70,8 @@
       </div>
       <div class="hud-bottom">
         <div id="run" class="glass" hidden></div>
+        <!-- Flying a plane or helicopter: airspeed, climb, power, flaps; stall warning. -->
+        <div id="flight" class="glass tiles" hidden></div>
         <div class="glass hud-stats tiles"></div>
       </div>
       <div class="fly-bottom">
@@ -320,18 +322,26 @@
               <h3>Touch</h3>
               <dl class="controls">
                 <dt>Left thumb</dt>
-                <dd>Stick: steer; forward skates, back ploughs (drone, snowmobile, speed bar)</dd>
+                <dd>
+                  Stick: steer; forward skates, back ploughs (drone, snowmobile, speed bar; the
+                  plane's stick and the helicopter's cyclic)
+                </dd>
                 <dt>Right side</dt>
                 <dd>Drag to look around</dd>
                 <dt>Buttons</dt>
-                <dd>Jump, tuck and stop; flips in the air; up, down and speed for the drone</dd>
+                <dd>
+                  Jump, tuck and stop; flips in the air; up, down and speed for the drone; power,
+                  flaps and brake in the plane; up and down in the helicopter (a sideways drag is
+                  its pedals)
+                </dd>
                 <dt>Stop</dt>
                 <dd>Snowplough; with the stick pushed left or right, a hockey stop that way</dd>
                 <dt>Prompts</dt>
                 <dd>Tap "Ride …" to board a lift, "Go to marker" to go there</dd>
                 <dt>Tools</dt>
                 <dd>
-                  Pause, map, drone, paraglider, snowmobile, view, labels, piste colours, fullscreen
+                  Pause, map, drone, paraglider, snowmobile, plane, helicopter, view, labels, piste
+                  colours, fullscreen
                 </dd>
                 <dt>Map</dt>
                 <dd>Pinch to zoom, tap for a marker, touch and hold to go there</dd>
@@ -423,12 +433,54 @@
               </dl>
             </section>
             <section>
+              <h3>Plane</h3>
+              <dl class="controls">
+                <dt>U</dt>
+                <dd>
+                  Fly the Porter waiting at an airfield (or E beside it); anywhere with teleporting
+                  on. U again when stopped on the ground to get out
+                </dd>
+                <dt>W / S</dt>
+                <dd>Power up / down; hold S at idle on the ground for reverse</dd>
+                <dt>Mouse / arrows</dt>
+                <dd>Stick: pitch and roll (centres when you let go; hands off levels the wings)</dd>
+                <dt>A / D</dt>
+                <dd>Roll; steer on the ground</dd>
+                <dt>Q / E</dt>
+                <dd>Rudder</dd>
+                <dt>X</dt>
+                <dd>Flaps: up, take-off, landing</dd>
+                <dt>Space</dt>
+                <dd>Brakes</dd>
+              </dl>
+            </section>
+            <section>
+              <h3>Helicopter</h3>
+              <dl class="controls">
+                <dt>Y</dt>
+                <dd>
+                  Fly the H125 waiting on a helipad (or E beside it); anywhere flat with teleporting
+                  on. Y again when landed to get out
+                </dd>
+                <dt>W / S</dt>
+                <dd>
+                  Climb / descend (hands off holds the height; S settles you gently onto the snow)
+                </dd>
+                <dt>Mouse / arrows</dt>
+                <dd>Cyclic: tilt to fly that way (hands off levels and slows to a hover)</dd>
+                <dt>A / D</dt>
+                <dd>Sideways</dd>
+                <dt>Q / E</dt>
+                <dd>Pedals: turn</dd>
+              </dl>
+            </section>
+            <section>
               <h3>View &amp; sound</h3>
               <dl class="controls">
                 <dt>Mouse</dt>
                 <dd>Look around</dd>
                 <dt>V</dt>
-                <dd>First / third person</dd>
+                <dd>First / third person (cockpit / chase in an aircraft)</dd>
                 <dt>O</dt>
                 <dd>Options (camera, display, controls)</dd>
                 <dt>1</dt>

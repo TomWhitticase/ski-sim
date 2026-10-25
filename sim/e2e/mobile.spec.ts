@@ -535,6 +535,81 @@ test('touch: fly with up, down and speed buttons; the ways out are buttons too',
   await fingers.lift(2);
 });
 
+test('the helicopter and the plane by touch: buttons for collective, power and flaps, the stick flies', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await load(page, LAKE);
+  const fingers = await Fingers.on(page);
+  await tapToPlay(page, fingers);
+  const flight = (field: string) => page.locator(`#flight [data-flight="${field}"]`).textContent();
+
+  // The helicopter tool: one comes to you on the flat lake.
+  const heliTool = await centre(page, '[data-touch="heli"]');
+  await fingers.tap(heliTool.x, heliTool.y);
+  await expect.poll(() => mode(page)).toBe('HELICOPTER');
+  await expect(page.locator('[data-touch="climb"]')).toBeVisible();
+  await expect(page.locator('[data-touch="jump"]')).toBeHidden();
+  await expect(page.locator('[data-touch="sled"]')).toBeHidden();
+  const ground = await hud(page, 'altitude');
+  const climb = await centre(page, '[data-touch="climb"]');
+  await fingers.press(1, climb.x, climb.y);
+  await expect.poll(() => hud(page, 'altitude'), { timeout: 8000 }).toBeGreaterThan(ground + 10);
+  await fingers.lift(1);
+  // Stick forward: the cyclic, flying off.
+  await fingers.press(2, 150, 300);
+  await fingers.move(2, 150, 230);
+  await expect
+    .poll(async () => parseFloat((await flight('airspeed')) ?? '0'), { timeout: 8000 })
+    .toBeGreaterThan(20);
+  await shot(page, 'heli-landscape');
+  await fingers.lift(2);
+  await page.setViewportSize(PORTRAIT);
+  await page.waitForTimeout(300);
+  await shot(page, 'heli-portrait');
+  await page.setViewportSize(LANDSCAPE);
+  await page.waitForTimeout(300);
+  // Down: it slows to a hover hands off and settles onto the snow; the tool gets you out.
+  await page.waitForTimeout(8000);
+  const down = await centre(page, '[data-touch="descend"]');
+  await fingers.press(3, down.x, down.y);
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () => (window.__sim as unknown as { heli: { canExit: boolean } }).heli.canExit,
+        ),
+      {
+        timeout: 40_000,
+      },
+    )
+    .toBe(true);
+  await fingers.lift(3);
+  // (The toolbar's changed since: the tools for other modes went.)
+  const out = await centre(page, '[data-touch="heli"]');
+  await fingers.tap(out.x, out.y);
+  await expect.poll(() => mode(page)).toBe('SKI');
+
+  // The plane tool: a Porter, with power, flaps and brake buttons.
+  const planeTool = await centre(page, '[data-touch="plane"]');
+  await fingers.tap(planeTool.x, planeTool.y);
+  await expect.poll(() => mode(page)).toBe('PLANE');
+  for (const id of ['power-up', 'power-down', 'flaps', 'brake']) {
+    await expect(page.locator(`[data-touch="${id}"]`)).toBeVisible();
+  }
+  const flaps = await flight('flaps');
+  const flapButton = await centre(page, '[data-touch="flaps"]');
+  await fingers.tap(flapButton.x, flapButton.y);
+  await expect.poll(() => flight('flaps')).not.toBe(flaps);
+  const power = await centre(page, '[data-touch="power-up"]');
+  await fingers.press(4, power.x, power.y);
+  await page.waitForTimeout(1200);
+  await fingers.lift(4);
+  expect(parseFloat((await flight('power')) ?? '0')).toBeGreaterThan(40);
+  await expect.poll(() => hud(page, 'speed'), { timeout: 8000 }).toBeGreaterThan(5);
+  await shot(page, 'plane-landscape');
+});
+
 for (const [name, size] of [
   ['portrait', PORTRAIT],
   ['landscape', LANDSCAPE],

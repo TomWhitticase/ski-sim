@@ -1,5 +1,7 @@
 import { Matrix4, Quaternion, Vector3 } from 'three/webgpu';
 
+import type { AircraftControls } from '../controls/aircraft-controls';
+import { AIRCRAFT_TYPES } from '../controls/aircraft-types';
 import type { FlyControls } from '../controls/fly-controls';
 import type { GliderControls } from '../controls/glider-controls';
 import type { SkierModel } from '../controls/ski-model';
@@ -14,6 +16,8 @@ export interface AvatarSources {
   glider: GliderControls;
   ride: RideControls;
   sled: SnowmobileControls;
+  plane: AircraftControls;
+  heli: AircraftControls;
 }
 
 const UP = new Vector3(0, 1, 0);
@@ -90,6 +94,15 @@ export function sampleAvatar(mode: AvatarMode, src: AvatarSources, out: PlayerSt
     putModel(s.rider);
     pose[SLOT.extra] = s.steer;
     pose[SLOT.extra + 1] = s.parts.body.position.y;
+  } else if (mode === 'plane' || mode === 'heli') {
+    const a = mode === 'plane' ? src.plane : src.heli;
+    put(SLOT.position, a.root.position);
+    put(SLOT.velocity, a.velocity);
+    putRotation(a.root.quaternion);
+    putModel(a.pilot);
+    pose[SLOT.extra] = a.rpm;
+    pose[SLOT.extra + 1] = a.kind === 'plane' ? a.flaps : a.load;
+    pose[SLOT.carrier] = AIRCRAFT_TYPES.indexOf(a.type);
   } else {
     const f = src.fly;
     put(SLOT.position, f.position);

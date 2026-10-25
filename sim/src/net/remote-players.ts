@@ -8,6 +8,8 @@ import {
   Vector3,
 } from 'three/webgpu';
 
+import { type AircraftParts, animateAircraft, createAircraft } from '../controls/aircraft-model';
+import { AIRCRAFT_TYPES, type AircraftType, H125, PC6 } from '../controls/aircraft-types';
 import { Drone } from '../controls/drone-model';
 import { createGliderRig, type GliderRig, poseGlider } from '../controls/glider-controls';
 import { SkierModel } from '../controls/ski-model';
@@ -21,6 +23,7 @@ const TAG_DISTANCE = 4000;
 /** Tag height above the feet (m); a pilot's goes above the wing. */
 const TAG_HEIGHT = 2.4;
 const GLIDER_TAG_HEIGHT = 9;
+const AIRCRAFT_TAG_HEIGHT = 4.5;
 const OCCLUSION_SAMPLES = 32;
 const grip = new Matrix4();
 const gripQ = new Quaternion();
@@ -60,6 +63,8 @@ class RemoteAvatar {
   private glider?: GliderRig;
   private sled?: { parts: SnowmobileParts; rider: SkierModel };
   private drone?: Drone;
+  private aircraft?: { parts: AircraftParts; pilot: SkierModel; type: AircraftType };
+  private time = 0;
   private readonly up = new Vector3();
   private readonly position = new Vector3();
   private readonly velocity = new Vector3();
@@ -128,12 +133,23 @@ class RemoteAvatar {
     const skier = mode === 'ski' || mode === 'ride' ? (this.skier ??= this.addSkier()) : null;
     const glider = mode === 'glide' ? (this.glider ??= this.addGlider()) : null;
     const sled = mode === 'sled' ? (this.sled ??= this.addSled()) : null;
+    const flying = mode === 'plane' || mode === 'heli';
+    const type = flying
+      ? (AIRCRAFT_TYPES[pose[SLOT.carrier]!] ?? (mode === 'plane' ? PC6 : H125))
+      : null;
+    if (type && this.aircraft?.type !== type) {
+      this.aircraft?.parts.root.removeFromParent();
+      this.aircraft = this.addAircraft(type);
+    }
+    const aircraft = type ? this.aircraft! : null;
+    this.time += dt;
     // Flying: their drone. Out of body, their skier stands holding its controller.
     const spirit = (flags & Flag.Spirit) !== 0;
     const drone = mode === 'fly' || spirit ? (this.drone ??= this.addDrone()) : null;
     if (this.skier) this.skier.root.visible = !!skier;
     if (this.glider) this.glider.root.visible = !!glider;
     if (this.sled) this.sled.parts.root.visible = !!sled;
+    if (this.aircraft) this.aircraft.parts.root.visible = !!aircraft;
     if (drone && spirit) {
       // Only its position is sent; the drone works out its velocity (to tilt) from that.
       this.spirit.fromArray(pose, SLOT.spirit).add(this.position);
@@ -168,6 +184,14 @@ class RemoteAvatar {
       parts.body.position.y = pose[SLOT.extra + 1]!;
       rider.setFlyingDrone(spirit);
       rider.apply(this.stance, this.up);
+    } else if (aircraft) {
+      const { parts, pilot } = aircraft;
+      parts.root.position.copy(this.position);
+      parts.root.quaternion.copy(this.rotation);
+      animateAircraft(parts, aircraft.type, pose[SLOT.extra]!, this.time, dt, true);
+      pilot.setFlyingDrone(spirit);
+      pilot.apply(this.stance, this.up);
+      tagHeight = AIRCRAFT_TAG_HEIGHT;
     } else {
       tagHeight = 0.5; // just above the drone
     }
@@ -197,6 +221,33 @@ class RemoteAvatar {
     parts.seat.add(rider.root);
     this.root.add(parts.root);
     return { parts, rider };
+  }
+
+  private addAircraft(type: AircraftType): {
+    parts: AircraftParts;
+    pilot: SkierModel;
+    type: AircraftType;
+  } {
+    const parts = createAircraft(type);
+    const pilot = new SkierModel();
+    pilot.setJacket(playerColour(this.player));
+    pilot.setStowed(true);
+    parts.seat.add(pilot.root);
+    this.root.add(parts.root);
+    return { parts, pilot, type };
+  }
+
+  /** Their plane or helicopter, while they're flying one: its kind, revs and power. */
+  get flyingAircraft(): { root: Group; kind: 'plane' | 'heli'; rpm: number; load: number } | null {
+    const a = this.aircraft;
+    if (!a?.parts.root.visible) return null;
+    const p = this.state.pose;
+    return {
+      root: a.parts.root,
+      kind: a.type.kind,
+      rpm: p[SLOT.extra]!,
+      load: a.type.kind === 'heli' ? p[SLOT.extra + 1]! : Math.min(1, this.velocity.length() / 60),
+    };
   }
 
   private addDrone(): Drone {
@@ -263,6 +314,21 @@ export class RemotePlayers {
       if (!drone) continue;
       const distance = drone.root.position.distanceTo(from);
       if (!best || distance < best.distance) best = { distance, speed: drone.speed };
+    }
+    return best;
+  }
+
+  /** The nearest plane or helicopter someone else is flying: distance from `from` (m), kind, revs, load. */
+  nearestAircraft(
+    from: Vector3,
+  ): { distance: number; kind: 'plane' | 'heli'; rpm: number; load: number } | null {
+    let best: { distance: number; kind: 'plane' | 'heli'; rpm: number; load: number } | null = null;
+    for (const a of this.avatars.values()) {
+      const air = a.visible ? a.flyingAircraft : null;
+      if (!air) continue;
+      const distance = air.root.position.distanceTo(from);
+      if (!best || distance < best.distance)
+        best = { distance, kind: air.kind, rpm: air.rpm, load: air.load };
     }
     return best;
   }

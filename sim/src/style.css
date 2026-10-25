@@ -451,16 +451,19 @@ body.hud-off #crosshair {
   visibility: hidden;
 }
 
-.hud-stats {
+.hud-stats,
+#flight {
   grid-auto-columns: auto;
 }
 
-.hud-stats > div {
+.hud-stats > div,
+#flight > div {
   min-width: 96px;
   padding: 10px 16px 11px;
 }
 
-.hud-stats b {
+.hud-stats b,
+#flight b {
   font-size: 26px;
 }
 
@@ -472,6 +475,34 @@ body.hud-off #crosshair {
   font-size: 46px;
   line-height: 0.95;
   margin-top: 4px;
+}
+
+/* Flying: the flight strip sits above the stat strip. */
+#flight > div {
+  min-width: 84px;
+  padding: 8px 14px 9px;
+}
+
+#flight b {
+  font-size: 21px;
+}
+
+#flight .stall {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  font: 600 15px var(--font-mono);
+  letter-spacing: 0.08em;
+  color: var(--behind);
+}
+
+#flight .stall[hidden] {
+  display: none;
+}
+
+#flight.warning {
+  box-shadow: inset 0 0 0 1.5px var(--behind);
 }
 
 #prompt {
@@ -1894,7 +1925,9 @@ dialog.stacked::backdrop {
 body.rules-no-teleport .teleport-hint,
 body.rules-no-snowmobile [data-touch='sled'],
 body.rules-no-paraglider [data-touch='glider'],
-body.rules-no-lift-skip [data-touch='skip'] {
+body.rules-no-lift-skip [data-touch='skip'],
+body.rules-no-aircraft [data-touch='plane'],
+body.rules-no-aircraft [data-touch='heli'] {
   display: none !important;
 }
 
@@ -2549,6 +2582,10 @@ body.hud-off #touch > :not(#touch-pad, #touch-pause) {
     bottom: auto;
     translate: 0 -50%;
     flex-direction: column;
+    /* Six to a column; more wrap into a second column to their left. */
+    flex-wrap: wrap-reverse;
+    align-content: flex-start;
+    max-height: 294px;
     gap: 6px;
   }
 
@@ -2595,7 +2632,7 @@ body.hud-off #touch > :not(#touch-pad, #touch-pause) {
     top: calc(252px + env(safe-area-inset-top));
     left: calc(14px + env(safe-area-inset-left));
     translate: none;
-    max-width: calc(100vw - 86px - env(safe-area-inset-left) - env(safe-area-inset-right));
+    max-width: calc(100vw - 136px - env(safe-area-inset-left) - env(safe-area-inset-right));
   }
 }
 
@@ -2608,12 +2645,14 @@ body.touch .hud-bottom {
   bottom: auto;
 }
 
-body.touch .hud-stats > div {
+body.touch .hud-stats > div,
+body.touch #flight > div {
   min-width: 64px;
   padding: 6px 10px 7px;
 }
 
-body.touch .hud-stats b {
+body.touch .hud-stats b,
+body.touch #flight b {
   font-size: 17px;
 }
 

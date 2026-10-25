@@ -10,6 +10,36 @@ export interface HudState {
   slope: number | null;
 }
 
+/** What the flight strip shows (plane or helicopter). */
+export interface FlightState {
+  kind: 'plane' | 'heli';
+  /** True airspeed (m/s). */
+  airspeed: number;
+  /** Climb (+) or sink (m/s). */
+  vertical: number;
+  /** Plane: power lever (-1 reverse … 1); heli: power used (0..1+). */
+  power: number;
+  /** Plane: flap setting 0 up, 1 take-off, 2 landing. */
+  flaps: number;
+  stall: boolean;
+  onGround: boolean;
+}
+
+const FLAPS = ['UP', 'T/O', 'LDG'];
+
+/** Climb or sink as `+3.2` / `−1.0` m/s (a real minus sign; 0.0 unsigned). */
+export function formatVertical(metresPerSecond: number): string {
+  const v = Math.round(metresPerSecond * 10) / 10;
+  if (v === 0) return '0.0';
+  return `${v > 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}`;
+}
+
+/** Power as a percentage, `REV` in reverse. */
+export function formatPower(state: Pick<FlightState, 'kind' | 'power'>): string {
+  if (state.kind === 'plane' && state.power < -0.01) return 'REV';
+  return String(Math.round(Math.max(0, state.power) * 100));
+}
+
 export function formatAltitude(metres: number): string {
   return `${Math.round(metres).toLocaleString('en-GB')} m`;
 }
@@ -83,6 +113,8 @@ export class Hud {
   private readonly flashTimers = new Map<string, number>();
   private shownHeading = NaN;
   private markerBearing: number | null = null;
+  private readonly flight: HTMLElement;
+  private flightKind: string | null = null;
 
   constructor(private readonly root: HTMLElement) {
     this.run = root.querySelector('#run')!;
@@ -90,6 +122,7 @@ export class Hud {
     this.flySpeed = root.querySelector('#fly-speed')!;
     this.flyKeys = root.querySelector('#fly-keys')!;
     this.compass = root.querySelector('#compass')!;
+    this.flight = root.querySelector('#flight')!;
 
     this.run.innerHTML = '<span data-piste><i></i><span></span></span>';
 
@@ -200,7 +233,7 @@ export class Hud {
         : key('F', 'Ski from here');
   }
 
-  setMode(mode: 'fly' | 'ski' | 'glide' | 'ride' | 'sled'): void {
+  setMode(mode: 'fly' | 'ski' | 'glide' | 'ride' | 'sled' | 'plane' | 'heli'): void {
     this.root.querySelector('[data-mode]')!.textContent =
       mode === 'ride'
         ? 'LIFT'
@@ -208,7 +241,46 @@ export class Hud {
           ? 'SNOWMOBILE'
           : mode === 'fly'
             ? 'DRONE'
-            : mode.toUpperCase();
+            : mode === 'heli'
+              ? 'HELICOPTER'
+              : mode.toUpperCase();
+  }
+
+  /**
+   * Flying: airspeed, vertical speed and power (plane: flaps too, and a stall warning)
+   * beside the stat strip, whose speed is then the ground speed. Null hides it.
+   */
+  setFlight(state: FlightState | null): void {
+    const el = this.flight;
+    if (!state) {
+      if (!el.hidden) el.hidden = true;
+      this.flightKind = null;
+      return;
+    }
+    if (this.flightKind !== state.kind) {
+      this.flightKind = state.kind;
+      const tile = (label: string, field: string, unit = '') =>
+        `<div><span class="lab">${label}</span><b><span data-flight="${field}"></span>${unit ? `<span class="unit">${unit}</span>` : ''}</b></div>`;
+      el.innerHTML =
+        tile('Airspeed', 'airspeed', 'km/h') +
+        tile('V/S', 'vertical', 'm/s') +
+        tile(state.kind === 'plane' ? 'Power' : 'Torque', 'power', '%') +
+        (state.kind === 'plane'
+          ? tile('Flaps', 'flaps') + '<span class="stall" hidden>STALL</span>'
+          : '');
+      el.hidden = false;
+    }
+    const put = (field: string, text: string) => {
+      const f = el.querySelector<HTMLElement>(`[data-flight="${field}"]`);
+      if (f) set(f, text);
+    };
+    put('airspeed', String(Math.round(state.airspeed * 3.6)));
+    put('vertical', formatVertical(state.onGround ? 0 : state.vertical));
+    put('power', formatPower(state));
+    put('flaps', FLAPS[Math.round(state.flaps)] ?? 'UP');
+    const stall = el.querySelector<HTMLElement>('.stall');
+    if (stall && stall.hidden === state.stall) stall.hidden = !state.stall;
+    el.classList.toggle('warning', state.stall);
   }
 
   /** The guide marker's bearing from you (degrees), or null when there's none. */

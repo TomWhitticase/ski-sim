@@ -76,6 +76,7 @@ test('realistic rules: no teleporting from the map, J or a start point', async (
     snowmobile: false,
     paraglider: false,
     liftSkip: false,
+    aircraft: false,
   });
 
   // The map: left click still drops a marker; right click says no, and you stay put.
@@ -98,6 +99,10 @@ test('realistic rules: no teleporting from the map, J or a start point', async (
   await expect(page.locator('#marker-hint .marker-key')).toBeHidden();
   await page.keyboard.press('KeyJ');
   await expect(page.locator('#notices')).toContainText('Teleporting is off · Options → Rules');
+  // No planes or helicopters either.
+  await page.keyboard.press('KeyY');
+  await expect(page.locator('#notices')).toContainText('Aircraft are off · Options → Rules');
+  expect(await page.locator('#hud [data-mode]').textContent()).toBe('SKI');
   // B and P are refused the same way.
   await page.keyboard.press('KeyB');
   await expect(page.locator('#notices')).toContainText('The snowmobile is off');

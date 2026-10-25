@@ -28,6 +28,8 @@ export function activity(mode: string, run: string | null): string {
   if (mode === 'fly') return 'flying a drone';
   if (mode === 'glide') return 'paragliding';
   if (mode === 'sled') return 'on a snowmobile';
+  if (mode === 'plane') return 'flying a plane';
+  if (mode === 'heli') return 'flying a helicopter';
   return run ? `skiing ${run}` : 'skiing';
 }
 

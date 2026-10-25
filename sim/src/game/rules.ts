@@ -13,6 +13,8 @@ export type GameRules = {
   paraglider: boolean;
   /** On a lift: S skips to the end, W fast-forwards. */
   liftSkip: boolean;
+  /** U / Y: the plane and helicopter at the airfields (anywhere, if teleporting's on too). */
+  aircraft: boolean;
 };
 
 export type Rule = keyof GameRules;
@@ -22,6 +24,7 @@ export const EVERYTHING_ON: Readonly<GameRules> = {
   snowmobile: true,
   paraglider: true,
   liftSkip: true,
+  aircraft: true,
 };
 
 /** Ski it like the real thing: everything off. */
@@ -30,6 +33,7 @@ export const REALISTIC: Readonly<GameRules> = {
   snowmobile: false,
   paraglider: false,
   liftSkip: false,
+  aircraft: false,
 };
 
 /** The Rules tab's rows, in order, and what a refused action says. */
@@ -57,6 +61,12 @@ export const RULES: readonly { name: Rule; label: string; detail: string; off: s
     label: 'Skipping lifts',
     detail: 'On a lift, S skips to the end and W fast-forwards',
     off: 'Skipping lifts is off',
+  },
+  {
+    name: 'aircraft',
+    label: 'Aircraft',
+    detail: 'U flies a plane, Y a helicopter from the airfields (anywhere, with teleporting)',
+    off: 'Aircraft are off',
   },
 ];
 

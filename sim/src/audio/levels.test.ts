@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { DRONE_HEARD_WITHIN, droneFalloff, droneSound, engineSound, railSound } from './levels';
+import {
+  AIRCRAFT_HEARD_WITHIN,
+  aircraftFalloff,
+  aircraftSound,
+  DRONE_HEARD_WITHIN,
+  droneFalloff,
+  droneSound,
+  engineSound,
+  railSound,
+} from './levels';
 
 describe('engineSound', () => {
   it('is silent with the engine off', () => {
@@ -70,5 +79,34 @@ describe('droneFalloff', () => {
     expect(droneFalloff(100)).toBeGreaterThan(0);
     expect(droneFalloff(DRONE_HEARD_WITHIN)).toBe(0);
     expect(droneFalloff(5000)).toBe(0);
+  });
+});
+
+describe('aircraftSound', () => {
+  it('is silent with nothing turning', () => {
+    expect(aircraftSound('plane', 0, 0).level).toBe(0);
+    expect(aircraftSound('heli', 0.01, 1).level).toBe(0);
+  });
+
+  it("buzzes at a three-blade prop's 110 Hz, louder and brighter with power", () => {
+    const idle = aircraftSound('plane', 0.62, 0);
+    const full = aircraftSound('plane', 1, 1);
+    expect(full.blade).toBeCloseTo(110, 0);
+    expect(full.level).toBeGreaterThan(idle.level);
+    expect(full.cutoff).toBeGreaterThan(idle.cutoff);
+    expect(full.slap).toBe(0);
+  });
+
+  it("slaps at the H125's 19.5 Hz blade passage, harder under load", () => {
+    const hover = aircraftSound('heli', 1, 0.6);
+    expect(hover.blade).toBeCloseTo(19.5, 1);
+    expect(aircraftSound('heli', 1, 1).slap).toBeGreaterThan(hover.slap);
+    expect(hover.whine).toBeGreaterThan(4000);
+  });
+
+  it('carries a few kilometres, as loud as your own close by', () => {
+    expect(aircraftFalloff(10)).toBeCloseTo(1, 1);
+    expect(aircraftFalloff(500)).toBeGreaterThan(0.05);
+    expect(aircraftFalloff(AIRCRAFT_HEARD_WITHIN)).toBe(0);
   });
 });

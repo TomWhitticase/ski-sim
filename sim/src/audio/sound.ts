@@ -1,4 +1,16 @@
-import type { DroneSound, EngineSound, RailSound, SoundLevels } from './levels';
+import type { AircraftSound, DroneSound, EngineSound, RailSound, SoundLevels } from './levels';
+
+interface AircraftVoice {
+  gain: GainNode;
+  whine: OscillatorNode[];
+  whineGain: GainNode;
+  blade: OscillatorNode;
+  bladeFilter: BiquadFilterNode;
+  bladeGain: GainNode;
+  slapLfo: OscillatorNode;
+  slapDepth: GainNode;
+  slapGain: GainNode;
+}
 
 interface DroneVoice {
   gain: GainNode;
@@ -22,6 +34,9 @@ const SMOOTHING = 0.08; // s: time constant for level changes (avoids zipper noi
  * - drone: a quadcopter's buzz, four slightly detuned sawtooths at the blade-pass
  *   frequency (they beat like four props), a motor whine above, and band-passed noise for
  *   the rotor wash; one voice for your own drone, one for the nearest other player's
+ * - aircraft: a turbine's whine (two sines), the blades (a sawtooth at the blade-pass
+ *   frequency through a low-pass: a propeller's buzz) and, for a helicopter, band-passed
+ *   noise gated at the blade-pass frequency (the rotor's slap); yours and the nearest other
  * Browsers only allow audio after a user gesture, so start() is called from a click.
  */
 export class Sound {
@@ -46,6 +61,7 @@ export class Sound {
     rasp: BiquadFilterNode;
   };
   private drones!: { own: DroneVoice; other: DroneVoice };
+  private aircraft!: { own: AircraftVoice; other: AircraftVoice };
   private muted: boolean;
 
   constructor(muted = false) {
@@ -248,6 +264,81 @@ export class Sound {
       return { gain, filter, motors, wash };
     };
     this.drones = { own: droneVoice(), other: droneVoice() };
+
+    const aircraftVoice = (): AircraftVoice => {
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      gain.connect(this.master);
+      const whineGain = ctx.createGain();
+      whineGain.gain.value = 0;
+      whineGain.connect(gain);
+      const whine = [1, 1.51].map((ratio, i) => {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = 2000 * ratio;
+        const g = ctx.createGain();
+        g.gain.value = i === 0 ? 0.5 : 0.18;
+        osc.connect(g).connect(whineGain);
+        osc.start();
+        return osc;
+      });
+      const blade = ctx.createOscillator();
+      blade.type = 'sawtooth';
+      blade.frequency.value = 100;
+      const bladeFilter = ctx.createBiquadFilter();
+      bladeFilter.type = 'lowpass';
+      bladeFilter.Q.value = 1.5;
+      const bladeGain = ctx.createGain();
+      bladeGain.gain.value = 0.6;
+      blade.connect(bladeFilter).connect(bladeGain).connect(gain);
+      blade.start();
+      // Rotor slap: a thump of noise each time a blade passes, gated by a sawtooth.
+      const band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = 320;
+      band.Q.value = 0.7;
+      const slapGain = ctx.createGain();
+      slapGain.gain.value = 0;
+      source.connect(band).connect(slapGain).connect(gain);
+      const slapLfo = ctx.createOscillator();
+      slapLfo.type = 'sawtooth';
+      slapLfo.frequency.value = 19;
+      const slapDepth = ctx.createGain();
+      slapDepth.gain.value = 0;
+      slapLfo.connect(slapDepth).connect(slapGain.gain);
+      slapLfo.start();
+      return {
+        gain,
+        whine,
+        whineGain,
+        blade,
+        bladeFilter,
+        bladeGain,
+        slapLfo,
+        slapDepth,
+        slapGain,
+      };
+    };
+    this.aircraft = { own: aircraftVoice(), other: aircraftVoice() };
+  }
+
+  /** A plane or helicopter: `own` is yours, `other` the nearest someone else flies (level scaled by distance). */
+  setAircraft(which: 'own' | 'other', s: AircraftSound): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const v = this.aircraft[which];
+    v.gain.gain.setTargetAtTime(s.level, t, SMOOTHING);
+    v.whine[0]!.frequency.setTargetAtTime(s.whine, t, 0.2);
+    v.whine[1]!.frequency.setTargetAtTime(s.whine * 1.51, t, 0.2);
+    v.whineGain.gain.setTargetAtTime(s.whineLevel, t, SMOOTHING);
+    v.blade.frequency.setTargetAtTime(Math.max(s.blade, 1), t, 0.1);
+    v.bladeFilter.frequency.setTargetAtTime(s.cutoff, t, SMOOTHING);
+    v.bladeGain.gain.setTargetAtTime(0.6 * (1 - s.slap * 0.7), t, SMOOTHING);
+    v.slapLfo.frequency.setTargetAtTime(Math.max(s.blade, 1), t, 0.1);
+    // Gain swings between 0 and 2·slap with the sawtooth: a sharp attack each blade.
+    v.slapGain.gain.setTargetAtTime(1.6 * s.slap, t, SMOOTHING);
+    v.slapDepth.gain.setTargetAtTime(1.6 * s.slap, t, SMOOTHING);
   }
 
   /**

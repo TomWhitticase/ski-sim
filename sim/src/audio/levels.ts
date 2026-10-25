@@ -131,3 +131,71 @@ export function droneFalloff(distance: number): number {
   const fade = 1 - d / DRONE_HEARD_WITHIN;
   return Math.min(1, DRONE_NEAR / Math.max(d, DRONE_NEAR)) * fade * fade;
 }
+
+export interface AircraftSound {
+  /** Loudness, 0 when nothing's running. */
+  level: number;
+  /** The turbine's whine (Hz) and its share of the mix. */
+  whine: number;
+  whineLevel: number;
+  /** Blade-pass frequency (Hz): a propeller's buzz, or a main rotor's beat. */
+  blade: number;
+  /** 0 a smooth buzz (propeller) … 1 sharp slaps (a rotor's blades through their own wake). */
+  slap: number;
+  /** Low-pass on the blades' sound (Hz): brighter as the prop takes a bite. */
+  cutoff: number;
+}
+
+export const AIRCRAFT_OFF: AircraftSound = {
+  level: 0,
+  whine: 2000,
+  whineLevel: 0,
+  blade: 100,
+  slap: 0,
+  cutoff: 800,
+};
+
+/**
+ * A turboprop or a turbine helicopter at `rpm` (share of governed revs) and `load` (power
+ * lever or torque, 0..1). The PT6's whine is ~1.8–3.2 kHz; three prop blades at 2,200 rpm
+ * buzz at 110 Hz, growling as the lever comes up. The H125's three blades at 390 rpm beat
+ * at 19.5 Hz (the "wokka" slap, harder under load), over the Arriel's whine and the tail
+ * rotor (heard in the slaps' noise).
+ */
+export function aircraftSound(kind: 'plane' | 'heli', rpm: number, load: number): AircraftSound {
+  const r = clamp01(rpm);
+  if (r < 0.02) return AIRCRAFT_OFF;
+  const l = clamp01(load);
+  const spool = Math.min(1, r / 0.4);
+  if (kind === 'plane') {
+    return {
+      level: (0.12 + 0.2 * l) * spool,
+      whine: 1800 + 1400 * r,
+      whineLevel: 0.3 - 0.12 * l,
+      blade: (3 * 2200 * r) / 60,
+      slap: 0,
+      cutoff: 450 + 2000 * l,
+    };
+  }
+  return {
+    level: (0.16 + 0.16 * l) * spool,
+    whine: 2600 + 2200 * r,
+    whineLevel: 0.22,
+    blade: (3 * 390 * r) / 60,
+    slap: 0.55 + 0.45 * l,
+    cutoff: 700 + 600 * l,
+  };
+}
+
+/** Within this (m) another player's aircraft is as loud as your own. */
+const AIRCRAFT_NEAR = 25;
+/** Beyond this (m) it isn't heard. */
+export const AIRCRAFT_HEARD_WITHIN = 4000;
+
+/** How much of an aircraft's sound reaches you from `distance` m. */
+export function aircraftFalloff(distance: number): number {
+  const d = Math.max(0, distance);
+  if (d >= AIRCRAFT_HEARD_WITHIN) return 0;
+  const fade = 1 - d / AIRCRAFT_HEARD_WITHIN;
+  return Math.min(1, AIRCRAFT_NEAR / Math.max(d, AIRCRAFT_NEAR)) ** 0.8 * fade;
+}

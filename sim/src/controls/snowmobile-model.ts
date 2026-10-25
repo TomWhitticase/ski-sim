@@ -20,7 +20,7 @@ import {
   Vector3,
 } from 'three/webgpu';
 
-type RGB = [number, number, number];
+export type RGB = [number, number, number];
 
 const PAINT: RGB = [0.78, 0.07, 0.05]; // red hood and side panels
 const STRIPE: RGB = [0.94, 0.95, 0.96];
@@ -57,7 +57,7 @@ export const SLED_LAYOUT = {
 };
 
 /** A part: geometry moved into place and painted one colour (as in lifts/carriers.ts). */
-function part(
+export function part(
   geometry: BufferGeometry,
   colour: RGB | ((p: Vector3) => RGB),
   at: [number, number, number],
@@ -84,14 +84,14 @@ function part(
   return g;
 }
 
-function merge(parts: BufferGeometry[]): BufferGeometry {
+export function merge(parts: BufferGeometry[]): BufferGeometry {
   const g = mergeGeometries(parts)!;
   g.computeBoundingSphere();
   return g;
 }
 
 /** A cylinder between two points. */
-function rod(a: Vector3, b: Vector3, radius: number, colour: RGB): BufferGeometry {
+export function rod(a: Vector3, b: Vector3, radius: number, colour: RGB): BufferGeometry {
   const span = b.clone().sub(a);
   const g = new CylinderGeometry(radius, radius, span.length(), 8);
   g.applyQuaternion(new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), span.normalize()));

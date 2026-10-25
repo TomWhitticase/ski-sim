@@ -95,6 +95,21 @@ describe('state codec', () => {
     expect(plain.grip).toBeUndefined();
   });
 
+  it('sends a plane or helicopter with its type, revs and flaps', () => {
+    const s = createState();
+    s.mode = 'heli';
+    s.pose[SLOT.carrier] = 1; // AIRCRAFT_TYPES[1], the H125
+    s.pose[SLOT.extra] = 0.97;
+    s.pose[SLOT.extra + 1] = 0.64;
+    const back = decodeState(encodeState(s))!;
+    expect(back.mode).toBe('heli');
+    expect(back.pose[SLOT.carrier]).toBe(1);
+    expect(back.pose[SLOT.extra]).toBeCloseTo(0.97, 3);
+    expect(back.pose[SLOT.extra + 1]).toBeCloseTo(0.64, 3);
+    s.mode = 'plane';
+    expect(decodeState(encodeState(s))!.mode).toBe('plane');
+  });
+
   it('rejects malformed packets', () => {
     expect(decodeState(new ArrayBuffer(5))).toBeNull();
     expect(decodeBatch(new ArrayBuffer(0))).toEqual([]);
