@@ -3,8 +3,21 @@
 // clock changes it implies go through `WeatherHost`.
 
 import { localNow, zoneOffsetHours } from './time-of-day';
-import { CLEAR, type Conditions, conditionsAt, type WeatherDay } from './weather';
-import { FIRST_DATE, loadWeatherDay, reviveDay, type WeatherRequest } from './weather-source';
+import { CLEAR, type CloudLayer, type Conditions, type WeatherDay } from './weather';
+import {
+  type FieldSnapshot,
+  fieldConditions,
+  layerAt,
+  sampleField,
+  type WeatherPlan,
+} from './weather-field';
+import {
+  FIRST_DATE,
+  isDay,
+  loadWeatherDay,
+  reviveDay,
+  type WeatherRequest,
+} from './weather-source';
 
 // Types, not interfaces: they travel as JSON in a control message (`net/session.ts`).
 export type WeatherChoice =
@@ -59,10 +72,11 @@ export function saveChoice(
 /** What the weather needs from the sim. */
 export interface WeatherHost {
   resort: string;
-  lat: number;
-  lon: number;
-  /** Heights to fetch (m), bottom to top of the lifts. */
-  elevations: number[];
+  /** The resort's main country (ISO): picks the weather model. */
+  country: string;
+  /** The points to fetch (`planWeatherSites`). */
+  plan: WeatherPlan;
+  latLon(east: number, north: number): { lat: number; lon: number };
   /** IANA zone of the resort, if known. */
   zone: string | null;
   /** UTC offset (hours) to fall back on without a zone. */
@@ -91,6 +105,8 @@ export class WeatherState {
   conditions: Conditions = CLEAR;
   /** Bumped on every change of data, so the renderer can snap instead of easing. */
   version = 0;
+  /** The field at the moment last asked for (null with no data). */
+  field: FieldSnapshot | null = null;
   /** In a party as a guest: the host's weather, not ours. */
   following = false;
   private request = 0;
@@ -162,9 +178,9 @@ export class WeatherState {
     this.message = '';
     this.host.changed();
     const request: WeatherRequest = {
-      lat: this.host.lat,
-      lon: this.host.lon,
-      elevations: this.host.elevations,
+      plan: this.host.plan,
+      latLon: (e, n) => this.host.latLon(e, n),
+      country: this.host.country,
       date,
       today: this.today().date,
     };
@@ -190,6 +206,7 @@ export class WeatherState {
     if (status === 'off') this.host.setDate(date, this.offsetOn(date));
     this.date = date;
     this.day = day;
+    this.field = null;
     this.status = status;
     if (!day) this.conditions = CLEAR;
     this.version++;
@@ -209,7 +226,7 @@ export class WeatherState {
     const date = DATE.test(w.date) ? w.date : this.host.defaultDate;
     this.host.setDate(date, this.offsetOn(date));
     // NaN went over the wire as null.
-    const day = w.day?.levels?.length ? reviveDay(w.day) : null;
+    const day = isDay(w.day) ? reviveDay(w.day) : null;
     this.setDay(date, day, day ? 'ready' : this.on ? 'loading' : 'off');
   }
 
@@ -220,9 +237,30 @@ export class WeatherState {
     this.restore();
   }
 
-  /** The conditions at `altitude` (m) at the instant `at` (ms UTC). */
-  update(at: number, altitude: number): Conditions {
-    if (this.day) this.conditions = conditionsAt(this.day, at, altitude);
+  /**
+   * The field at the instant `at` (ms UTC): reworked when the clock has moved on a little
+   * (clouds change by the hour), not every frame.
+   */
+  fieldAt(at: number): FieldSnapshot | null {
+    if (!this.day) return null;
+    if (!this.field || Math.abs(this.field.at - at) >= FIELD_STEP) {
+      this.field = sampleField(this.day, at);
+    }
+    return this.field;
+  }
+
+  /** The conditions at a place (local metres) and `altitude` (m) at the instant `at`. */
+  update(at: number, east: number, north: number, altitude: number): Conditions {
+    const f = this.fieldAt(at);
+    if (f) this.conditions = fieldConditions(f, east, north, altitude);
     return this.conditions;
   }
+
+  /** The cloud deck over a place, at the moment last asked for (null: none). */
+  layerAt(east: number, north: number): CloudLayer | null {
+    return this.field ? layerAt(this.field, east, north) : null;
+  }
 }
+
+/** How far the clock moves (ms) before the field is worked out again. */
+const FIELD_STEP = 30_000;

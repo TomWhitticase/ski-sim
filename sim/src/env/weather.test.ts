@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest';
 import {
   CLEAR,
   compass,
-  conditionsAt,
   describe as describeConditions,
   describeSky,
   formatVisibility,
@@ -14,7 +13,9 @@ import {
   snowFraction,
   snowVisibility,
   type WeatherDay,
+  type WeatherSite,
 } from './weather';
+import { conditionsAt } from './weather-field';
 
 const HOUR = 3_600_000;
 const T0 = Date.parse('2023-01-15T00:00:00Z');
@@ -34,53 +35,81 @@ type Hour = Partial<{
   visibility: number;
 }>;
 
-/** A day with the same values every hour at each height (`at` lists [elevation, hour]). */
+/**
+ * A day with the same values every hour at each height, all at one place: the lowest is
+ * the (1 × 1) grid's point, the others its column of extra heights.
+ */
 function day(levels: [number, Hour][], hours = 48, vary?: (i: number) => Hour): WeatherDay {
+  const sites = levels.map(([elevation, h]): WeatherSite => {
+    const pick = (k: keyof Hour, d: number) =>
+      Array.from({ length: hours }, (_, i) => vary?.(i)[k] ?? h[k] ?? d);
+    return {
+      east: 0,
+      north: 0,
+      elevation,
+      time: Array.from({ length: hours }, (_, i) => T0 + i * HOUR),
+      temperature: pick('temperature', -5),
+      humidity: pick('humidity', 50),
+      precipitation: pick('precipitation', 0),
+      snowfall: pick('snowfall', 0),
+      cloudLow: pick('low', 0),
+      cloudMid: pick('mid', 0),
+      cloudHigh: pick('high', 0),
+      wind: pick('wind', 5),
+      windDirection: pick('from', 270),
+      gusts: pick('gusts', 10),
+      visibility: pick('visibility', NaN),
+    };
+  });
+  sites.sort((a, b) => a.elevation - b.elevation);
   return {
     date: '2023-01-15',
     source: 'archive',
-    levels: levels.map(([elevation, h]) => {
-      const pick = (k: keyof Hour, d: number) =>
-        Array.from({ length: hours }, (_, i) => vary?.(i)[k] ?? h[k] ?? d);
-      return {
-        elevation,
-        time: Array.from({ length: hours }, (_, i) => T0 + i * HOUR),
-        temperature: pick('temperature', -5),
-        humidity: pick('humidity', 50),
-        dewPoint: pick('temperature', -5).map((t) => t - 5),
-        precipitation: pick('precipitation', 0),
-        snowfall: pick('snowfall', 0),
-        snowDepth: pick('temperature', 1).map(() => 1),
-        code: pick('temperature', 0).map(() => 0),
-        cloud: pick('cloud', 0),
-        cloudLow: pick('low', 0),
-        cloudMid: pick('mid', 0),
-        cloudHigh: pick('high', 0),
-        wind: pick('wind', 5),
-        windDirection: pick('from', 270),
-        gusts: pick('gusts', 10),
-        visibility: pick('visibility', NaN),
-      };
-    }),
+    model: 'era5',
+    grid: { nx: 1, ny: 1, west: 0, south: 0, east: 0, north: 0 },
+    sites,
+    profiles: [],
   };
 }
 
+const at = (elevation: number) => ({ east: 0, north: 0, elevation });
+
 describe('parseOpenMeteo', () => {
-  it('reads a real multi-height answer (Storm Eleanor, 4 January 2018)', () => {
+  it('reads a real answer for the resort (Storm Eleanor, 4 January 2018, ERA5)', () => {
     const json = JSON.parse(
       readFileSync(
         new URL('../../e2e/fixtures/open-meteo-2018-01-04.json', import.meta.url),
         'utf8',
       ),
+    ) as { elevation: number }[];
+    // Les 3 Vallées' plan: a 5 × 9 grid over the lifts, then the column at its centre.
+    const grid = { nx: 5, ny: 9, west: -7996.24, south: -17994.37, east: 7703.3, north: 15000 };
+    const points = json.map((loc, i) =>
+      i < 45
+        ? {
+            east: grid.west + ((i % 5) * (grid.east - grid.west)) / 4,
+            north: grid.south + (Math.floor(i / 5) * (grid.north - grid.south)) / 8,
+            elevation: loc.elevation,
+          }
+        : { east: -146, north: -1497, elevation: loc.elevation },
     );
-    const d = parseOpenMeteo(json, '2018-01-04', 'archive', [1434, 2327, 3219]);
-    expect(d.levels.map((l) => l.elevation)).toEqual([1434, 2327, 3219]);
-    expect(d.levels[0]!.time[0]).toBe(Date.parse('2018-01-03T00:00:00Z'));
-    expect(d.levels[0]!.time).toHaveLength(72);
+    const sites = parseOpenMeteo(json, points);
+    expect(sites).toHaveLength(50);
+    expect(sites[49]!.elevation).toBe(4219);
+    expect(sites[0]!.time[0]).toBe(Date.parse('2018-01-03T00:00:00Z'));
+    expect(sites[0]!.time).toHaveLength(72);
     // The archive has no visibility: NaN, not 0.
-    expect(d.levels[0]!.visibility.every(Number.isNaN)).toBe(true);
-    // At 10:00 local (09:00 UTC) on the day, high on the mountain: a storm.
-    const c = conditionsAt(d, Date.parse('2018-01-04T09:00:00Z'), 2400);
+    expect(sites[0]!.visibility.every(Number.isNaN)).toBe(true);
+    const d: WeatherDay = {
+      date: '2018-01-04',
+      source: 'archive',
+      model: 'era5',
+      grid,
+      sites,
+      profiles: [],
+    };
+    // At 10:00 local (09:00 UTC) on the day, in Val Thorens: a storm.
+    const c = conditionsAt(d, Date.parse('2018-01-04T09:00:00Z'), 2400, -350, -3230);
     expect(c.precipitation).toBe('snow');
     expect(c.snowRate).toBeGreaterThan(1.5);
     expect(c.visibility).toBeLessThan(200);
@@ -90,15 +119,19 @@ describe('parseOpenMeteo', () => {
   });
 
   it('throws on an answer without weather', () => {
-    expect(() => parseOpenMeteo({ error: true }, '2023-01-15', 'archive', [2000])).toThrow();
+    expect(() => parseOpenMeteo({ error: true }, [at(2000)])).toThrow();
     expect(() =>
-      parseOpenMeteo(
-        { hourly: { time: ['2023-01-15T00:00'], temperature_2m: [null] } },
-        '2023-01-15',
-        'archive',
-        [2000],
-      ),
+      parseOpenMeteo({ hourly: { time: ['2023-01-15T00:00'], temperature_2m: [null] } }, [
+        at(2000),
+      ]),
     ).toThrow('No weather for that date');
+    // Fewer places than asked for.
+    expect(() =>
+      parseOpenMeteo({ hourly: { time: ['2023-01-15T00:00'], temperature_2m: [-3] } }, [
+        at(2000),
+        at(2500),
+      ]),
+    ).toThrow('missing');
   });
 });
 

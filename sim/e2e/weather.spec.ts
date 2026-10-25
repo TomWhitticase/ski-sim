@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 
 import { expect, type Page, test } from '@playwright/test';
 
-import { answer, SCENES, withWeather } from './weather-mock';
+import { answer, replay, SCENES, withWeather } from './weather-mock';
 
 // Weather (C), with Open-Meteo mocked (weather-mock.ts): the menu, the cache, errors, and
 // real days saved from Open-Meteo (e2e/fixtures, CC BY 4.0). The made-up conditions are
@@ -38,15 +38,32 @@ const POSES = {
   slope: 'at=45.2830,6.5760,2000&heading=27&pitch=-6',
 };
 
-// Real days from Open-Meteo: Storm Eleanor (4 January 2018) and a bluebird 10 February 2023.
+// Real days from Open-Meteo, the resort's 50 points as recorded: Storm Eleanor (4 January
+// 2018, ERA5) and a bluebird 10 February 2023 (Météo-France AROME, pressure levels from the
+// best match: AROME had none archived then).
+const fixture = (name: string) =>
+  JSON.parse(readFileSync(`e2e/fixtures/open-meteo-${name}.json`, 'utf8'));
+
 for (const [name, date, seconds] of [
   ['eleanor', '2018-01-04', 10 * 3600],
   ['bluebird', '2023-02-10', 11 * 3600],
 ] as const) {
   test(`weather real day ${name}`, async ({ page }) => {
     const errors = watchErrors(page);
-    const json = JSON.parse(readFileSync(`e2e/fixtures/open-meteo-${date}.json`, 'utf8'));
-    await withWeather(page, date, () => json, [], seconds);
+    const points = fixture(date);
+    const pressure = date === '2023-02-10' ? fixture(`${date}-pressure`) : null;
+    await withWeather(
+      page,
+      date,
+      (url) =>
+        !url.searchParams.get('hourly')!.includes('hPa')
+          ? replay(url, points)
+          : url.searchParams.get('models') === 'best_match' && pressure
+            ? replay(url, pressure)
+            : answer(url, SCENES.clear!),
+      [],
+      seconds,
+    );
     await load(page, POSES.wide);
     await page.screenshot({ path: `test-results/weather/real-${name}.png` });
     await page.evaluate(() => localStorage.setItem('ski-sim.mode', 'ski'));
@@ -61,11 +78,12 @@ test('weather menu: conditions, one request per day, cached, and Clear', async (
   const requests: string[] = [];
   await withWeather(page, '2023-01-15', (url) => answer(url, SCENES['heavy-snow']!), requests);
   await load(page, POSES.wide);
-  expect(requests).toHaveLength(1);
-  // Three heights in one request, the archive for an old day, the date ± 1 in UTC.
+  // The points in one request (archived AROME runs for a French resort in 2023), then
+  // pressure levels over a few of them (AROME's, then the best match's: the mock has none).
+  expect(requests).toHaveLength(3);
   const url = new URL(requests[0]!);
-  expect(url.hostname).toBe('archive-api.open-meteo.com');
-  expect(url.searchParams.get('elevation')!.split(',')).toHaveLength(3);
+  expect(url.hostname).toBe('historical-forecast-api.open-meteo.com');
+  expect(url.searchParams.get('elevation')!.split(',').length).toBeGreaterThan(20);
   expect(url.searchParams.get('start_date')).toBe('2023-01-14');
   expect(url.searchParams.get('end_date')).toBe('2023-01-16');
 
@@ -86,10 +104,10 @@ test('weather menu: conditions, one request per day, cached, and Clear', async (
   await panel.locator('input[type="date"]').fill('2023-01-20');
   await page.waitForFunction(() => (window.__sim as unknown as Sim).weather.date === '2023-01-20');
   await page.waitForFunction(() => (window.__sim as unknown as Sim).weather.status === 'ready');
-  expect(requests).toHaveLength(2);
+  expect(requests).toHaveLength(6);
   await panel.locator('input[type="date"]').fill('2023-01-15');
   await page.waitForFunction(() => (window.__sim as unknown as Sim).weather.status === 'ready');
-  expect(requests).toHaveLength(2);
+  expect(requests).toHaveLength(6);
 
   // Clear: no weather, the bluebird day, and it stays that way after a reload.
   await panel.locator('[data-mode="clear"]').click();
@@ -97,7 +115,7 @@ test('weather menu: conditions, one request per day, cached, and Clear', async (
   expect(await page.evaluate(() => (window.__sim as unknown as Sim).weather.status)).toBe('off');
   await page.reload();
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 30, null, { timeout: 90_000 });
-  expect(requests).toHaveLength(2);
+  expect(requests).toHaveLength(6);
   expect(errors).toEqual([]);
 });
 
