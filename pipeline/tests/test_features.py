@@ -308,3 +308,32 @@ def test_wide_and_irregular_footprints_get_hip_roofs():
     )
     assert l_shape["hip"] is True
     assert "hip" not in gable_roof(Polygon([(0, 0), (20, 0), (20, 8), (0, 8)]), "yes", None)
+
+
+def test_l_shaped_footprints_split_into_wings_with_their_own_roofs():
+    from shapely.geometry import Polygon
+
+    from ski_sim_pipeline.features import split_wings
+
+    l_shape = Polygon([(0, 0), (40, 0), (40, 12), (12, 12), (12, 30), (0, 30)])
+    wings = split_wings(l_shape)
+    assert len(wings) == 2
+    assert sum(w.area for w in wings) == pytest.approx(l_shape.area, rel=1e-3)
+    assert all(w.area / w.minimum_rotated_rectangle.area > 0.98 for w in wings)
+    # A plain block, or a small house, stays whole.
+    assert len(split_wings(Polygon([(0, 0), (40, 0), (40, 15), (0, 15)]))) == 1
+    assert len(split_wings(Polygon([(0, 0), (12, 0), (12, 4), (4, 4), (4, 12), (0, 12)]))) == 1
+    # A 2 m bay window isn't a wing.
+    bay = Polygon([(0, 0), (30, 0), (30, 15), (18, 15), (18, 17), (12, 17), (12, 15), (0, 15)])
+    assert len(split_wings(bay)) == 1
+
+
+def test_roof_shape_tags_choose_gable_or_hip():
+    from shapely.geometry import Polygon
+
+    from ski_sim_pipeline.features import gable_roof
+
+    wide = Polygon([(0, 0), (60, 0), (60, 30), (0, 30)])
+    assert "hip" not in gable_roof(wide, "yes", "gabled")
+    narrow = Polygon([(0, 0), (20, 0), (20, 8), (0, 8)])
+    assert gable_roof(narrow, "yes", "hipped")["hip"] is True

@@ -143,3 +143,36 @@ describe('gable roofs', () => {
     expect(maxWall).toBeCloseTo(2014); // gable end reaches the ridge
   });
 });
+
+describe('facade styles', () => {
+  const base = {
+    type: 'yes',
+    footprint: [
+      [0, 0],
+      [10, 0],
+      [10, 8],
+      [0, 8],
+    ] as [number, number][],
+    base: 2000,
+    top: 2008,
+    heightSource: 'lidar' as const,
+  };
+
+  it('clads station buildings as stations', async () => {
+    const { facadeStyle, STYLE } = await import('./buildings');
+    expect(facadeStyle({ ...base, id: 5, use: 'station' })).toBe(STYLE.station);
+  });
+
+  it('follows OSM building:material and keeps tones inside their style', async () => {
+    const { facadeStyle, STYLE } = await import('./buildings');
+    expect(Math.floor(facadeStyle({ ...base, id: 1, material: 'stone' }))).toBe(STYLE.stone);
+    expect(Math.floor(facadeStyle({ ...base, id: 1, material: 'metal' }))).toBe(STYLE.metal);
+    for (let id = 0; id < 60; id++) {
+      const s = facadeStyle({ ...base, id });
+      expect(Math.round(s)).toBe(STYLE.chalet); // shader thresholds sit at x.5
+      expect(s - STYLE.chalet).toBeLessThan(0.5);
+    }
+    const tones = new Set(Array.from({ length: 60 }, (_, id) => facadeStyle({ ...base, id })));
+    expect(tones.size).toBe(3);
+  });
+});

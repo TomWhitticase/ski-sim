@@ -78,6 +78,31 @@ LAYERS = {
 }
 
 
+#: LiDAR HD MNH: height above the ground (surface model minus terrain model), for
+#: building heights. Same survey, service and licence as the terrain.
+MNH = IgnLayer(
+    id="ign-lidar-hd-mnh",
+    wms_layer="IGNF_LIDAR-HD_MNH_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93",
+    provenance={
+        "name": "IGN LiDAR HD MNH (height above ground, 0.5 m)",
+        "url": "https://geoservices.ign.fr/lidarhd",
+        "license": "Licence Ouverte / Etalab 2.0",
+        "attribution": "IGN – LiDAR HD",
+        "nativeResolution": 0.5,
+        "use": "building heights",
+    },
+)
+#: MNH tiles are fetched on a fixed 1 km grid, only where there are buildings.
+MNH_TILE = 1000.0
+
+
+def fetch_mnh_tile(x: float, y: float, cell_size: float, cache_dir: Path) -> Path:
+    """The MNH tile on the MNH_TILE grid whose south-west corner is (x, y) (Lambert-93)."""
+    return _fetch_tiles(
+        MNH.id, MNH.wms_layer, (x, y, x + MNH_TILE, y + MNH_TILE), cell_size, cache_dir
+    )[0]
+
+
 def fetch(
     layer: IgnLayer, bounds: tuple[float, ...], cell_size: float, cache_dir: Path
 ) -> list[Path]:

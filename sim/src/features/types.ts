@@ -46,6 +46,14 @@ export interface Terminal {
   entrance: 'side' | 'back' | 'ramp';
   /** Length of the cleared walkway from the station to open snow (m). */
   walk: number;
+  /** The station stands in its own OSM building (a shell, or a hall grown to it). */
+  housing?: 'building';
+  /** Storeys left above the hall are its roof: no roof slab of its own. */
+  roofed?: boolean;
+  /** Retaining walls along the pad's edges, in the terminal's frame: u0, v0, u1, v1,
+   *  bottom and top above the pad, and 1 (cut into the slope: stone) or -1 (holding up
+   *  fill: concrete with a parapet). */
+  walls?: [number, number, number, number, number, number, number][];
 }
 
 export interface Lift {
@@ -83,7 +91,7 @@ export interface Building {
   footprint: [number, number][];
   base: number;
   top: number;
-  heightSource: 'osm-height' | 'osm-levels' | 'estimate';
+  heightSource: 'osm-height' | 'osm-levels' | 'lidar' | 'estimate';
   /** A piece left above a cut (station, walkway, cable): needs an underside. */
   raised?: boolean;
   /** A raised piece's building's ground-level base: its facade (storeys, the stone
@@ -92,7 +100,10 @@ export interface Building {
   /** A chair station's own building: the hood stands inside it, so it's not solid. */
   shell?: boolean;
   /** What it's used for, where that changes how it's drawn (mountain restaurants). */
-  use?: 'restaurant';
+  use?: 'restaurant' | 'station';
+  /** OSM `building:material` / `building:colour`, where mapped. */
+  material?: string;
+  colour?: string;
   /** Stone basement height above `base` (huts on a slope: up to the uphill ground). */
   footing?: number;
   /** Gable roof (null = flat). Faces are the footprint split along the ridge. */

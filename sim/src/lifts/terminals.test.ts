@@ -72,3 +72,52 @@ describe('createTerminals', () => {
     }
   });
 });
+
+describe('station buildings and retaining walls', () => {
+  const topOf = (t: Terminal) => {
+    const { mesh } = createTerminals([{ terminal: t, rail: 4.3 }], () => 2000);
+    const p = mesh.geometry.getAttribute('position');
+    let top = -Infinity;
+    for (let i = 0; i < p.count; i++) top = Math.max(top, p.getY(i) - 2000);
+    return top;
+  };
+
+  it('a roofed hall has no slab of its own and its walls reach the storeys above', () => {
+    const open = terminal('gondola');
+    const roofed = terminal('gondola', { roofed: true });
+    // The open hall's slab tops out at roofTop + 0.3; the roofed hall's walls reach the
+    // same height (pipeline station_top), so no gap under the storeys and no slab.
+    expect(topOf(open)).toBeCloseTo(6.5, 1);
+    expect(topOf(roofed)).toBeCloseTo(6.5, 1);
+    const slabWidth = (t: Terminal) => {
+      const { mesh } = createTerminals([{ terminal: t, rail: 4.3 }], () => 2000);
+      const p = mesh.geometry.getAttribute('position');
+      let maxX = -Infinity;
+      for (let i = 0; i < p.count; i++) if (p.getY(i) - 2000 > 6) maxX = Math.max(maxX, p.getX(i));
+      return maxX;
+    };
+    // The slab overhangs the walls (half-width 6.5) by 0.6 m; roofed, nothing does.
+    expect(slabWidth(open)).toBeGreaterThan(6.9);
+    expect(slabWidth(roofed)).toBeLessThan(6.7);
+  });
+
+  it('retaining walls are solid and stand from their bottom to their top', () => {
+    const walls: Terminal['walls'] = [
+      [-11, -12, -11, -10, -0.5, 4.2, 1],
+      [-11, 12, 1, 12, -4.5, 1, -1],
+    ];
+    const t = terminal('gondola', { walls });
+    const { obstacles } = createTerminals([{ terminal: t, rail: 4.3 }], () => 2000);
+    const bare = createTerminals([{ terminal: terminal('gondola'), rail: 4.3 }], () => 2000);
+    expect(obstacles.length).toBe(bare.obstacles.length + 2);
+    const added = obstacles.slice(0, 2); // walls are built first
+    const spans = added.map((o) => [o.base - 2000, o.top - 2000]);
+    [
+      [-0.5, 4.2],
+      [-4.5, 1],
+    ].forEach(([b, top], k) => {
+      expect(spans[k]![0]).toBeCloseTo(b!, 5);
+      expect(spans[k]![1]).toBeCloseTo(top!, 5);
+    });
+  });
+});

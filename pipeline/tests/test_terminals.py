@@ -446,3 +446,109 @@ def test_storeys_over_a_station_sit_on_its_roof_and_keep_their_ground_base():
         assert min(b["base"] for b in over) == pytest.approx(roof + ROOF_GAP, abs=0.01), kind
         assert all(b["groundBase"] == 1999 for b in over)
         assert all("groundBase" not in b for b in out if not b.get("raised"))
+
+
+def test_a_pad_cut_into_a_slope_gets_a_retaining_wall_but_not_where_a_run_comes_in():
+    """On a 17° slope a pad is cut deep into the hill on its uphill side: a stone wall
+    there (kind 1) with the original slope restored right behind it, instead of a long
+    smooth bank. Where a run comes onto the pad there's no wall."""
+    from shapely.geometry import LineString
+
+    from ski_sim_pipeline.grid import sample_bilinear
+    from ski_sim_pipeline.terminals import (
+        WALL_PROBE,
+        _pad_ranges,
+        choose_entrances,
+        retaining_walls,
+    )
+
+    grid = Grid(Extent(-150, 150, -100, 1100), 2)
+    east, north = np.broadcast_arrays(*grid.coords())
+    # The line runs north up a slope rising 0.3 m per metre east (a side slope).
+    heights = (2000 + east * 0.3 + north * 0.05).astype(np.float64)
+    original = heights.copy()
+
+    def ground(e, n):
+        return sample_bilinear(heights, grid, e, n)
+
+    terms = plan([lift("gondola")])
+    flatten(terms, heights, grid, ground)
+    choose_entrances(terms, [])
+    bottom = terms[0]
+    stats = retaining_walls(terms, heights, grid, ground, [], [])
+    # Cut into the hill on the uphill side; the downhill side keeps its fill bank.
+    assert stats["cut"] >= 1 and stats["fill"] == 0
+    walls = bottom["walls"]
+    assert walls and all(w[6] == 1 for w in walls)
+    assert all(w[5] > 2.0 for w in walls)  # it holds back more than WALL_MIN of hill
+    (u0, u1), (v0, v1) = _pad_ranges(bottom)
+    assert all(not (w[0] == w[2] == u1) for w in walls)  # not across the line's way out
+    # Behind the walls the ground is the original slope again (clear of the walkway,
+    # which comes in on the +across side at the loading point).
+    (u0, u1), (v0, v1) = _pad_ranges(bottom)
+    n = 20.0
+    for v in (v1 + WALL_PROBE,):
+        e = bottom["across"][0] * v
+        assert ground(np.array([e]), np.array([n]))[0] == pytest.approx(
+            sample_bilinear(original, grid, np.array([e]), np.array([n]))[0], abs=0.3
+        )
+    # A run coming in across the uphill edge: no wall where it crosses.
+    heights[:] = original
+    terms = plan([lift("gondola")])
+    flatten(terms, heights, grid, ground)
+    choose_entrances(terms, [])
+    x = bottom["across"][0] * v1
+    run = LineString([(x - 40, 20), (x + 40, 20)]).buffer(4)
+    retaining_walls(terms, heights, grid, ground, [], [run])
+    on_edge = [w for w in terms[0]["walls"] if w[1] == w[3] == v1]
+    assert on_edge  # still walled either side of the run...
+    assert not [w for w in on_edge if abs((w[0] + w[2]) / 2 - 20) < 5]  # ...but not across it
+
+
+def test_small_leftovers_against_a_hall_go():
+    from ski_sim_pipeline.terminals import choose_entrances, cut_volumes, station_halls
+
+    terms = plan([lift("gondola")])
+    for t in terms:
+        t["pad"] = 2000 if t["end"] == "bottom" else 2300
+    w = terms[0]["width"] / 2
+    # A building straddling the hall's side wall, mostly inside: a 2 m x 8 m sliver is
+    # left against the wall.
+    straddling = {
+        "id": 4,
+        "type": "yes",
+        "footprint": [[-w - 2, 2], [w - 2, 2], [w - 2, 10], [-w - 2, 10]],
+        "top": 2006,
+        "base": 1999,
+        "heightSource": "estimate",
+    }
+    choose_entrances(terms, [straddling])
+    cuts = cut_volumes([lift("gondola")], terms)
+    out, stats = cut_buildings([straddling], cuts, station_halls(terms))
+    assert [b for b in out if not b.get("raised")] == []
+
+
+def test_a_hall_under_storeys_is_roofed_by_them():
+    from ski_sim_pipeline.terminals import (
+        choose_entrances,
+        cut_volumes,
+        mark_roofed,
+        station_halls,
+    )
+
+    terms = plan([lift("gondola")])
+    for t in terms:
+        t["pad"] = 2000 if t["end"] == "bottom" else 2300
+    block = {
+        "id": 8,
+        "type": "apartments",
+        "footprint": [[-30, -20], [30, -20], [30, 60], [-30, 60]],
+        "top": 2020,
+        "base": 1999,
+        "heightSource": "osm-levels",
+    }
+    choose_entrances(terms, [block])
+    cuts = cut_volumes([lift("gondola")], terms)
+    out, _ = cut_buildings([block], cuts, station_halls(terms))
+    assert mark_roofed(terms, out) == 1
+    assert terms[0].get("roofed") is True and "roofed" not in terms[1]

@@ -9,7 +9,7 @@ import { parseArgs } from 'node:util';
 import { join, resolve } from 'node:path';
 import { chromium } from '@playwright/test';
 import proj4 from 'proj4';
-import { staticChecks } from './station-checks.mjs';
+import { BUILDING_REACH, staticChecks } from './station-checks.mjs';
 
 const SIM_DIR = fileURLToPath(new URL('..', import.meta.url));
 const DATA_DIR = resolve(SIM_DIR, '../data/processed');
@@ -223,13 +223,29 @@ const slug = (s) =>
     .replace(/^-|-$/g, '')
     .toLowerCase();
 
+/** Buildings with a vertex within BUILDING_REACH of a terminal (from the grid above). */
+function buildingsNear(t) {
+  const found = new Set();
+  for (let e = t.east - BUILDING_REACH; e <= t.east + BUILDING_REACH + BUCKET; e += BUCKET) {
+    for (let n = t.north - BUILDING_REACH; n <= t.north + BUILDING_REACH + BUCKET; n += BUCKET) {
+      for (const b of buildingGrid.get(`${Math.floor(e / BUCKET)},${Math.floor(n / BUCKET)}`) ??
+        []) {
+        if (b.footprint.some(([be, bn]) => Math.hypot(be - t.east, bn - t.north) < BUILDING_REACH))
+          found.add(b);
+      }
+    }
+  }
+  return [...found];
+}
+
+const allTerminals = features.lifts.flatMap((lift) => lift.terminals ?? []);
 const terminals = features.lifts.flatMap((lift) =>
   (lift.terminals ?? []).map((t) => ({
     lift,
     terminal: t,
     name: liftName(lift),
     id: `${slug(liftName(lift))}-${lift.id}-${t.end}`,
-    problems: staticChecks(lift, t).map((p) => `static: ${p}`),
+    problems: staticChecks(lift, t, buildingsNear(t), allTerminals).map((p) => `static: ${p}`),
   })),
 );
 
