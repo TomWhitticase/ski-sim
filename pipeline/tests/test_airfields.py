@@ -317,3 +317,17 @@ def test_crowded_pads_shrink_apart():
     elements = [node(1, 0, 0, aeroway="helipad"), node(2, 12, 0, aeroway="helipad")]
     a, b = collect(elements, FRAME, EXTENT)["helipads"]
     assert a["size"] == b["size"] and a["size"] / 2 + b["size"] / 2 <= 12 - airfields.PAD_GAP
+
+
+def test_round_pads_face_along_their_row_and_lone_ones_down_the_slope():
+    # A row of round pads running north-east (their outlines say nothing about direction).
+    row = [circle(10 + i, 20.0 * i, 20.0 * i, 3.5, aeroway="helipad") for i in range(4)]
+    lone = node(30, -300, -300, aeroway="helipad")  # on its own, on a slope down to the east
+    long_pad = way(31, [(300, 0), (330, 0), (330, 12), (300, 12), (300, 0)], aeroway="helipad")
+    fields = collect([*row, lone, long_pad], FRAME, EXTENT)
+    heights = terrain(lambda e, n: 1500 - 0.15 * e)
+    out = finish(fields, lambda e, n: at(heights, e, n), [])
+    heading = {p["id"]: p["heading"] for p in out["helipads"]}
+    assert {heading[10 + i] for i in range(4)} == {45.0}
+    assert heading[30] == pytest.approx(90.0, abs=1)
+    assert heading[31] == pytest.approx(90.0, abs=1)  # longer east-west: keeps its own

@@ -376,6 +376,42 @@ def collect(
     }
 
 
+def _long_axis(points: np.ndarray) -> float | None:
+    """Bearing (0-180) of the direction points spread along most, or None if they don't."""
+    d = points - points.mean(axis=0)
+    values, vectors = np.linalg.eigh(d.T @ d)
+    if values[1] < 1e-6 or values[1] < 1.5 * values[0]:
+        return None
+    return bearing((0, 0), vectors[:, 1]) % 180
+
+
+def _aim_helipads(pads: list[dict], aprons: list[dict]) -> None:
+    """A pad with no direction of its own (round, or a node) faces like its neighbours:
+    along its heliport's row, else along the heliport ground it's on. Real pads face the
+    way helicopters come and go, which is the same for a row. The rest are aimed down
+    the slope in `finish`."""
+    for pad in pads:
+        if pad["aimed"]:
+            continue
+        row = np.array(
+            [
+                (o["east"], o["north"])
+                for o in pads
+                if o["roof"] == pad["roof"]
+                and math.hypot(o["east"] - pad["east"], o["north"] - pad["north"]) < PAD_GROUP
+            ]
+        )
+        axis = _long_axis(row) if len(row) >= 2 else None
+        if axis is None:
+            at = Point(pad["east"], pad["north"])
+            ground = [a["ring"] for a in aprons if a["ring"].contains(at)]
+            if ground:
+                rect = min(ground, key=lambda r: r.area).minimum_rotated_rectangle
+                axis = _long_axis(np.asarray(rect.exterior.coords)[:4])
+        if axis is not None:
+            pad["heading"], pad["aimed"] = round(axis, 1), True
+
+
 def _tidy_helipads(helipads: list[dict], aprons: list[dict]) -> list[dict]:
     """OSM's helipads as pads that read right: an outline holding other pads, or too big
     for one, is the heliport's ground (an apron; the big one keeps one standard pad at
@@ -396,6 +432,7 @@ def _tidy_helipads(helipads: list[dict], aprons: list[dict]) -> list[dict]:
                 continue
             pad = {**pad, "ring": None, "shape": "circle", "size": HELIPAD_SIZE}
         kept.append(pad)
+    _aim_helipads(kept, aprons)
     mapped = [pad["size"] for pad in kept]
     # One size per row: the median of its pads (a node's default would differ from
     # its mapped neighbours' outlines).
@@ -428,6 +465,7 @@ def _helipad(el: dict, frame: LocalFrame, footprints: list[Polygon]) -> dict | N
     if el["type"] == "node":
         e, n = frame.to_local(el["lon"], el["lat"])
         size = _number(tags.get("width")) or HELIPAD_SIZE
+        aimed = False
     elif el["type"] == "way" and _closed(el):
         poly = Polygon(_project(frame, el["geometry"])[:-1])
         if not poly.is_valid or poly.area < 4:
@@ -439,11 +477,17 @@ def _helipad(el: dict, frame: LocalFrame, footprints: list[Polygon]) -> dict | N
         size = float(max(np.hypot(*s) for s in sides))
         heading = bearing((0, 0), long) % 180
         shape = "circle" if poly.area < 0.86 * rect.area else "square"
+        # Only a pad that's clearly longer one way has a direction of its own.
+        lengths = sorted(float(np.hypot(*v)) for v in sides)
+        aimed = shape == "square" and lengths[1] > 1.1 * lengths[0]
         c = poly.centroid
         e, n = float(c.x), float(c.y)
         ring = np.round(np.asarray(poly.exterior.coords)[:-1], 2).tolist()
     else:
         return None
+    direction = _number(tags.get("direction"))
+    if direction is not None:
+        heading, aimed = direction % 180, True
     centre = Point(e, n)
     layer = _number(tags.get("layer")) or 0
     roof = (
@@ -462,6 +506,7 @@ def _helipad(el: dict, frame: LocalFrame, footprints: list[Polygon]) -> dict | N
         "heading": round(heading, 1),
         "surface": tags.get("surface"),
         "roof": bool(roof),
+        "aimed": aimed,
     }
 
 
@@ -925,6 +970,18 @@ def edge_markers(fields: dict, ground) -> list[list]:
     ]
 
 
+def _fall_line(pad: dict, ground) -> float:
+    """Bearing (0-180) down the slope round a pad, measured beyond its levelled ground;
+    0 (north) on the flat."""
+    r = pad["size"] / 2 + 15.0
+    e, n = pad["east"], pad["north"]
+    h = ground(np.array([e + r, e - r, e, e]), np.array([n, n, n + r, n - r]))
+    de, dn = float(h[0] - h[1]), float(h[2] - h[3])
+    if math.hypot(de, dn) < 0.02 * 2 * r:  # under 2%: no fall line to speak of
+        return 0.0
+    return round(bearing((0, 0), (-de, -dn)) % 180, 1)
+
+
 def finish(fields: dict, ground, buildings: list[dict], keep_clear=()) -> dict:
     """The `airfields` record for features.json, on the final ground. Rooftop helipads
     are put on their building (made flat-roofed)."""
@@ -944,6 +1001,8 @@ def finish(fields: dict, ground, buildings: list[dict], keep_clear=()) -> dict:
             if building
             else float(ground(np.array([pad["east"]]), np.array([pad["north"]]))[0])
         )
+        if not pad["aimed"] and not building:
+            pad["heading"] = _fall_line(pad, ground)
         helipads.append(
             {
                 **{
