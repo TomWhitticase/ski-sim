@@ -1,6 +1,10 @@
 // Measures load time and steady-state fps at a few camera poses against the running dev
-// server (pnpm dev). Usage: pnpm perf [--headed] [--only name,name]
-import { chromium } from '@playwright/test';
+// server (pnpm dev). Usage: pnpm perf [--headed] [--only name,name] [--mobile]
+// [--glass full|light|tint] [--hub]
+//   --mobile  an iPhone 14 on its side (touch, the phone's quality settings and HUD)
+//   --glass   the interface glass strength (default: the device's)
+//   --hub     with the Options hub open over the world (the most glass on screen)
+import { chromium, devices } from '@playwright/test';
 
 const POSES = {
   spawn: '',
@@ -48,15 +52,23 @@ function seaOfCloud(url) {
     };
   });
 }
-const only = process.argv.includes('--only')
-  ? process.argv[process.argv.indexOf('--only') + 1].split(',')
-  : null;
+const arg = (name) =>
+  process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : null;
+const only = arg('--only')?.split(',') ?? null;
+const mobile = process.argv.includes('--mobile');
+const glass = arg('--glass');
+const hub = process.argv.includes('--hub');
 
 const browser = await chromium.launch({
   headless: !process.argv.includes('--headed'),
   args: ['--enable-gpu', '--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist'],
 });
-const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+const { userAgent, isMobile, hasTouch, deviceScaleFactor } = devices['iPhone 14'];
+const page = await browser.newPage(
+  mobile
+    ? { userAgent, isMobile, hasTouch, deviceScaleFactor, viewport: { width: 844, height: 390 } }
+    : { viewport: { width: 1600, height: 900 } },
+);
 
 await page.route('**/*open-meteo.com/**', (route) =>
   route.fulfill({ json: seaOfCloud(new URL(route.request().url())) }),
@@ -68,15 +80,21 @@ for (const [name, query] of Object.entries(POSES)) {
     ? { 'les-3-vallees': { mode: 'past', date: '2024-01-10' } }
     : {};
   await page.goto(`http://localhost:${process.env.SIM_PORT ?? 5173}/`);
-  await page.evaluate((w) => {
-    localStorage.setItem('ski-sim.weather', JSON.stringify(w));
-    localStorage.setItem('ski-sim.time-of-day', JSON.stringify({ seconds: 11 * 3600, rate: 0 }));
-  }, weather);
+  await page.evaluate(
+    ([w, g]) => {
+      localStorage.setItem('ski-sim.weather', JSON.stringify(w));
+      localStorage.setItem('ski-sim.time-of-day', JSON.stringify({ seconds: 11 * 3600, rate: 0 }));
+      if (g) localStorage.setItem('ski-sim.display', JSON.stringify({ glass: g, uiScale: 1 }));
+      else localStorage.removeItem('ski-sim.display');
+    },
+    [weather, glass],
+  );
   const start = Date.now();
   await page.goto(`http://localhost:${process.env.SIM_PORT ?? 5173}/?${query}`);
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 0, null, { timeout: 90_000 });
   const firstFrame = Date.now() - start;
   await page.evaluate(() => document.body.classList.add('flying'));
+  if (hub) await page.evaluate(() => document.querySelector('#options').showModal());
   await page.waitForTimeout(2000);
   const a = await page.evaluate(() => window.__sim.frames);
   await page.waitForTimeout(3000);

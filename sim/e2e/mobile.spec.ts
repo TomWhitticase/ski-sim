@@ -148,6 +148,69 @@ test('a phone gets touch controls: the stick skates and steers, a drag looks rou
   await expect(page.locator('#rotate-hint')).toBeHidden();
 });
 
+test('touch: the stick stays where the thumb landed; small tools; a tap on the minimap opens the map', async ({
+  page,
+}) => {
+  await load(page, LAKE);
+  const fingers = await Fingers.on(page);
+  await tapToPlay(page, fingers);
+  const stick = page.locator('#touch-stick');
+  const placed = () =>
+    stick.evaluate((el) => [(el as HTMLElement).style.left, (el as HTMLElement).style.top]);
+
+  // Land at (150, 300) and run far past the ring to the right: full deflection, and the
+  // stick doesn't creep after the thumb; the knob stays on the rim.
+  await fingers.press(3, 150, 300);
+  expect(await placed()).toEqual(['150px', '300px']);
+  await fingers.move(3, 360, 300);
+  await expect.poll(() => sim<number>(page, 'input.stickX')).toBeCloseTo(1, 2);
+  expect(await placed()).toEqual(['150px', '300px']);
+  const knob = await stick.locator('i').evaluate((el) => (el as HTMLElement).style.transform);
+  expect(knob).toBe('translate(56px, 0px)');
+  // Coming back a little past where it landed is a small push right (a base that had
+  // followed the thumb out would read this as a hard left).
+  // (Moves are delivered with the next frame, so wait for it.)
+  await fingers.move(3, 172, 300);
+  await expect.poll(() => sim<number>(page, 'input.stickX')).toBeLessThan(0.5);
+  expect(await sim<number>(page, 'input.stickX')).toBeGreaterThan(0.1);
+  await fingers.lift(3);
+
+  // The tools: ~40 px at any size, still big enough to hit; "on" is a darker glass with a
+  // light edge, not a block of accent blue.
+  const sizes = async () =>
+    page.locator('#touch-tools .touch-tool:visible').evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect();
+        return [r.width, r.height];
+      }),
+    );
+  for (const size of [LANDSCAPE, PORTRAIT, { width: 1180, height: 820 }]) {
+    await page.setViewportSize(size);
+    await page.waitForTimeout(300);
+    for (const [w, h] of await sizes()) {
+      expect(w).toBeGreaterThanOrEqual(40);
+      expect(w).toBeLessThanOrEqual(46);
+      expect(h).toBe(w);
+    }
+  }
+  await page.setViewportSize(LANDSCAPE);
+  const on = page.locator('#touch-tools .touch-tool.on').first();
+  await expect(on).toBeVisible();
+  const look = await on.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return { bg: s.backgroundColor, color: s.color, edge: s.boxShadow };
+  });
+  expect(look.bg).not.toBe('rgb(76, 194, 255)');
+  expect(look.color).toBe('rgb(255, 255, 255)');
+  expect(look.edge).toContain('inset');
+
+  // Tap the minimap: the world map opens.
+  const map = await centre(page, '#minimap');
+  await fingers.tap(map.x, map.y);
+  await expect(page.locator('#world-map')).toBeVisible();
+  await shot(page, 'minimap-tap-map');
+});
+
 test('touch: jump, tuck and flips on the snow, pause with the ⏸ button', async ({ page }) => {
   await load(page, SLOPE);
   const fingers = await Fingers.on(page);
@@ -675,4 +738,60 @@ test('phones without WebGPU get the WebGL 2 renderer, with no errors', async ({ 
   expect(webgpu).toBe(false);
   await shot(page, 'webgl-landscape');
   expect(errors).toEqual([]);
+});
+
+test.describe('iPad', () => {
+  // An iPad on its side, emulated on Chromium (WebGPU). Safari's ✕ for leaving fullscreen
+  // sits in the top-left corner and reports no safe area, so in fullscreen the pause
+  // button and the stats move right of it.
+  const ipad = devices['iPad Pro 11 landscape'];
+  test.use({
+    userAgent: ipad.userAgent,
+    isMobile: ipad.isMobile,
+    hasTouch: ipad.hasTouch,
+    deviceScaleFactor: ipad.deviceScaleFactor,
+    viewport: ipad.viewport,
+  });
+
+  test('in fullscreen nothing of ours sits under the browser exit button', async ({ page }) => {
+    await load(page, LAKE);
+    const fingers = await Fingers.on(page);
+    await tapToPlay(page, fingers);
+    const corner = async () =>
+      page.evaluate(() =>
+        ['#touch-pause', '.hud-stats', '#run', '#party']
+          .map((s) => document.querySelector(s))
+          .filter((el): el is Element => !!el && el.getClientRects().length > 0)
+          .map((el) => el.getBoundingClientRect().left),
+      );
+    const before = await corner();
+    expect(Math.min(...before)).toBeLessThan(40);
+    await shot(page, 'ipad-windowed');
+
+    const full = await centre(page, '[data-touch="fullscreen"]');
+    await fingers.tap(full.x, full.y);
+    await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);
+    await expect(page.locator('[data-touch="fullscreen"]')).toHaveClass(/\bon\b/);
+    await page.waitForTimeout(400);
+    // Where Safari draws its ✕ (about 44 px from the corner, both ways), outlined in the
+    // screenshot for reference.
+    const lefts = await corner();
+    for (const left of lefts) expect(left).toBeGreaterThanOrEqual(60);
+    await page.evaluate(() => {
+      const x = document.createElement('div');
+      x.id = 'safari-exit';
+      x.style.cssText =
+        'position:fixed;left:12px;top:12px;width:40px;height:40px;border-radius:50%;' +
+        'background:rgba(60,60,67,.6);color:#fff;font:600 18px system-ui;display:grid;' +
+        'place-items:center;z-index:99;pointer-events:none';
+      x.textContent = '✕';
+      document.body.append(x);
+    });
+    await shot(page, 'ipad-fullscreen');
+    await page.evaluate(() => document.querySelector('#safari-exit')!.remove());
+
+    await page.evaluate(() => document.exitFullscreen());
+    await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(false);
+    await expect.poll(corner).toEqual(before);
+  });
 });

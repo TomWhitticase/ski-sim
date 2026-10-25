@@ -70,27 +70,22 @@ export function stickVector(
 }
 
 /**
- * Where the stick's knob is drawn (px from its origin), clamped to its ring; and how far
- * the base follows a thumb that runs past the ring, so it never has to come back to it.
+ * Where the stick's knob is drawn (px from its origin), clamped to its ring. The base stays
+ * where the thumb landed: a thumb that runs past the ring holds full deflection there, and
+ * the stick never creeps across the screen after it.
  */
-export function stickFollow(
+export function stickKnob(
   ox: number,
   oy: number,
   x: number,
   y: number,
   radius = STICK.radius,
-): { knobX: number; knobY: number; ox: number; oy: number } {
+): { x: number; y: number } {
   const dx = x - ox;
   const dy = y - oy;
   const length = Math.sqrt(dx * dx + dy * dy);
-  if (length <= radius) return { knobX: dx, knobY: dy, ox, oy };
-  const k = (length - radius) / length;
-  return {
-    knobX: (dx / length) * radius,
-    knobY: (dy / length) * radius,
-    ox: ox + dx * k,
-    oy: oy + dy * k,
-  };
+  if (length <= radius) return { x: dx, y: dy };
+  return { x: (dx / length) * radius, y: (dy / length) * radius };
 }
 
 /** Thresholds for one finger on the map: how far is a drag, how long is a long press. */

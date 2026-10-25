@@ -156,6 +156,10 @@ export class WorldMap {
 
     this.buildList();
     this.buildKey(root.querySelector('.map-key-list'));
+    // A phone upright: the key would cover the top of the map, so it starts folded.
+    if (window.matchMedia('(max-width: 760px)').matches) {
+      root.querySelector<HTMLDetailsElement>('.map-key')!.open = false;
+    }
     this.search.addEventListener('input', () => this.filterList());
     root.querySelector('.map-close')!.addEventListener('click', () => this.onClose());
     for (const box of root.querySelectorAll<HTMLInputElement>('[data-show]')) {

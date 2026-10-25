@@ -32,15 +32,10 @@
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   /* Set by display-settings.ts from the window height and the player's choice. */
   --ui-scale: 1;
-  --blur: 30px;
   --best: #fc5200;
   --ahead: #2bd576;
   --behind: #ff5c5c;
   font-family: var(--font-ui);
-}
-
-:root[data-glass='light'] {
-  --blur: 12px;
 }
 
 .glass-dark {
@@ -50,7 +45,6 @@
   --on-accent: #04111c;
   --glass-bg: rgba(16, 21, 31, 0.46);
   --glass-solid: rgba(16, 21, 31, 0.78);
-  --saturate: 1.8;
   --edge: rgba(255, 255, 255, 0.15);
   --highlight: rgba(255, 255, 255, 0.2);
   --outer: transparent;
@@ -76,7 +70,6 @@
   --on-accent: #ffffff;
   --glass-bg: rgba(250, 252, 255, 0.6);
   --glass-solid: rgba(250, 252, 255, 0.94);
-  --saturate: 1.7;
   --edge: rgba(255, 255, 255, 0.75);
   --highlight: rgba(255, 255, 255, 0.9);
   --outer: rgba(13, 23, 38, 0.07);
@@ -95,10 +88,15 @@
   color: var(--fg);
 }
 
+/* Frosted: the scene behind is blurred and a little more saturated, so text on the glass
+   stays legible. The filters are literal values on purpose: Safari ignores a
+   -webkit-backdrop-filter that uses var() (WebKit bugs 289800, 297620), and since Safari 18
+   the prefixed property is an alias of the plain one, so a var() in either drops the blur
+   on every iPhone and iPad. */
 .glass {
   background: var(--glass-bg);
-  backdrop-filter: blur(var(--blur)) saturate(var(--saturate));
-  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--saturate));
+  -webkit-backdrop-filter: blur(30px) saturate(1.8);
+  backdrop-filter: blur(30px) saturate(1.8);
   border-radius: var(--r-panel);
   box-shadow:
     inset 0 0 0 1px var(--edge),
@@ -107,11 +105,24 @@
     0 18px 50px -22px var(--drop);
 }
 
-/* Tint only: no blur at all (cheapest on slow GPUs), so panels are more opaque. */
+/* Light (phones and tablets start here): a smaller blur, cheaper to draw. */
+:root[data-glass='light'] .glass {
+  -webkit-backdrop-filter: blur(14px) saturate(1.8);
+  backdrop-filter: blur(14px) saturate(1.8);
+}
+
+/* Tint only: no blur at all (cheapest on slow GPUs), so panels are more opaque. Browsers
+   without backdrop filters get the same. */
 :root[data-glass='tint'] .glass {
   background: var(--glass-solid);
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background: var(--glass-solid);
+  }
 }
 
 /* Small uppercase mono label above a value or a section. */

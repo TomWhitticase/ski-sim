@@ -2,7 +2,7 @@ import { type Input } from './input';
 import {
   type InputKind,
   nextKind,
-  stickFollow,
+  stickKnob,
   stickKeys,
   stickVector,
   stopSide,
@@ -96,7 +96,7 @@ const ICONS = {
 const REPEAT_MS = 140;
 
 /**
- * Touch play: a virtual thumbstick where the left thumb lands, look-drag on the right half,
+ * Touch play: a virtual thumbstick where the left thumb lands (and stays there), look-drag on the right half,
  * and context buttons for the current mode (dark glass, bottom right), plus pause and a row
  * of tools (map, drone, paraglider, snowmobile, view, labels, piste colours, fullscreen).
  * Everything goes through `Input`, as the keyboard does, so the physics is the same.
@@ -529,11 +529,8 @@ export class TouchControls {
       const v = stickVector(stick.ox, stick.oy, e.clientX, e.clientY);
       this.input.stickX = v.x;
       this.input.stickY = v.y;
-      const f = stickFollow(stick.ox, stick.oy, e.clientX, e.clientY);
-      stick.ox = f.ox;
-      stick.oy = f.oy;
-      this.placeStick(f.ox, f.oy);
-      this.knob.style.transform = `translate(${f.knobX}px, ${f.knobY}px)`;
+      const knob = stickKnob(stick.ox, stick.oy, e.clientX, e.clientY);
+      this.knob.style.transform = `translate(${knob.x}px, ${knob.y}px)`;
       return;
     }
     const look = this.lookTouch;

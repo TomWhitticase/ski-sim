@@ -401,11 +401,19 @@ body:not(.flying) #hud {
   padding: 2px 6px 2px 3px;
   border-radius: var(--r-chip);
   background: rgba(16, 21, 31, 0.3);
+  -webkit-backdrop-filter: blur(8px) saturate(1.6);
+  backdrop-filter: blur(8px) saturate(1.6);
   font: 500 10.5px var(--font-ui);
   color: rgba(255, 255, 255, 0.55);
   transition:
     background 0.2s var(--ease),
     color 0.2s var(--ease);
+}
+
+:root[data-glass='tint'] #toggles > div {
+  background: rgba(16, 21, 31, 0.62);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 #toggles kbd {
@@ -1111,9 +1119,17 @@ body.entering #hud {
   border: none;
   border-radius: var(--r-control);
   background: rgba(250, 252, 255, 0.55);
+  -webkit-backdrop-filter: blur(12px) saturate(1.6);
+  backdrop-filter: blur(12px) saturate(1.6);
   color: var(--fg);
   font: 500 12.5px var(--font-ui);
   cursor: pointer;
+}
+
+:root[data-glass='tint'] .title-foot {
+  background: rgba(250, 252, 255, 0.9);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* Resorts: a searchable grid of every ski area, and the highlighted one beside it. */
@@ -2078,7 +2094,8 @@ body.rules-no-aircraft [data-touch='heli'] {
 .map-key {
   position: absolute;
   left: 20px;
-  bottom: 48px;
+  /* Clear of the (unzoomed) scale bar whatever the zoom. */
+  bottom: calc(48px / var(--ui-scale));
   max-width: 400px;
   max-height: calc(100% - 120px);
   overflow: auto;
@@ -2398,10 +2415,20 @@ body.touch .desktop-only {
 }
 
 body.touch {
+  /* Left of everything in the top-left corner (the pause button and the stats): the notch
+     where there is one, and in fullscreen the browser's own exit button. Safari on an iPad
+     puts a ✕ there (~44 px from the corner) and reports no safe area for it. */
+  --corner-left: env(safe-area-inset-left);
+  /* The tool buttons: comfortable to hit at any interface size, never under 40 px. */
+  --tool: max(40px, calc(42px * var(--ui-scale)));
   overscroll-behavior: none;
   touch-action: manipulation; /* no double-tap zoom */
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
+}
+
+:root:fullscreen body.touch {
+  --corner-left: max(env(safe-area-inset-left), 60px);
 }
 
 body.touch #scene,
@@ -2499,9 +2526,14 @@ body.hud-off #touch > :not(#touch-pad, #touch-pause) {
 }
 
 .touch-tool {
-  width: 48px;
-  height: 48px;
+  width: var(--tool);
+  height: var(--tool);
   border-radius: var(--r-control);
+}
+
+.touch-tool svg {
+  width: 20px;
+  height: 20px;
 }
 
 /* Tools are icons only; their names are for screen readers. */
@@ -2537,15 +2569,18 @@ body.hud-off #touch > :not(#touch-pad, #touch-pause) {
   background: rgba(255, 255, 255, 0.3);
 }
 
+/* On: the glass a shade darker with a thin light edge, not a block of colour. */
 .touch-tool.on,
 .touch-btn.on {
-  background: var(--accent);
-  color: var(--on-accent);
+  background: rgba(6, 9, 15, 0.66);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(255, 255, 255, 0.62),
+    0 18px 50px -22px var(--drop);
 }
 
 #touch-pause {
   position: absolute;
-  left: calc(14px + env(safe-area-inset-left));
+  left: calc(14px + var(--corner-left));
   top: calc(14px + env(safe-area-inset-top));
 }
 
@@ -2585,14 +2620,8 @@ body.hud-off #touch > :not(#touch-pad, #touch-pause) {
     /* Six to a column; more wrap into a second column to their left. */
     flex-wrap: wrap-reverse;
     align-content: flex-start;
-    max-height: 294px;
+    max-height: calc(6 * var(--tool) + 5 * 6px);
     gap: 6px;
-  }
-
-  /* A little slimmer upright, so the column fits between the minimap and the buttons. */
-  #touch-tools .touch-tool {
-    width: 44px;
-    height: 44px;
   }
 }
 
@@ -2640,7 +2669,7 @@ body.hud-off #touch > :not(#touch-pad, #touch-pause) {
    prompts above the thumbs, and no keyboard-only panels. The HUD is zoomed by the
    interface size, so offsets that line up with the (unzoomed) controls divide by it. */
 body.touch .hud-bottom {
-  left: calc((72px + env(safe-area-inset-left)) / var(--ui-scale));
+  left: calc((24px + var(--tool) + var(--corner-left)) / var(--ui-scale));
   top: calc((14px + env(safe-area-inset-top)) / var(--ui-scale));
   bottom: auto;
 }
@@ -2670,6 +2699,14 @@ body.touch #run {
   max-width: 260px;
   padding: 6px 10px;
   font-size: 13px;
+}
+
+/* The party card under the stats and the run (not over them and the pause button). */
+body.touch #party {
+  top: calc((118px + env(safe-area-inset-top)) / var(--ui-scale));
+  left: calc((14px + var(--corner-left)) / var(--ui-scale));
+  min-width: 0;
+  max-width: 240px;
 }
 
 body.touch .hud-side {
@@ -2814,6 +2851,16 @@ body.touch #debug {
 
   body.touch #run {
     max-width: 170px;
+  }
+
+  /* No room under the compass upright: notices go above the prompts, left of the tools. */
+  body.touch #notices {
+    top: auto;
+    left: calc((14px + env(safe-area-inset-left)) / var(--ui-scale));
+    bottom: calc((300px + env(safe-area-inset-bottom)) / var(--ui-scale));
+    translate: none;
+    justify-items: start;
+    max-width: calc((100vw - 28px - 2 * var(--tool)) / var(--ui-scale));
   }
 }
 
@@ -3042,6 +3089,15 @@ body.touch .map-places {
   .map-scale {
     top: max(16px, env(safe-area-inset-top));
     bottom: auto;
+  }
+
+  /* The key goes up under the scale bar, clear of the sheet (44dvh + its margin). */
+  .map-key {
+    top: calc((max(16px, env(safe-area-inset-top)) + 28px) / var(--ui-scale));
+    bottom: auto;
+    left: calc(12px / var(--ui-scale));
+    max-width: calc((100vw - 24px) / var(--ui-scale));
+    max-height: calc((56dvh - 60px - max(16px, env(safe-area-inset-top))) / var(--ui-scale));
   }
 }
 
