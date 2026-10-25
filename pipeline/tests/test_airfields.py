@@ -281,3 +281,39 @@ def test_designators_follow_the_drawn_line():
     [rw] = fields["runways"]
     assert rw["designators"] == ["22", "04"]
     assert rw["line"].coords[0] == pytest.approx((200, 200), abs=0.01)
+
+
+def circle(id_, e, n, r, **tags) -> dict:
+    ring = [(e + r * np.cos(a), n + r * np.sin(a)) for a in np.linspace(0, 2 * np.pi, 13)]
+    return way(id_, ring, **tags)
+
+
+def test_heliport_outline_over_its_pads_is_ground_not_a_pad():
+    # Courchevel: the heliport drawn as one big "helipad" over a row of small pads.
+    elements = [
+        way(
+            1,
+            [(-20, -20), (120, -20), (120, 20), (-20, 20), (-20, -20)],
+            aeroway="helipad",
+            name="Heliport",
+        ),
+        *(circle(10 + i, 25.0 * i, 0, 3.5, aeroway="helipad") for i in range(5)),
+        node(20, 300, 0, aeroway="helipad"),  # a lone default pad
+        way(21, [(400, -40), (470, -40), (470, 40), (400, 40), (400, -40)], aeroway="helipad"),
+    ]
+    fields = collect(elements, FRAME, EXTENT)
+    pads = {p["id"]: p for p in fields["helipads"]}
+    assert 1 not in pads and 1 in {a["id"] for a in fields["aprons"]}
+    # The row shares one size and no two markings overlap.
+    assert {pads[10 + i]["size"] for i in range(5)} == {6.8}
+    assert pads[20]["size"] == airfields.HELIPAD_SIZE
+    # Too big for one pad: its ground is an apron, with a standard pad at its centre.
+    assert pads[21]["size"] == airfields.HELIPAD_SIZE and pads[21]["ring"] is None
+    assert 21 in {a["id"] for a in fields["aprons"]}
+    assert any(n["name"] == "Heliport" for n in fields["aerodromes"])
+
+
+def test_crowded_pads_shrink_apart():
+    elements = [node(1, 0, 0, aeroway="helipad"), node(2, 12, 0, aeroway="helipad")]
+    a, b = collect(elements, FRAME, EXTENT)["helipads"]
+    assert a["size"] == b["size"] and a["size"] / 2 + b["size"] / 2 <= 12 - airfields.PAD_GAP

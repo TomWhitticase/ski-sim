@@ -51,6 +51,13 @@ PAVED = ("asphalt", "concrete", "paved", "bitumen", "tarmac", "paving_stones", "
 DEFAULT_WIDTH = {"cleared": 20.0, "groomed": 30.0}  # runways with no width anywhere (m)
 TAXIWAY_WIDTH = 10.0
 HELIPAD_SIZE = 15.0  # a node helipad's pad (m): a light helicopter's FATO
+#: A helipad outline wider than this is the heliport's ground, not one pad (m): it's
+#: surfaced like an apron and its H is drawn at HELIPAD_SIZE.
+HELIPAD_MAX = 30.0
+#: Pads closer than this are one heliport's row: they share a size (m).
+PAD_GROUP = 60.0
+#: Clear ground kept between neighbouring pads' markings (m).
+PAD_GAP = 3.0
 #: A runway way mapped this much shorter than its published length is lengthened to it
 #: (more than EXTEND_MAX short is taken as mapped differently, and left alone).
 EXTEND_MIN = 0.02
@@ -297,6 +304,8 @@ def collect(
                     {"id": el["id"], "ring": ring, "surface": surface, "name": tags.get("name")}
                 )
 
+    helipads = _tidy_helipads(helipads, aprons)
+
     # OurAirports: fill in what OSM's runway ways don't say, and add runways OSM lacks.
     for rw in runways:
         _match_runway(rw, ours, by_airport, frame)
@@ -365,6 +374,50 @@ def collect(
         "windsocks": windsocks,
         "aerodromes": _merge_names(names, runways),
     }
+
+
+def _tidy_helipads(helipads: list[dict], aprons: list[dict]) -> list[dict]:
+    """OSM's helipads as pads that read right: an outline holding other pads, or too big
+    for one, is the heliport's ground (an apron; the big one keeps one standard pad at
+    its centre); pads in one heliport's row share a size; and no two markings overlap."""
+    outline = {id(p): Polygon(p["ring"]) for p in helipads if p["ring"] and len(p["ring"]) >= 3}
+    kept = []
+    for pad in helipads:
+        poly = outline.get(id(pad))
+        holds = poly is not None and any(
+            o is not pad and o["size"] < pad["size"] and poly.contains(Point(o["east"], o["north"]))
+            for o in helipads
+        )
+        if poly is not None and (holds or pad["size"] > HELIPAD_MAX):
+            aprons.append(
+                {"id": pad["id"], "ring": poly, "surface": pad["surface"], "name": pad["name"]}
+            )
+            if holds:
+                continue
+            pad = {**pad, "ring": None, "shape": "circle", "size": HELIPAD_SIZE}
+        kept.append(pad)
+    mapped = [pad["size"] for pad in kept]
+    # One size per row: the median of its pads (a node's default would differ from
+    # its mapped neighbours' outlines).
+    for pad in kept:
+        row = [
+            o["size"]
+            for o in kept
+            if o["roof"] == pad["roof"]
+            and math.hypot(o["east"] - pad["east"], o["north"] - pad["north"]) < PAD_GROUP
+        ]
+        pad["size"] = round(float(np.median(row)), 1)
+    # No overlaps: shrink both of a crowded pair to leave PAD_GAP between them.
+    for i, a in enumerate(kept):
+        for b in kept[i + 1 :]:
+            d = math.hypot(a["east"] - b["east"], a["north"] - b["north"])
+            fit = max(d - PAD_GAP, 6.0)
+            if a["size"] / 2 + b["size"] / 2 > fit:
+                a["size"] = b["size"] = round(min(a["size"], b["size"], fit), 1)
+    for pad, size in zip(kept, mapped, strict=True):
+        if pad["ring"] and pad["size"] < size - 0.5:
+            pad["ring"] = None  # drawn at its (smaller) size, not its outline
+    return kept
 
 
 def _helipad(el: dict, frame: LocalFrame, footprints: list[Polygon]) -> dict | None:
