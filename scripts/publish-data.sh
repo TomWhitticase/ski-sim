@@ -3,6 +3,7 @@
 #
 #   scripts/publish-data.sh            # every resort with a committed config
 #   scripts/publish-data.sh les-3-vallees arlberg
+#   KEEP_INDEX=1 scripts/publish-data.sh les-3-vallees   # update one, leave the menu's list
 #
 # Resorts are built locally (uv run ski-sim build <id>). This stages data/processed/<id>
 # for each one, plus a resorts.json listing just those, and uploads them:
@@ -104,7 +105,11 @@ PY
     put "$id/manifest.json" "$staging/$id/manifest.json"
     echo "Uploaded $id ($(du -sh "$staging/$id" | cut -f1))"
   done
-  put resorts.json "$staging/resorts.json"
+  if [ "${KEEP_INDEX:-}" = 1 ]; then
+    echo "Kept the live resorts.json (KEEP_INDEX=1)"
+  else
+    put resorts.json "$staging/resorts.json"
+  fi
   echo "Uploaded to R2 bucket $bucket: ${ids[*]}"
   exit 0
 fi
