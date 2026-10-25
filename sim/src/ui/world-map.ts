@@ -92,6 +92,14 @@ const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCa
  * marker (shown in the world and on the minimap; click it again to remove it). By touch:
  * drag to pan, pinch to zoom, tap for the marker, touch and hold to teleport.
  */
+interface WorldPaths {
+  buildings: Path2D;
+  /** Per piste, in `data.pistes` order. */
+  areas: Path2D[];
+  lines: Path2D[];
+  downhill: { pts: [number, number][]; box: readonly [number, number, number, number] }[][];
+}
+
 export class WorldMap {
   isOpen = false;
 
@@ -126,6 +134,7 @@ export class WorldMap {
   private gestureUsed = false;
   private longPress = 0;
   private frameRequested = false;
+  private paths?: WorldPaths;
   /** The bare relief (`WorldMapData.baseUrl`), once asked for; null if it failed. */
   private base: HTMLImageElement | null | undefined;
   /** The guide marker, if one is placed. */
@@ -429,23 +438,19 @@ export class WorldMap {
   private drawRunArrows(cell: number): void {
     // As big as the run's line is wide (it widens with the zoom), at least a clear mark.
     const size = Math.max(3.5, Math.min(9, ((3 * cell) / this.mpp) * 0.45));
-    for (const piste of this.data.pistes) {
-      for (const line of piste.lines) {
-        if (line.length < 2) continue;
-        const a = line[0]!;
-        const b = line[line.length - 1]!;
-        const down =
-          this.data.groundHeight(a[0], a[1]) >= this.data.groundHeight(b[0], b[1])
-            ? line
-            : [...line].reverse();
+    const [w, s, e, n] = this.screenBox(ARROW_SPACING);
+    const { downhill } = this.worldPaths();
+    this.data.pistes.forEach((piste, i) => {
+      for (const { pts, box } of downhill[i]!) {
+        if (box[2] < w || box[0] > e || box[3] < s || box[1] > n) continue;
         this.arrows(
-          down.map(([e, n]) => this.toScreen(e, n)),
+          pts.map(([pe, pn]) => this.toScreen(pe, pn)),
           pisteColour(piste),
           size,
           ARROW_SPACING,
         );
       }
-    }
+    });
   }
 
   /** Town, village and hamlet names, as on a printed map: dark text with a white halo. */
@@ -560,22 +565,93 @@ export class WorldMap {
     }
   }
 
-  /** Building footprints as shapes (the minimap's colour), only those on screen. */
+  /** Building footprints as shapes (the minimap's colour): one fill of a cached path. */
   private drawBuildings(): void {
-    const { ctx, canvas } = this;
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
+    const { ctx } = this;
+    ctx.save();
+    this.worldTransform();
     ctx.fillStyle = 'rgb(112, 104, 100)';
+    ctx.fill(this.worldPaths().buildings);
+    ctx.restore();
+  }
+
+  /**
+   * Shapes in world metres, built once. Drawn through `worldTransform`, a pan or zoom then
+   * costs one fill or stroke per shape instead of projecting every point in JS (19,600
+   * footprints and 50,000 run points in the 3 Vallées took ~75 ms a frame to drag).
+   */
+  private worldPaths(): WorldPaths {
+    if (this.paths) return this.paths;
+    const ring = (path: Path2D, pts: [number, number][], close: boolean) => {
+      pts.forEach(([e, n], i) => (i ? path.lineTo(e, n) : path.moveTo(e, n)));
+      if (close) path.closePath();
+    };
+    const buildings = new Path2D();
     for (const b of this.data.buildings ?? []) {
-      if (b.raised) continue; // a piece above a cut: its ground-floor piece is drawn
-      const pts = b.footprint.map(([e, n]) => this.toScreen(e, n));
-      if (pts.every(([x]) => x < 0) || pts.every(([x]) => x > w)) continue;
-      if (pts.every(([, y]) => y < 0) || pts.every(([, y]) => y > h)) continue;
-      ctx.beginPath();
-      pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-      ctx.closePath();
-      ctx.fill();
+      // A piece above a cut: its ground-floor piece is drawn.
+      if (!b.raised && b.footprint.length >= 3) ring(buildings, b.footprint, true);
     }
+    const areas = this.data.pistes.map((piste) => {
+      const path = new Path2D();
+      for (const area of piste.areas) ring(path, area, true);
+      return path;
+    });
+    const lines = this.data.pistes.map((piste) => {
+      const path = new Path2D();
+      for (const line of piste.lines) ring(path, line, false);
+      return path;
+    });
+    // Down each run from its higher end, with its bounds for culling.
+    const downhill = this.data.pistes.map((piste) =>
+      piste.lines
+        .filter((line) => line.length >= 2)
+        .map((line) => {
+          const a = line[0]!;
+          const b = line[line.length - 1]!;
+          const pts =
+            this.data.groundHeight(a[0], a[1]) >= this.data.groundHeight(b[0], b[1])
+              ? line
+              : [...line].reverse();
+          const es = pts.map((p) => p[0]);
+          const ns = pts.map((p) => p[1]);
+          return {
+            pts,
+            box: [Math.min(...es), Math.min(...ns), Math.max(...es), Math.max(...ns)] as const,
+          };
+        }),
+    );
+    this.paths = { buildings, areas, lines, downhill };
+    return this.paths;
+  }
+
+  /** Maps world metres (east, north) to the screen, for `worldPaths`; line widths and
+   *  dashes are then in metres (screen px × mpp). */
+  private worldTransform(): void {
+    const dpr = window.devicePixelRatio || 1;
+    const k = dpr / this.mpp;
+    const w = this.canvas.clientWidth;
+    const h = this.canvas.clientHeight;
+    this.ctx.setTransform(
+      k,
+      0,
+      0,
+      -k,
+      dpr * (w / 2) - k * this.centerEast,
+      dpr * (h / 2) + k * this.centerNorth,
+    );
+  }
+
+  /** The world (west, south, east, north) on screen, plus `pad` px. */
+  private screenBox(pad: number): [number, number, number, number] {
+    const half = (px: number) => (px / 2 + pad) * this.mpp;
+    const dx = half(this.canvas.clientWidth);
+    const dy = half(this.canvas.clientHeight);
+    return [
+      this.centerEast - dx,
+      this.centerNorth - dy,
+      this.centerEast + dx,
+      this.centerNorth + dy,
+    ];
   }
 
   /**
@@ -587,26 +663,21 @@ export class WorldMap {
   private drawPisteLines(cell: number, withAreas: boolean): void {
     const { ctx } = this;
     const scale = cell / this.mpp;
+    const { areas, lines } = this.worldPaths();
+    const m = this.mpp; // px to metres, under the world transform
+    ctx.save();
+    this.worldTransform();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     if (withAreas) {
-      for (const piste of this.data.pistes) {
-        if (!piste.areas.length) continue;
+      this.data.pistes.forEach((piste, i) => {
+        if (!piste.areas.length) return;
         ctx.fillStyle = pisteColour(piste);
         ctx.globalAlpha = piste.type === 'snow_park' ? 0.59 : 0.27;
-        for (const area of piste.areas) {
-          ctx.beginPath();
-          area.forEach(([e, n], i) => {
-            const [x, y] = this.toScreen(e, n);
-            if (i) ctx.lineTo(x, y);
-            else ctx.moveTo(x, y);
-          });
-          ctx.closePath();
-          ctx.fill();
-        }
-      }
+        ctx.fill(areas[i]!);
+      });
     }
-    for (const piste of this.data.pistes) {
+    this.data.pistes.forEach((piste, i) => {
       const route =
         piste.difficulty === FREERIDE || piste.type === 'skitour' || piste.type === 'hike';
       const thin = route || piste.type === 'nordic' || piste.type === 'connection';
@@ -614,12 +685,11 @@ export class WorldMap {
       // Solid: translucent, each segment's round end would show darker where they meet.
       ctx.globalAlpha = 1;
       // Their ground width when zoomed in; never thinner than a clear line zoomed out.
-      ctx.lineWidth = Math.max(thin ? 1.6 : 2.4, (thin ? 2 : 3) * scale + (withAreas ? 0 : 1));
-      ctx.setLineDash(route ? [Math.max(6, 7 * scale), Math.max(4, 5 * scale)] : []);
-      for (const line of piste.lines) this.polyline(line.map(([e, n]) => this.toScreen(e, n)));
-    }
-    ctx.setLineDash([]);
-    ctx.globalAlpha = 1;
+      ctx.lineWidth = Math.max(thin ? 1.6 : 2.4, (thin ? 2 : 3) * scale + (withAreas ? 0 : 1)) * m;
+      ctx.setLineDash(route ? [Math.max(6, 7 * scale) * m, Math.max(4, 5 * scale) * m] : []);
+      ctx.stroke(lines[i]!);
+    });
+    ctx.restore();
   }
 
   private drawPisteNames(
