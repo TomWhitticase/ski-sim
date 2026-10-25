@@ -538,3 +538,103 @@ test('flying into the mountain: a crash, then back upright on the ground nearby'
   expect(await mode(page)).toBe('PLANE');
   expect(errors).toEqual([]);
 });
+
+// Cockpit views: forward, left, right and down from the pilot's seat, on the ground and
+// in flight. Straight ahead is mostly sky and ground (the panel below), never fuselage.
+const LOOKS = [
+  { name: 'forward', yaw: 0, pitch: 0 },
+  { name: 'left', yaw: 1.4, pitch: 0 },
+  { name: 'right', yaw: -1.4, pitch: 0 },
+  { name: 'down', yaw: 0, pitch: -0.7 },
+] as const;
+
+for (const kind of ['plane', 'heli'] as const) {
+  test(`the ${kind === 'plane' ? 'Porter' : 'H125'} cockpit: gauges, controls and the view out, on the ground and flying`, async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+    await start(page, COURCHEVEL_TOP); // first person (playwright.config.ts)
+    await page.keyboard.press('KeyF');
+    await standBy(page, kind === 'plane' ? 'pc6' : 'h125', 'Courchevel', 6, 0);
+    await page.keyboard.press(kind === 'plane' ? 'KeyU' : 'KeyY');
+    await page.waitForTimeout(3000); // engine running
+    const look = async (where: string) => {
+      const blocked: Record<string, number> = {};
+      for (const l of LOOKS) {
+        await page.evaluate(
+          ({ kind, l }) => {
+            const c = (
+              window.__sim as unknown as Record<string, { lookAround(v: object | null): void }>
+            )[kind]!;
+            c.lookAround({ yaw: l.yaw, pitch: l.pitch });
+          },
+          { kind, l },
+        );
+        await page.waitForTimeout(500);
+        blocked[l.name] = await page.evaluate(
+          (kind) =>
+            (window.__sim as unknown as Record<string, { viewBlocked(): number }>)[
+              kind
+            ]!.viewBlocked(),
+          kind,
+        );
+        await page.screenshot({
+          path: `test-results/views/cockpit-${kind}-${where}-${l.name}.png`,
+        });
+      }
+      console.log(kind, where, JSON.stringify(blocked));
+      // Out of the windscreen: mostly the world, not the aircraft.
+      expect(blocked.forward).toBeLessThan(0.45);
+      // Out of the side windows, past the frames and doors.
+      expect(blocked.left).toBeLessThan(0.7);
+      expect(blocked.right).toBeLessThan(0.7);
+      await page.evaluate(
+        (kind) =>
+          (window.__sim as unknown as Record<string, { lookAround(v: object | null): void }>)[
+            kind
+          ]!.lookAround(null),
+        kind,
+      );
+    };
+    // The cockpit-only parts are there and drawn.
+    expect(
+      await page.evaluate((kind) => {
+        const c = (window.__sim as unknown as Record<string, { root: import('three').Object3D }>)[
+          kind
+        ]!;
+        return c.root.getObjectByName('cockpit-gauges')?.parent?.visible ?? false;
+      }, kind),
+    ).toBe(true);
+    await look('ground');
+    // Into the air: the Porter cruising at 250 m, the H125 hovering at 60 m.
+    await page.evaluate((kind) => {
+      type V = { x: number; y: number; z: number };
+      const sim = window.__sim as unknown as Record<string, unknown> & {
+        groundHeight(x: number, z: number): number;
+      };
+      const c = sim[kind] as {
+        position: V;
+        yaw: number;
+        mount(at: V, v: V, yaw: number, running: boolean): void;
+      };
+      const p = c.position;
+      const Vec = p.constructor as new (x: number, y: number, z: number) => V;
+      const up = kind === 'plane' ? 250 : 60;
+      const speed = kind === 'plane' ? 50 : 0;
+      const yaw = c.yaw;
+      c.mount(
+        new Vec(p.x, sim.groundHeight(p.x, p.z) + up, p.z),
+        new Vec(-Math.sin(yaw) * speed, 0, -Math.cos(yaw) * speed),
+        yaw,
+        true,
+      );
+    }, kind);
+    await page.waitForTimeout(1500);
+    // The gauges read the flight: the airspeed needle's drawn from the live state.
+    await look('flying');
+    expect(errors).toEqual([]);
+  });
+}

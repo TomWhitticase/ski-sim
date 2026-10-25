@@ -1,7 +1,7 @@
-import { Box3, Vector3 } from 'three/webgpu';
+import { Box3, PerspectiveCamera, Vector3 } from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
 
-import { createHelicopter, createPlane } from './aircraft-model';
+import { createHelicopter, createPlane, viewBlocked } from './aircraft-model';
 import { H125, PC6 } from './aircraft-types';
 
 /** The model's extent (m), without the turning prop or rotors and their discs. */
@@ -46,4 +46,41 @@ describe('aircraft models are to scale', () => {
     expect(s.y).toBeGreaterThan(H125.height * 0.9);
     expect(s.y).toBeLessThan(H125.height * 1.1);
   });
+});
+
+describe('the cockpit view', () => {
+  /** The camera at the pilot's eye, looking along the nose and `lookDown` below it. */
+  function cockpit(parts: ReturnType<typeof createPlane>, yaw = 0, pitch = 0): PerspectiveCamera {
+    const camera = new PerspectiveCamera(85, 16 / 9, 0.05, 1000);
+    camera.position.copy(parts.eye);
+    camera.rotation.set(pitch - parts.lookDown, yaw, 0, 'YXZ');
+    return camera;
+  }
+
+  for (const [name, make] of [
+    ['Porter', () => createPlane(PC6)],
+    ['H125', () => createHelicopter(H125)],
+  ] as const) {
+    it(`sees out of the ${name}'s windscreen: mostly sky and ground, the panel below`, () => {
+      const parts = make();
+      // Running, the prop or rotor is a see-through blur.
+      parts.rotor.visible = false;
+      const ahead = viewBlocked(parts.root, cockpit(parts));
+      // Panel, glareshield and frame, never a wall of fuselage.
+      expect(ahead).toBeGreaterThan(0.05);
+      expect(ahead).toBeLessThan(0.4);
+      // The middle of the view, straight ahead, is clear.
+      const camera = new PerspectiveCamera(20, 1, 0.05, 1000);
+      camera.position.copy(parts.eye);
+      camera.rotation.set(0, 0, 0, 'YXZ');
+      expect(viewBlocked(parts.root, camera, 8)).toBeLessThan(0.25);
+    });
+
+    it(`sits the ${name}'s eye inside the cabin, behind the windscreen`, () => {
+      const parts = make();
+      // Looking the other way: the cabin's lining and seats all round, close by.
+      const behind = viewBlocked(parts.root, cockpit(parts, Math.PI), 16, 6);
+      expect(behind).toBeGreaterThan(0.45);
+    });
+  }
 });

@@ -2,7 +2,14 @@ import { Euler, type PerspectiveCamera, Quaternion, Vector3 } from 'three/webgpu
 
 import { FLY } from '../config';
 import type { Pose } from '../nav/pose';
-import { animateAircraft, type AircraftParts, createAircraft } from './aircraft-model';
+import {
+  type AircraftParts,
+  animateAircraft,
+  createAircraft,
+  setGlassTint,
+  viewBlocked,
+} from './aircraft-model';
+import { type Cockpit, type CockpitState, COCKPITS, createCockpit } from './aircraft-cockpit';
 import type { AircraftType, HeliType, PlaneType } from './aircraft-types';
 import { cameraSettings } from './camera-settings';
 import type { Bounds } from './fly-controls';
@@ -76,6 +83,8 @@ const TMP = new Vector3();
 const TMP2 = new Vector3();
 const QT = new Quaternion();
 const EULER = new Euler(0, 0, 0, 'YXZ');
+const HEAD = new Vector3();
+const AXIS = new Vector3();
 
 /**
  * Flying the plane or helicopter (one controller per type): the pure physics
@@ -116,6 +125,27 @@ export class AircraftControls {
   private chaseYaw = 0;
   private orbitYaw = 0;
   private orbitPitch = 0;
+  private lookHeld = false;
+  /** Left in the air while flying the drone (drawn from outside). */
+  private frozen = false;
+  /** The pilot's-eye parts (gauges, moving controls, gloves); browser only. */
+  private readonly cockpit: Cockpit | null;
+  private readonly inputs = { stickX: 0, stickY: 0, pedal: 0 };
+  private readonly gauges: CockpitState = {
+    airspeed: 0,
+    altitude: 0,
+    vertical: 0,
+    pitch: 0,
+    roll: 0,
+    heading: 0,
+    power: 0,
+    rpm: 0,
+    flaps: 0,
+    stickX: 0,
+    stickY: 0,
+    pedal: 0,
+    collective: 0,
+  };
   private readonly prev = new Vector3();
   air: AirConditions = STILL_AIR;
   /** Brakes held this frame (plane), for the HUD. */
@@ -133,6 +163,9 @@ export class AircraftControls {
     this.plane = type.kind === 'plane' ? createPlaneState(type) : null;
     this.heli = type.kind === 'heli' ? createHeliState(type) : null;
     this.parts.seat.add(this.pilot.root);
+    const spec = COCKPITS[type.id];
+    this.cockpit = spec && typeof document !== 'undefined' ? createCockpit(spec) : null;
+    if (this.cockpit) this.root.add(this.cockpit.root);
     this.pilot.setStowed(true);
     const p = this.parts.pilot;
     for (const [pose, side] of [
@@ -229,12 +262,35 @@ export class AircraftControls {
     this.heldStick = stick;
   }
 
+  /**
+   * Look round the cockpit (or the chase camera round the aircraft): yaw left (+) and
+   * pitch up (rad) from straight ahead, held until `null` lets it drift back.
+   */
+  lookAround(look: { yaw: number; pitch: number } | null): void {
+    this.lookHeld = !!look;
+    if (look) {
+      this.orbitYaw = look.yaw;
+      this.orbitPitch = look.pitch;
+    }
+  }
+
+  /** Share of the current view the aircraft's own opaque parts cover (see `viewBlocked`). */
+  viewBlocked(): number {
+    return viewBlocked(this.root, this.camera);
+  }
+
   setView(view: 'first-person' | 'chase'): void {
     this.view = view;
-    this.pilot.setFirstPerson(view === 'first-person' && this.status === 'riding', true);
+    const inside = view === 'first-person' && this.status === 'riding' && !this.frozen;
+    // Like ski first person: your legs on the pedals, no head or arms in the way; the
+    // cockpit's own parts (gauges, controls, your gloves on them) and clear glass.
+    this.pilot.setFirstPerson(inside, true);
+    if (this.cockpit) this.cockpit.root.visible = inside;
+    setGlassTint(this.parts, inside);
   }
 
   setActive(active: boolean): void {
+    this.frozen = false;
     if (active) {
       this.status = 'riding';
       this.pilot.setFlyingDrone(false);
@@ -252,6 +308,9 @@ export class AircraftControls {
 
   /** Out of body (flying the drone): left as it is with you in it, holding the controller. */
   showFrozen(): void {
+    this.frozen = true;
+    if (this.cockpit) this.cockpit.root.visible = false;
+    setGlassTint(this.parts, false);
     this.root.visible = true;
     this.pilot.root.visible = true;
     this.pilot.setFirstPerson(false, true);
@@ -371,20 +430,35 @@ export class AircraftControls {
     this.time += dt;
     this.reset = false;
     const k = (cameraSettings.sensitivity * 1) / STICK_PX;
-    // The mouse is the stick on a desktop; on a touchscreen a drag looks round instead.
-    if (!input.touch) {
+    // The mouse is the stick on a desktop (holding the right button looks round instead);
+    // on a touchscreen a drag looks round.
+    const looking = !input.touch && (input.buttons & 2) !== 0;
+    const invert = cameraSettings.invertY ? -1 : 1;
+    if (!input.touch && !looking) {
       this.stickX = clamp1(this.stickX + input.mouseX * k);
-      this.stickY = clamp1(this.stickY + input.mouseY * k * (cameraSettings.invertY ? -1 : 1));
+      this.stickY = clamp1(this.stickY + input.mouseY * k * invert);
       const centre = Math.exp(-STICK_RETURN * dt);
       if (input.mouseX === 0) this.stickX *= centre;
       if (input.mouseY === 0) this.stickY *= centre;
     } else {
-      // Heli: a sideways drag is the pedals (below); otherwise it swings the view.
-      if (this.plane) this.orbitYaw -= input.mouseX * 0.004;
-      this.orbitPitch = Math.max(-1, Math.min(0.6, this.orbitPitch - input.mouseY * 0.004));
+      if (looking) {
+        // Hands off the stick while you look round: it centres.
+        const centre = Math.exp(-STICK_RETURN * dt);
+        this.stickX *= centre;
+        this.stickY *= centre;
+      }
+      const look = looking ? FLY.mouseSensitivity * cameraSettings.sensitivity : 0.004;
+      // Heli by touch: a sideways drag is the pedals (below); otherwise it swings the view.
+      if (this.plane || looking) this.orbitYaw -= input.mouseX * look;
+      this.orbitPitch -= input.mouseY * look * (looking ? invert : 1);
     }
-    if (input.mouseX === 0 && input.mouseY === 0) {
-      // The view drifts back behind the nose once you let go.
+    const cockpit = this.view === 'first-person';
+    this.orbitYaw = cockpit ? Math.max(-2.5, Math.min(2.5, this.orbitYaw)) : this.orbitYaw;
+    this.orbitPitch = cockpit
+      ? Math.max(-1.1, Math.min(0.9, this.orbitPitch))
+      : Math.max(-1, Math.min(0.6, this.orbitPitch));
+    if (!this.lookHeld && !looking && input.mouseX === 0 && input.mouseY === 0) {
+      // The view drifts back ahead once you let go.
       this.orbitYaw *= Math.exp(-1.5 * dt);
       this.orbitPitch *= Math.exp(-1.5 * dt);
     }
@@ -397,6 +471,9 @@ export class AircraftControls {
     const side = clamp1(this.stickX + arrowsX - input.turn);
     const back = clamp1(this.stickY + arrowsY - input.stickY);
     const pedal = (input.down('KeyE') ? 1 : 0) - (input.down('KeyQ') ? 1 : 0);
+    this.inputs.stickX = side;
+    this.inputs.stickY = back;
+    this.inputs.pedal = pedal;
     this.prev.copy(this.position);
     const state = (this.plane ?? this.heli)!;
     const wasCrashing = state.crash > 0;
@@ -535,6 +612,30 @@ export class AircraftControls {
     return out.set(h(x - d, z) - h(x + d, z), 2 * d, h(x, z - d) - h(x, z + d)).normalize();
   }
 
+  /** Gauges and controls from the live state (cockpit view only). */
+  private updateCockpit(dt: number): void {
+    if (!this.cockpit) return;
+    const g = this.gauges;
+    const q = this.root.quaternion;
+    const forward = AXIS.set(0, 0, -1).applyQuaternion(q);
+    g.pitch = Math.asin(Math.max(-1, Math.min(1, forward.y)));
+    const rightY = HEAD.set(1, 0, 0).applyQuaternion(q).y;
+    const up = AXIS.set(0, 1, 0).applyQuaternion(q);
+    g.roll = Math.atan2(-rightY, up.y);
+    g.airspeed = this.airspeed;
+    g.altitude = this.position.y;
+    g.vertical = this.onGround ? 0 : this.velocity.y;
+    g.heading = this.heading;
+    g.power = this.plane ? this.lever : this.load;
+    g.rpm = this.rpm;
+    g.flaps = this.flaps;
+    g.stickX = this.inputs.stickX;
+    g.stickY = this.inputs.stickY;
+    g.pedal = this.inputs.pedal;
+    g.collective = this.plane ? 0 : this.lever;
+    this.cockpit.update(dt, g);
+  }
+
   /** Model, pilot and camera for this frame. */
   private updateView(dt: number): void {
     const root = this.parts.root;
@@ -545,9 +646,16 @@ export class AircraftControls {
     root.updateMatrixWorld(true);
     if (this.status !== 'riding') return;
     if (this.view === 'first-person') {
-      this.camera.position.copy(this.parts.eye).applyMatrix4(root.matrixWorld);
+      this.updateCockpit(dt);
+      // The head turns and leans into the look (to see past the seat frame), never as
+      // far as the walls.
+      const lean = Math.sin(this.orbitYaw);
+      HEAD.copy(this.parts.eye);
+      HEAD.x -= 0.12 * lean;
+      HEAD.z += 0.06 * Math.abs(lean) - 0.06 * Math.max(0, -this.orbitPitch);
+      this.camera.position.copy(HEAD).applyMatrix4(root.matrixWorld);
       // Looking out along the nose, a little down over the panel.
-      EULER.set(-0.03 + this.orbitPitch, this.orbitYaw, 0, 'YXZ');
+      EULER.set(-this.parts.lookDown + this.orbitPitch, this.orbitYaw, 0, 'YXZ');
       this.camera.quaternion.copy(root.quaternion).multiply(QT.setFromEuler(EULER));
     } else {
       const chase = this.type.kind === 'plane' ? CHASE.plane : CHASE.heli;

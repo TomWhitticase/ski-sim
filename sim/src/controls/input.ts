@@ -24,6 +24,8 @@ export class Input {
   hockey = 0;
   /** Touch controls are in use (no pointer lock; `locked` means playing). */
   touch = false;
+  /** Mouse buttons held while playing (MouseEvent.buttons bits: 1 left, 2 right). */
+  buttons = 0;
 
   private readonly keys = new Set<string>();
   /** Keys held by on-screen buttons and by the stick. */
@@ -36,6 +38,10 @@ export class Input {
 
   constructor(private readonly element: HTMLElement) {
     document.addEventListener('mousemove', this.onMouseMove);
+    document.addEventListener('mousedown', this.onButtons);
+    document.addEventListener('mouseup', this.onButtons);
+    // The right button looks round a cockpit: no context menu over the game.
+    element.addEventListener('contextmenu', (e) => this.locked && e.preventDefault());
     document.addEventListener('keydown', this.onKeyDown);
     document.addEventListener('keyup', this.onKeyUp);
     document.addEventListener('pointerlockchange', this.onLockChange);
@@ -134,6 +140,10 @@ export class Input {
     this.mouseY += e.movementY;
   };
 
+  private readonly onButtons = (e: MouseEvent) => {
+    this.buttons = this.locked ? e.buttons : 0;
+  };
+
   private readonly onKeyDown = (e: KeyboardEvent) => {
     if (!this.locked) return;
     // Stop Space scrolling and Ctrl+S/D/A etc. triggering browser shortcuts mid-flight.
@@ -174,6 +184,7 @@ export class Input {
     this.stickX = 0;
     this.stickY = 0;
     this.hockey = 0;
+    this.buttons = 0;
   };
 }
 

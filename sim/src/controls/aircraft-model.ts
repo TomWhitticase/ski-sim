@@ -1,11 +1,18 @@
 import {
   BoxGeometry,
   BufferAttribute,
+  type Camera,
+  type Material,
+  type Object3D,
+  Raycaster,
+  Vector2,
   BufferGeometry,
+  BackSide,
   CircleGeometry,
   ConeGeometry,
   CylinderGeometry,
   DoubleSide,
+  FrontSide,
   Group,
   Mesh,
   MeshBasicNodeMaterial,
@@ -14,6 +21,7 @@ import {
   Vector3,
 } from 'three/webgpu';
 
+import { COCKPITS, type CockpitSpec } from './aircraft-cockpit';
 import { H125, type HeliType, PC6, type PlaneType } from './aircraft-types';
 import { merge, part, type RGB, rod } from './snowmobile-model';
 
@@ -26,6 +34,8 @@ const TYRE: RGB = [0.06, 0.06, 0.07];
 const SKI: RGB = [0.78, 0.8, 0.82];
 const INTERIOR: RGB = [0.18, 0.19, 0.2];
 const BLADE: RGB = [0.14, 0.14, 0.15];
+const PANEL: RGB = [0.2, 0.21, 0.23];
+const FRAME: RGB = [0.16, 0.17, 0.19];
 const TIP: RGB = [0.9, 0.85, 0.2];
 
 /** One cross-section of a lofted fuselage: a superellipse at `z`, `w` half-wide. */
@@ -38,17 +48,41 @@ interface Section {
   n?: number;
 }
 
+/** Sections every `step` m at most, blended linearly between the given ones. */
+function subdivide(sections: Section[], step: number): Section[] {
+  const out: Section[] = [sections[0]!];
+  for (let k = 1; k < sections.length; k++) {
+    const a = sections[k - 1]!;
+    const b = sections[k]!;
+    const n = Math.max(1, Math.ceil((b.z - a.z) / step));
+    for (let i = 1; i <= n; i++) {
+      const t = i / n;
+      const mix = (u: number, v: number) => u + (v - u) * t;
+      out.push({
+        z: mix(a.z, b.z),
+        w: mix(a.w, b.w),
+        bottom: mix(a.bottom, b.bottom),
+        top: mix(a.top, b.top),
+        n: mix(a.n ?? 2.6, b.n ?? 2.6),
+      });
+    }
+  }
+  return out;
+}
+
 /**
- * A fuselage lofted through superellipse sections (nose to tail), split into the
- * painted shell and its windows (`glass` picks the faces by their centre), both open
- * at no end (capped).
+ * A fuselage lofted through superellipse sections (nose to tail, subdivided so window
+ * edges fall within ~12 cm), split into the painted shell and its windows (`glass` picks
+ * the faces by their centre), capped at both ends. Faces wind outward, so the shell's
+ * back faces are its inside (`hullMeshes` trims them).
  */
 function loft(
-  sections: Section[],
+  given: Section[],
   colour: (p: Vector3) => RGB,
   glass: (p: Vector3) => boolean,
-  around = 28,
+  around = 32,
 ): { shell: BufferGeometry; glass: BufferGeometry } {
+  const sections = subdivide(given, 0.12);
   const rings = sections.map((s) => {
     const n = s.n ?? 2.6;
     const mid = (s.bottom + s.top) / 2;
@@ -72,9 +106,11 @@ function loft(
   const shellColour: number[] = [];
   const pane: number[] = [];
   const centre = new Vector3();
-  const tri = (a: Vector3, b: Vector3, c: Vector3) => {
+  const quad = new Vector3();
+  /** A triangle; `isGlass` decided for its whole quad (so window edges run straight). */
+  const tri = (a: Vector3, b: Vector3, c: Vector3, isGlass = false) => {
     centre.copy(a).add(b).add(c).divideScalar(3);
-    if (glass(centre)) {
+    if (isGlass) {
       pane.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
       return;
     }
@@ -88,8 +124,10 @@ function loft(
     for (let i = 0; i < around; i++) {
       const j = (i + 1) % around;
       // Sections run nose (-z) to tail: wound to face outward.
-      tri(r0[i]!, r0[j]!, r1[i]!);
-      tri(r0[j]!, r1[j]!, r1[i]!);
+      quad.copy(r0[i]!).add(r0[j]!).add(r1[i]!).add(r1[j]!).divideScalar(4);
+      const isGlass = glass(quad);
+      tri(r0[i]!, r0[j]!, r1[i]!, isGlass);
+      tri(r0[j]!, r1[j]!, r1[i]!, isGlass);
     }
   }
   const first = rings[0]!;
@@ -195,6 +233,39 @@ function ski(length: number, width: number, x: number, y: number, z: number): Bu
   ];
 }
 
+/**
+ * The fuselage shell as two meshes on one geometry: painted outside (front faces), and
+ * the cabin's trim inside (back faces), so from the pilot's seat you see a lining and
+ * window frames, not the paint from behind.
+ */
+function hullMeshes(shell: BufferGeometry): Mesh[] {
+  const outside = new Mesh(
+    shell,
+    new MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.4, side: FrontSide }),
+  );
+  outside.castShadow = true;
+  outside.name = 'hull';
+  const inside = new Mesh(
+    shell,
+    new MeshStandardNodeMaterial({ color: 0x3a3d42, roughness: 0.85, side: BackSide }),
+  );
+  inside.name = 'hull-lining';
+  return [outside, inside];
+}
+
+/**
+ * The instrument panel's board from the type's cockpit data (`COCKPITS`): built facing +z
+ * (toward the seats) and leaning back toward the pilot. The gauges on it are drawn live in
+ * the cockpit view (`aircraft-cockpit.ts`); from outside it's a dark board.
+ */
+function panelBoard(spec: CockpitSpec): BufferGeometry {
+  const p = spec.panel;
+  const g = part(new BoxGeometry(p.width, p.height, 0.05), PANEL, [0, 0, 0]);
+  g.rotateX(-p.tilt);
+  g.translate(...p.centre);
+  return g;
+}
+
 /** Lights: steady navigation lights, flashing strobes and a rotating beacon. */
 export interface AircraftLights {
   nav: Mesh;
@@ -214,9 +285,13 @@ export interface AircraftParts {
   blades: Mesh;
   blur: Mesh;
   tailBlur: Mesh | null;
+  /** The windows (fainter from inside: see `setGlassTint`). */
+  glass: Mesh;
   lights: AircraftLights;
-  /** Pilot's eye in the root frame (cockpit view). */
+  /** Pilot's eye in the root frame (cockpit view): at the seated pilot's head. */
   eye: Vector3;
+  /** How far below the nose the cockpit view looks (rad): over a long cowling, or down through a bubble. */
+  lookDown: number;
   /** Pilot's seated pose: hips above the floor, behind the feet, and hands on the controls. */
   pilot: { hipHeight: number; hipBack: number; feet: number; grip: Vector3 };
 }
@@ -267,8 +342,8 @@ export function createPlane(type: PlaneType = PC6): AircraftParts {
   const sections: Section[] = [
     { z: -3.28, w: 0.26, bottom: hub[0] - 0.26, top: hub[0] + 0.26, n: 2 },
     { z: -3.05, w: 0.38, bottom: hub[0] - 0.4, top: hub[0] + 0.36, n: 2.3 },
-    { z: -2.5, w: 0.44, bottom: hub[0] - 0.5, top: hub[0] + 0.42 },
-    { z: -1.5, w: 0.54, bottom: 1.12, top: 2.14 },
+    { z: -2.5, w: 0.44, bottom: hub[0] - 0.5, top: hub[0] + 0.36 },
+    { z: -1.5, w: 0.54, bottom: 1.12, top: 2.06 },
     { z: -1.05, w: 0.62, bottom: 1.06, top: 2.42 },
     { z: -0.6, w: 0.65, bottom: 1.03, top: wingY - 0.06, n: 3.2 },
     { z: 1.1, w: 0.65, bottom: 1.03, top: wingY - 0.04, n: 3.2 },
@@ -279,11 +354,13 @@ export function createPlane(type: PlaneType = PC6): AircraftParts {
     { z: 7.5, w: 0.05, bottom: tailY + 0.62, top: 2.08 },
   ];
   const isWindow = (p: Vector3) => {
-    // Windscreen over the nose, and side windows along the cabin.
-    if (p.z > -1.5 && p.z < -0.55 && p.y > 2.12) return true;
-    const side = Math.abs(p.x) > 0.45;
-    if (side && p.y > 1.85 && p.y < wingY - 0.18 && p.z > -0.95 && p.z < 1.55) return true;
-    return false;
+    // Windscreen from the glareshield up to the wing (a post up the middle and the frame
+    // round it stay shell), the cockpit doors' windows, then the cabin's.
+    if (p.z > -1.42 && p.z < -0.68 && p.y > 2.08 && p.y < wingY - 0.14 && Math.abs(p.x) > 0.04) {
+      return true;
+    }
+    const side = Math.abs(p.x) > 0.45 && p.y > 1.62 && p.y < wingY - 0.2;
+    return side && ((p.z > -1.3 && p.z < 0.5) || (p.z > 0.66 && p.z < 1.55));
   };
   const fuselage = loft(
     sections,
@@ -296,7 +373,7 @@ export function createPlane(type: PlaneType = PC6): AircraftParts {
     isWindow,
   );
 
-  const parts: BufferGeometry[] = [fuselage.shell];
+  const parts: BufferGeometry[] = [];
   // Wing: constant chord, slight dihedral, the H4's upturned tips.
   const chord = type.wingArea / span;
   const lead = -0.85;
@@ -344,9 +421,31 @@ export function createPlane(type: PlaneType = PC6): AircraftParts {
     parts.push(part(new BoxGeometry(0.46, 0.08, 0.48), INTERIOR, [x, 1.56, -0.16]));
     parts.push(part(new BoxGeometry(0.46, 0.62, 0.08), INTERIOR, [x, 1.86, 0.1], [-0.18, 0, 0]));
   }
-  // Instrument panel under a slim glareshield.
-  parts.push(part(new BoxGeometry(1.0, 0.24, 0.04), INTERIOR, [0, 1.8, -1.14], [0.25, 0, 0]));
-  parts.push(part(new BoxGeometry(1.0, 0.025, 0.12), DARK, [0, 1.93, -1.2]));
+  // Cockpit: the panel just under the windscreen's foot, its glareshield, the firewall
+  // behind it, a stick and the window frames.
+  parts.push(panelBoard(COCKPITS[type.id]!));
+  parts.push(part(new BoxGeometry(1.08, 0.03, 0.2), DARK, [0, 2.06, -1.38]));
+  parts.push(part(new BoxGeometry(1.06, 0.8, 0.03), INTERIOR, [0, 1.55, -1.48]));
+  for (const side of [-1, 1]) {
+    // A-pillars from the windscreen's foot to the wing root, and the door post.
+    parts.push(
+      rod(
+        new Vector3(side * 0.5, 2.06, -1.44),
+        new Vector3(side * 0.6, wingY - 0.1, -0.66),
+        0.03,
+        FRAME,
+      ),
+    );
+    parts.push(
+      rod(
+        new Vector3(side * 0.62, 1.6, -0.6),
+        new Vector3(side * 0.62, wingY - 0.1, -0.6),
+        0.014,
+        FRAME,
+      ),
+    );
+  }
+  parts.push(rod(new Vector3(0, 2.07, -1.44), new Vector3(0, wingY - 0.1, -0.68), 0.022, FRAME));
   // Tailplane, fin and rudder, tailwheel on its spring with a small ski.
   for (const side of [-1, 1]) {
     parts.push(
@@ -373,8 +472,9 @@ export function createPlane(type: PlaneType = PC6): AircraftParts {
 
   const body = new Mesh(merge(parts), material);
   body.castShadow = true;
-  root.add(body);
+  root.add(body, ...hullMeshes(fuselage.shell));
   const glass = new Mesh(fuselage.glass, glassMaterial());
+  glass.name = 'glass';
   root.add(glass);
 
   // Propeller: three blades about the hub (its local y is the shaft, along -z).
@@ -424,6 +524,7 @@ export function createPlane(type: PlaneType = PC6): AircraftParts {
   const seat = new Group();
   seat.position.set(-0.32, 1.15, -0.62);
   root.add(seat);
+  const pilot = { hipHeight: 0.46, hipBack: 0.46, feet: 0, grip: new Vector3(0.14, 0.62, -0.08) };
   return {
     root,
     seat,
@@ -432,9 +533,11 @@ export function createPlane(type: PlaneType = PC6): AircraftParts {
     blades,
     blur,
     tailBlur: null,
+    glass,
     lights,
-    eye: new Vector3(-0.32, 2.34, -0.42),
-    pilot: { hipHeight: 0.46, hipBack: 0.46, feet: 0, grip: new Vector3(0.14, 0.62, -0.08) },
+    eye: pilotEye(seat, pilot),
+    lookDown: 0.02,
+    pilot,
   };
 }
 
@@ -470,19 +573,22 @@ export function createHelicopter(type: HeliType = H125): AircraftParts {
       return RED;
     },
     (p) => {
-      // The bubble forward of the doors above the floor line (a centre post and the roof
-      // over the seats stay shell), and the door windows.
-      if (p.z < -1.55 && p.y > 0.8 && Math.abs(p.x) > 0.1 && (p.y < 1.85 || p.z < -2.25)) {
-        return true;
-      }
-      return Math.abs(p.x) > 0.6 && p.y > 1.32 && p.y < 2.0 && p.z > -1.45 && p.z < 0.55;
+      // The bubble: everything forward of the door posts above the nose's chin (a slim
+      // post up the middle stays), the roof windows over the front seats either side of
+      // the overhead beam, and the doors' big windows.
+      const x = Math.abs(p.x);
+      if (p.z < -1.5 && p.y > 0.78 && x > 0.05) return true;
+      if (p.z < -0.75 && p.y > 1.9 && x > 0.16 && x < 0.78) return true;
+      if (x > 0.6 && p.y > 1.0 && p.y < 1.96)
+        return (p.z > -1.38 && p.z < -0.2) || (p.z > -0.06 && p.z < 0.6);
+      return false;
     },
   );
-  const parts: BufferGeometry[] = [cabin.shell];
+  const parts: BufferGeometry[] = [];
   // Engine and gearbox hump, mast and Starflex hub.
-  parts.push(part(new BoxGeometry(1.0, 0.45, 2.6), RED, [0, 2.3, 0.6]));
+  parts.push(part(new BoxGeometry(1.0, 0.4, 2.6), RED, [0, 2.35, 0.6]));
   parts.push(
-    part(new CylinderGeometry(0.5, 0.5, 2.6, 14), RED, [0, 2.48, 0.6], [Math.PI / 2, 0, 0]),
+    part(new CylinderGeometry(0.42, 0.42, 2.6, 14), RED, [0, 2.57, 0.6], [Math.PI / 2, 0, 0]),
   );
   parts.push(
     part(new CylinderGeometry(0.28, 0.3, 0.5, 12), DARK, [0, 2.86, 2.0], [Math.PI / 2, 0, 0]),
@@ -547,14 +653,25 @@ export function createHelicopter(type: HeliType = H125): AircraftParts {
     parts.push(part(new BoxGeometry(0.5, 0.1, 0.5), INTERIOR, [x, 1.08, -1.05]));
     parts.push(part(new BoxGeometry(0.5, 0.7, 0.08), INTERIOR, [x, 1.45, -0.78], [-0.12, 0, 0]));
   }
-  // Low instrument panel on a central console: the bubble's all view.
-  parts.push(part(new BoxGeometry(1.0, 0.18, 0.05), INTERIOR, [0, 1.25, -2.2], [0.4, 0, 0]));
-  parts.push(part(new BoxGeometry(0.28, 0.5, 0.45), INTERIOR, [0, 0.92, -1.9]));
+  // Cockpit: a low panel under its glareshield on a central pedestal (the bubble is all
+  // view), the cyclic in front of the pilot, the overhead beam and the door posts.
+  parts.push(panelBoard(COCKPITS[type.id]!));
+  parts.push(part(new BoxGeometry(1.14, 0.03, 0.14), DARK, [0, 1.35, -2.24], [0.25, 0, 0]));
+  parts.push(part(new BoxGeometry(0.26, 0.4, 0.5), PANEL, [0, 0.88, -1.88]));
+  parts.push(rod(new Vector3(0, 0.78, -2.84), new Vector3(0, 2.0, -2.3), 0.02, FRAME));
+  parts.push(rod(new Vector3(0, 2.0, -2.3), new Vector3(0, 2.1, -0.7), 0.04, FRAME));
+  for (const side of [-1, 1]) {
+    parts.push(
+      rod(new Vector3(side * 0.88, 0.7, -1.45), new Vector3(side * 0.82, 2.06, -1.45), 0.03, FRAME),
+    );
+  }
 
   const body = new Mesh(merge(parts), material);
   body.castShadow = true;
-  root.add(body);
-  root.add(new Mesh(cabin.glass, glassMaterial()));
+  root.add(body, ...hullMeshes(cabin.shell));
+  const glass = new Mesh(cabin.glass, glassMaterial());
+  glass.name = 'glass';
+  root.add(glass);
 
   // Main rotor: three blades, spinning anticlockwise seen from above (Airbus rotors turn clockwise; drawn either way at speed).
   const rotor = new Group();
@@ -610,6 +727,7 @@ export function createHelicopter(type: HeliType = H125): AircraftParts {
   const seat = new Group();
   seat.position.set(0.45, 0.68, -1.55);
   root.add(seat);
+  const pilot = { hipHeight: 0.44, hipBack: 0.5, feet: 0, grip: new Vector3(0.18, 0.45, 0.02) };
   return {
     root,
     seat,
@@ -618,10 +736,55 @@ export function createHelicopter(type: HeliType = H125): AircraftParts {
     blades,
     blur,
     tailBlur,
+    glass,
     lights,
-    eye: new Vector3(0.45, 1.88, -1.32),
-    pilot: { hipHeight: 0.44, hipBack: 0.5, feet: 0, grip: new Vector3(0.18, 0.45, 0.02) },
+    eye: pilotEye(seat, pilot),
+    lookDown: 0.14,
+    pilot,
   };
+}
+
+/**
+ * Where the seated pilot's eyes are (root frame): over the hips, which sit `hipBack`
+ * behind the seat's origin, at a seated `SkierModel`'s eye height (head 0.67 m over the
+ * pelvis, eyes a touch above and forward of its centre; leaning back a little).
+ */
+function pilotEye(seat: Group, pilot: { hipHeight: number; hipBack: number }): Vector3 {
+  return seat.position.clone().add(new Vector3(0, pilot.hipHeight + 0.7, pilot.hipBack - 0.04));
+}
+
+const ray = new Raycaster();
+const ndc = new Vector2();
+
+/**
+ * Share of a camera's view (0..1) that an aircraft's opaque, visible parts cover within
+ * `reach` m: a grid of rays through the frame. From the cockpit it should be the panel
+ * and frames, not a wall of fuselage.
+ */
+export function viewBlocked(root: Object3D, camera: Camera, grid = 24, reach = 20): number {
+  root.updateMatrixWorld(true);
+  camera.updateMatrixWorld();
+  const shown = (o: Object3D | null): boolean => !o || (o.visible && shown(o.parent));
+  const opaque = (m: Mesh) => {
+    const mat = m.material as Material;
+    return !mat.transparent && shown(m);
+  };
+  let blocked = 0;
+  for (let i = 0; i < grid; i++) {
+    for (let j = 0; j < grid; j++) {
+      ndc.set(((i + 0.5) / grid) * 2 - 1, ((j + 0.5) / grid) * 2 - 1);
+      ray.setFromCamera(ndc, camera);
+      ray.far = reach;
+      const hit = ray.intersectObject(root, true).some((h) => opaque(h.object as Mesh));
+      if (hit) blocked++;
+    }
+  }
+  return blocked / (grid * grid);
+}
+
+/** Window tint: the outside look, or faint from the pilot's seat (it's clear glass). */
+export function setGlassTint(parts: AircraftParts, inside: boolean): void {
+  (parts.glass.material as MeshStandardNodeMaterial).opacity = inside ? 0.1 : 0.32;
 }
 
 /** The model for a type. */
