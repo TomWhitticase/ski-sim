@@ -496,3 +496,45 @@ test('summoning: a heli comes to flat ground with teleporting on, none without i
   expect(h.onGround).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test('flying into the mountain: a crash, then back upright on the ground nearby', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  await start(page, 'at=45.28856,6.5752,2418&heading=90&pitch=-5');
+  await page.keyboard.press('KeyF');
+  await page.keyboard.press('KeyU'); // a Porter on the lake (or at the nearest runway)
+  expect(await mode(page)).toBe('PLANE');
+  // Put it 25 m over the lake diving at 15 m/s.
+  await page.evaluate(() => {
+    type V = { x: number; y: number; z: number };
+    const sim = window.__sim as unknown as {
+      plane: { position: V; mount(at: V, v: V, yaw: number, running: boolean): void };
+      groundHeight(x: number, z: number): number;
+    };
+    const p = sim.plane.position;
+    const Vec = p.constructor as new (x: number, y: number, z: number) => V;
+    sim.plane.mount(
+      new Vec(p.x, sim.groundHeight(p.x, p.z) + 25, p.z),
+      new Vec(40, -15, 0),
+      -Math.PI / 2,
+      true,
+    );
+  });
+  await expect(page.locator('#notices')).toContainText('Crashed ·', { timeout: 10_000 });
+  await page.screenshot({ path: 'test-results/views/aircraft-plane-crash.png' });
+  // A couple of seconds later it's back on its wheels, at rest, still yours to fly.
+  await expect
+    .poll(
+      async () => {
+        const h = await handle(page, 'plane');
+        return !h.crashed && h.onGround && h.speed < 0.5;
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(true);
+  expect(await mode(page)).toBe('PLANE');
+  expect(errors).toEqual([]);
+});

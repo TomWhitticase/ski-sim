@@ -2582,6 +2582,10 @@ body.hud-off #touch > :not(#touch-pad, #touch-pause) {
     bottom: auto;
     translate: 0 -50%;
     flex-direction: column;
+    /* Six to a column; more wrap into a second column to their left. */
+    flex-wrap: wrap-reverse;
+    align-content: flex-start;
+    max-height: 294px;
     gap: 6px;
   }
 
@@ -2628,7 +2632,7 @@ body.hud-off #touch > :not(#touch-pad, #touch-pause) {
     top: calc(252px + env(safe-area-inset-top));
     left: calc(14px + env(safe-area-inset-left));
     translate: none;
-    max-width: calc(100vw - 86px - env(safe-area-inset-left) - env(safe-area-inset-right));
+    max-width: calc(100vw - 136px - env(safe-area-inset-left) - env(safe-area-inset-right));
   }
 }
 

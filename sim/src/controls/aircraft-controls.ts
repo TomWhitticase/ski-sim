@@ -438,12 +438,12 @@ export class AircraftControls {
       };
       stepHeli(this.heli!, heli, dt, this.type as HeliType, this.terrain, this.air);
     }
-    if (state.crash === 0) this.collide();
+    if (wasCrashing && state.crash === 0) this.recover();
+    else if (state.crash === 0) this.collide();
     const p = state.position;
     p.x = Math.min(Math.max(p.x, this.bounds.minX), this.bounds.maxX);
     p.z = Math.min(Math.max(p.z, this.bounds.minZ), this.bounds.maxZ);
     if (state.crash > 0 && !this.crashed) this.crashed = state.crashed;
-    if (wasCrashing && state.crash === 0) this.recover();
     this.look.yaw = this.yaw;
     this.updateView(dt);
   }

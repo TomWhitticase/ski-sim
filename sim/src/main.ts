@@ -1090,7 +1090,12 @@ async function main(): Promise<void> {
   /** Leave the frozen skier behind for good (it's coming to you instead). */
   const dropBody = () => {
     if (body === 'sled') sled.setActive(false); // parked where it was
-    if (body === 'plane' || body === 'heli') aircraftFor(body).setActive(false);
+    if (body === 'plane' || body === 'heli') {
+      // Parked where it stood; left in mid-air, it goes away (it would hang in the sky).
+      const ctl = aircraftFor(body);
+      if (ctl.onGround) ctl.setActive(false);
+      else ctl.stow();
+    }
     body = null;
   };
   /** Show the modes' models: the active one, plus your frozen skier while flying. */

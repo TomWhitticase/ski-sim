@@ -470,8 +470,11 @@ export function createHelicopter(type: HeliType = H125): AircraftParts {
       return RED;
     },
     (p) => {
-      // The bubble: everything forward of the doors above the floor line; door windows.
-      if (p.z < -1.55 && p.y > 0.8) return true;
+      // The bubble forward of the doors above the floor line (a centre post and the roof
+      // over the seats stay shell), and the door windows.
+      if (p.z < -1.55 && p.y > 0.8 && Math.abs(p.x) > 0.1 && (p.y < 1.85 || p.z < -2.25)) {
+        return true;
+      }
       return Math.abs(p.x) > 0.6 && p.y > 1.32 && p.y < 2.0 && p.z > -1.45 && p.z < 0.55;
     },
   );
