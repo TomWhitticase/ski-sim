@@ -676,6 +676,26 @@ export class LiftSystem {
     return solids;
   }
 
+  /** Every haul rope span as a segment (world), as drawn: for aircraft flying into them. */
+  ropeSegments(): [Vector3, Vector3][] {
+    const out: [Vector3, Vector3][] = [];
+    for (const line of this.lines) {
+      if (line.loop) {
+        const corners = line.loop.corners;
+        for (let i = 0; i < corners.length; i++) {
+          out.push([corners[i]!.position, corners[(i + 1) % corners.length]!.position]);
+        }
+      } else {
+        for (const track of line.tracks!) {
+          for (let i = 0; i < track.points.length - 1; i++) {
+            out.push([track.points[i]!, track.points[i + 1]!]);
+          }
+        }
+      }
+    }
+    return out;
+  }
+
   /** Distances up the line of each tower on a lift (for the sheave clack). */
   towerPoints(li: number): Vector3[] {
     return this.lines[li]!.towers;

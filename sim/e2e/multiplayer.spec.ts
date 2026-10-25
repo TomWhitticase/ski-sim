@@ -575,3 +575,75 @@ test("guests ski in the host's weather, fetching nothing, with the Weather tab l
   await expect.poll(() => sim(guest, (s) => s.weather.status)).toBe('off');
   expect(errors).toEqual([]);
 });
+
+test('others see your helicopter and plane, rotor and prop turning, and hear them', async ({
+  context,
+}) => {
+  test.setTimeout(240_000);
+  const errors: string[] = [];
+  const host = await open(context, HOST_AT, errors);
+  await host.keyboard.press('KeyN');
+  const modal = host.locator('#mp-panel');
+  await setName(host, 'Alice');
+  await modal.locator('.mp-host').click();
+  await expect(modal.locator('.mp-code')).toHaveText(/^[A-Z2-9]{6}$/);
+  const code = (await modal.locator('.mp-code').textContent())!;
+  const guest = await open(context, `${GUEST_AT}&join=${code}`, errors);
+  await guest.keyboard.press('KeyN');
+  await expect(guest.locator('#mp-panel .mp-status')).toHaveText('Connected');
+  await setName(guest, 'Bob');
+  for (const page of [guest, host]) {
+    await page.locator('#menu-back').click();
+    await page.locator('#resume').click();
+  }
+  // Y on the flat frozen lake: a helicopter comes to Alice (teleporting is on), and she
+  // lifts off.
+  await host.keyboard.press('KeyY');
+  await expect.poll(() => sim(guest, (s) => s.multiplayer.debug.modes[0])).toBe('heli');
+  await host.keyboard.down('KeyW');
+  await host.waitForTimeout(2000);
+  await host.keyboard.up('KeyW');
+  await guest.waitForTimeout(1500);
+  const rotor = () =>
+    guest.evaluate(() => {
+      const s = window.__sim as unknown as {
+        scene: import('three').Scene;
+        multiplayer: { nearestAircraft(p: unknown): { kind: string; rpm: number } | null };
+        camera: { position: unknown };
+      };
+      const model = s.scene.children
+        .find((c) => c.name.startsWith('player-'))
+        ?.getObjectByName('h125');
+      return {
+        visible: !!model?.visible,
+        height: model?.position.y ?? 0,
+        heard: s.multiplayer.nearestAircraft(s.camera.position),
+      };
+    });
+  const seen = await rotor();
+  expect(seen.visible).toBe(true);
+  expect(seen.heard?.kind).toBe('heli');
+  expect(seen.heard!.rpm).toBeGreaterThan(0.5);
+  expect(seen.height).toBeGreaterThan(2420);
+  await guest.screenshot({ path: 'test-results/views/multiplayer-guest-heli.png' });
+
+  // Down, out, and into a plane (on the lake if there's room to take off, else at the
+  // nearest runway): Bob sees a plane.
+  await host.keyboard.down('KeyS');
+  await expect
+    .poll(
+      () =>
+        host.evaluate(
+          () => (window.__sim as unknown as { heli: { canExit: boolean } }).heli.canExit,
+        ),
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+  await host.keyboard.up('KeyS');
+  await host.keyboard.press('KeyY');
+  await host.keyboard.press('KeyU');
+  await expect.poll(() => sim(guest, (s) => s.multiplayer.debug.modes[0])).toBe('plane');
+  await guest.waitForTimeout(800);
+  await guest.screenshot({ path: 'test-results/views/multiplayer-guest-plane.png' });
+  expect(errors).toEqual([]);
+});

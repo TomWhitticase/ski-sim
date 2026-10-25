@@ -270,6 +270,13 @@ export class Multiplayer {
     return this.session ? this.remote.nearestDrone(from) : null;
   }
 
+  /** The nearest plane or helicopter another player is flying, for its sound. */
+  nearestAircraft(
+    from: Vector3,
+  ): { distance: number; kind: 'plane' | 'heli'; rpm: number; load: number } | null {
+    return this.session ? this.remote.nearestAircraft(from) : null;
+  }
+
   private async start(role: Role, code: string, since?: number): Promise<void> {
     if (this.session) this.session.close();
     this.session = null;

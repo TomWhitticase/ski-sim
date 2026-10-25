@@ -11,6 +11,8 @@ describe('party card', () => {
   it('says what a friend is doing', () => {
     expect(activity('ski', 'Cascades')).toBe('skiing Cascades');
     expect(activity('ski', null)).toBe('skiing');
+    expect(activity('plane', 'Cascades')).toBe('flying a plane');
+    expect(activity('heli', null)).toBe('flying a helicopter');
     expect(activity('ride', 'Cascades')).toBe('on a lift');
     expect(activity('glide', null)).toBe('paragliding');
   });

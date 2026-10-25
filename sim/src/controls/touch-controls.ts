@@ -83,6 +83,13 @@ const ICONS = {
   fast: svg('<path d="M3 5l8 7-8 7z"/><path d="M12 5l8 7-8 7z"/>'),
   off: svg('<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4M6 12h10"/>'),
   lean: svg('<circle cx="14" cy="5" r="2"/><path d="M13 8l-4 6 5 2-2 5"/><path d="M4 21h16"/>'),
+  // A high-wing plane and a helicopter, seen from above and the side.
+  plane: svg('<path d="M12 3v18M3 9h18M8 19h8"/><path d="M12 3c-1 0-1.5 1-1.5 2v4"/>'),
+  heli: svg(
+    '<path d="M3 5h18M12 5v3"/><path d="M6 13a4 4 0 0 1 4-5h3a4 4 0 0 1 4 4v1H6z"/><path d="M17 11h4l1-2M8 16l-1 2h10l-1-2"/>',
+  ),
+  flaps: svg('<path d="M3 10h12l6 2"/><path d="M15 10l5 6"/>'),
+  brake: svg('<circle cx="12" cy="12" r="8"/><path d="M8 12h8"/>'),
 };
 
 /** How often a held +/- steps the fly speed (ms). */
@@ -274,6 +281,50 @@ export class TouchControls {
         when: (st) => st.mode === 'sled',
       },
       {
+        id: 'power-up',
+        label: 'Power',
+        icon: ICONS.plus,
+        hold: 'KeyW',
+        big: true,
+        when: (st) => st.mode === 'plane',
+      },
+      {
+        id: 'power-down',
+        label: 'Less',
+        icon: ICONS.minus,
+        hold: 'KeyS',
+        when: (st) => st.mode === 'plane',
+      },
+      {
+        id: 'flaps',
+        label: 'Flaps',
+        icon: ICONS.flaps,
+        press: () => s.tap('KeyX'),
+        when: (st) => st.mode === 'plane',
+      },
+      {
+        id: 'brake',
+        label: 'Brake',
+        icon: ICONS.brake,
+        hold: 'Space',
+        when: (st) => st.mode === 'plane',
+      },
+      {
+        id: 'climb',
+        label: 'Up',
+        icon: ICONS.up,
+        hold: 'KeyW',
+        big: true,
+        when: (st) => st.mode === 'heli',
+      },
+      {
+        id: 'descend',
+        label: 'Down',
+        icon: ICONS.down,
+        hold: 'KeyS',
+        when: (st) => st.mode === 'heli',
+      },
+      {
         id: 'ff',
         label: 'Fast',
         icon: ICONS.fast,
@@ -317,7 +368,7 @@ export class TouchControls {
         label: 'Paraglider',
         icon: ICONS.glider,
         press: () => this.actions.key('KeyP'),
-        when: () => true,
+        when: (st) => st.mode !== 'plane' && st.mode !== 'heli',
         on: (st) => st.mode === 'glide',
       },
       {
@@ -325,8 +376,24 @@ export class TouchControls {
         label: 'Snowmobile',
         icon: ICONS.sled,
         press: () => this.actions.key('KeyB'),
-        when: (st) => st.mode !== 'ride',
+        when: (st) => st.mode !== 'ride' && st.mode !== 'plane' && st.mode !== 'heli',
         on: (st) => st.mode === 'sled',
+      },
+      {
+        id: 'plane',
+        label: 'Plane',
+        icon: ICONS.plane,
+        press: () => this.actions.key('KeyU'),
+        when: (st) => st.mode !== 'ride' && st.mode !== 'heli',
+        on: (st) => st.mode === 'plane',
+      },
+      {
+        id: 'heli',
+        label: 'Helicopter',
+        icon: ICONS.heli,
+        press: () => this.actions.key('KeyY'),
+        when: (st) => st.mode !== 'ride' && st.mode !== 'plane',
+        on: (st) => st.mode === 'heli',
       },
       {
         id: 'view',

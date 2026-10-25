@@ -6,10 +6,21 @@ import {
   formatHeading,
   formatLatitude,
   formatLongitude,
+  formatPower,
   formatSpeed,
+  formatVertical,
 } from './hud';
 
 describe('HUD formatting', () => {
+  it('formats climb and sink with a sign, and power (reverse as REV)', () => {
+    expect(formatVertical(3.24)).toBe('+3.2');
+    expect(formatVertical(-0.96)).toBe('−1.0');
+    expect(formatVertical(0.02)).toBe('0.0');
+    expect(formatPower({ kind: 'plane', power: 0.755 })).toBe('76');
+    expect(formatPower({ kind: 'plane', power: -0.5 })).toBe('REV');
+    expect(formatPower({ kind: 'heli', power: 1.04 })).toBe('104');
+  });
+
   it('formats altitude in whole metres with separators', () => {
     expect(formatAltitude(2699.6)).toBe('2,700 m');
   });
