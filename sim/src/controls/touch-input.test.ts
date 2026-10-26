@@ -7,7 +7,7 @@ import {
   pinchScale,
   PRESS,
   STICK,
-  stickFollow,
+  stickKnob,
   stickKeys,
   stickVector,
   stopSide,
@@ -79,15 +79,18 @@ describe('stickVector', () => {
   });
 });
 
-describe('stickFollow', () => {
-  it('keeps the knob on its ring and drags the base after a runaway thumb', () => {
-    const inside = stickFollow(0, 0, 10, 0, 50);
-    expect(inside).toEqual({ knobX: 10, knobY: 0, ox: 0, oy: 0 });
-    const out = stickFollow(0, 0, 80, 0, 50);
-    expect(out.knobX).toBeCloseTo(50);
-    expect(out.ox).toBeCloseTo(30);
-    // Full deflection from the new base: pulling back now responds at once.
-    expect(stickVector(out.ox, out.oy, 80, 0, 50).x).toBeCloseTo(1);
+describe('stickKnob', () => {
+  it('keeps the knob on its ring, and the base where the thumb landed', () => {
+    expect(stickKnob(0, 0, 10, 0, 50)).toEqual({ x: 10, y: 0 });
+    const out = stickKnob(0, 0, 80, 0, 50);
+    expect(out.x).toBeCloseTo(50);
+    expect(out.y).toBeCloseTo(0);
+    const diagonal = stickKnob(100, 100, 400, 500, 50);
+    expect(Math.hypot(diagonal.x, diagonal.y)).toBeCloseTo(50);
+    expect(diagonal.x / diagonal.y).toBeCloseTo(0.75);
+    // Still full deflection from the unmoved base, and pulling back responds at once.
+    expect(stickVector(0, 0, 80, 0, 50).x).toBeCloseTo(1);
+    expect(stickVector(0, 0, 20, 0, 50).x).toBeLessThan(0.5);
   });
 });
 

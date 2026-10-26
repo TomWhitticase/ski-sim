@@ -1644,6 +1644,7 @@ async function main(): Promise<void> {
       forest,
       parks,
       groundHeight,
+      input,
     });
   let last = performance.now();
   /** Seconds of play, for gusts and passing clouds; when the weather was last worked out. */
@@ -1744,7 +1745,7 @@ async function main(): Promise<void> {
       prompt.hidden = !text;
     }
   };
-  // Tappable HUD: the prompt and fly mode's ways out do what their key does.
+  // Tappable HUD: the prompt, fly mode's ways out and the minimap do what their key does.
   $('#hud').addEventListener('click', (e) => {
     const el = (e.target as HTMLElement).closest<HTMLElement>('[data-key]');
     if (el?.dataset.key && input.touch) act(el.dataset.key);
