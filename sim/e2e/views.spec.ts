@@ -257,6 +257,29 @@ const VIEWS = [
   { name: 'crossing-plein-sud', query: 'at=45.298041,6.576651,2302&heading=45&pitch=-2' },
   { name: 'crossing-chambre', query: 'at=45.319308,6.555960,2257&heading=45&pitch=-2' },
   { name: 'crossing-chenus', query: 'at=45.413214,6.629542,1817&heading=45&pitch=-2' },
+  // Crossings an exit angle once held short (the other tower makes up the rest): TC10
+  // Tarter over TSF4 Pi de Migdia, Totalp over Furka Zipper.
+  {
+    name: 'crossing-grandvalira-tarter',
+    query: 'resort=grandvalira&at=42.568876,1.642786,2096&heading=37&pitch=-3',
+  },
+  {
+    name: 'crossing-davos-totalp',
+    query: 'resort=davos-klosters&at=46.848921,9.824171,2218&heading=130&pitch=-3',
+  },
+  // Lines meeting at their stations, not crossing: left as they are.
+  {
+    name: 'stations-salzburg-kogelalm',
+    query: 'resort=snow-space-salzburg&at=47.324872,13.346581,1882&heading=14&pitch=-10',
+  },
+  {
+    name: 'stations-engelberg-rugisbalm',
+    query: 'resort=engelberg-titlis&at=46.851694,8.362425,903&heading=195&pitch=-23',
+  },
+  {
+    name: 'stations-verbier-ours',
+    query: 'resort=verbier-4-vallees&at=46.180516,7.367020,2168&heading=213&pitch=-39',
+  },
   // Rope sag, side on: a long chairlift span (Becca, 195 m, 4.3 m of sag) and a gondola
   // span (Télécabine d'Orelle, 306 m, 8.4 m), carriers riding down into the dip.
   { name: 'lift-sag-chair', query: 'at=45.327757,6.560274,2402&heading=340&pitch=2' },

@@ -13,8 +13,13 @@ Beside a station there's no room for a tower between the hall and the crossing. 
 the rope runs from the hall's exit (at platform height) to the first tower beyond the
 crossing, so that tower alone moves it: up or down as far as a buildable tower and the
 station's exit angle (`approach.MAX_EXIT_ANGLE`) allow. A crossing inside the level rope
-of a hall can only be resolved by moving the other line. Changed or added towers are
-marked `crossing`; what can't be resolved is logged.
+of a hall can only be resolved by moving the other line. Where one tower is held short
+(the exit angle, the tallest buildable) and sharing the rest with the lower line still
+falls short, the other tower makes it up, no steeper between them than a station exit.
+Changed or added towers are marked `crossing`; what can't be resolved is logged.
+
+Lines into a shared or adjoining station often overlap in plan there, though no rope
+crosses another (`at_stations`): those are left alone, logged, and not counted.
 """
 
 from __future__ import annotations
@@ -42,6 +47,9 @@ REUSE = 15.0
 #: A new tower needs at least this much room between the crossing and the next support
 #: (or a station's exit plus its MIN_GAP), else the support itself is the anchor (m).
 MIN_ROOM = 5.0
+#: Lines whose plans cross inside both halls, or within this of their exits, meet at a
+#: shared (or adjoining) station: not a crossing (m).
+AT_STATION = 5.0
 
 
 def _segments(lift: dict):
@@ -88,11 +96,62 @@ def _exit_point(station: dict) -> dict:
     return {"east": e, "north": n, "top": station["top"]}
 
 
-def _shift(lift: dict, i: int, t: float, target: float, ground, limit) -> float:
+def _from_exit(lift: dict, i: int, t: float) -> tuple[dict, float] | None:
+    """The station end of segment i nearest the crossing at fraction t, and how far
+    beyond its exit the crossing is (m; negative inside the hall), or None."""
+    s = lift["supports"]
+    a, b = s[i], s[i + 1]
+    span = _plan(a, b)
+    best = None
+    for end, reach in ((a, t * span), (b, (1 - t) * span)):
+        if end.get("kind") != "station":
+            continue
+        d = reach - (_plan(end, _exit_point(end)) if end.get("exit") else 0.0)
+        if best is None or d < best[1]:
+            best = (end, d)
+    return best
+
+
+def at_stations(one: dict, i: int, t: float, two: dict, j: int, u: float, ground) -> bool:
+    """Do the lines meet at their stations rather than cross? OSM's lines into a shared
+    or adjoining station overlap in plan there, but no rope crosses another: either the
+    plans cross inside (or at the exit of) both halls, or inside one line's hall while
+    the other, coming out of its own station, couldn't climb over it within its exit
+    angle (the hall's rope is at platform height, so nothing passes under it)."""
+    near = (_from_exit(one, i, t), _from_exit(two, j, u))
+    if all(n is not None and n[1] <= AT_STATION for n in near):
+        return True
+    for (inside, k, f), (other, m, g), n in (
+        ((one, i, t), (two, j, u), near[1]),
+        ((two, j, u), (one, i, t), near[0]),
+    ):
+        hall = _from_exit(inside, k, f)
+        if hall is None or hall[1] > 0 or n is None or n[1] <= 0:
+            continue
+        kind = KIND[other["type"]]
+        station, d = n
+        if not station.get("exit"):
+            continue
+        need = rope_at(inside, k, f) + SEPARATION + (0 if kind == "drag" else HANG_DEPTH[kind])
+        sup = other["supports"]
+        e = sup[m]["east"] + (sup[m + 1]["east"] - sup[m]["east"]) * g
+        no = sup[m]["north"] + (sup[m + 1]["north"] - sup[m]["north"]) * g
+        floor = float(ground(np.array([e]), np.array([no]))[0])
+        top = station["top"]
+        rise = max(math.tan(math.radians(MAX_EXIT_ANGLE[kind])) * d, floor + MIN_TOWER[kind] - top)
+        if need > top + rise:
+            return True
+    return False
+
+
+def _shift(
+    lift: dict, i: int, t: float, target: float, ground, limit, make_up: bool = False
+) -> float:
     """Move the lift's rope at (segment i, t) toward `target` by setting a tower either
     side of the crossing (new, or an existing support if one is close). Beside a station
     the station's exit is the fixed anchor on that side. `limit(support, wanted)` clamps
-    a tower top to what's buildable. Returns the rope height reached there."""
+    a tower top to what's buildable. With `make_up`, a tower held short of its share
+    leaves the other to make up the rest. Returns the rope height reached there."""
     s = lift["supports"]
     kind = KIND[lift["type"]]
     cat = _catenary(lift)
@@ -119,7 +178,9 @@ def _shift(lift: dict, i: int, t: float, target: float, ground, limit) -> float:
             d = min(offset, room)
             near = end
         else:
-            if reach - offset < REUSE:
+            # Making up the rest reuses the towers the first pass set, never crowding
+            # them with another.
+            if reach - offset < REUSE or make_up:
                 station = beyond if beyond and beyond.get("kind") == "station" else None
                 return end, reach, True, station
             d, near = offset, None
@@ -155,16 +216,38 @@ def _shift(lift: dict, i: int, t: float, target: float, ground, limit) -> float:
             wanted = min(max(wanted, lo), hi)
         return limit(sup, wanted)
 
+    def solve(mover: dict, fixed: dict, station: dict | None) -> None:
+        """Set `mover` so that, with `fixed` where it is, the rope here meets the target."""
+        w = u if mover is q else 1 - u
+        want = fixed["top"] + (target + sag_here - fixed["top"]) / max(w, 0.05)
+        mover["top"] = clamp(mover, want, station)
+
     if move_p and move_q:
         want = target + sag_here
         p["top"] = clamp(p, want, st_p)
         q["top"] = clamp(q, want, st_q)
+        # A tower held short (a station's exit angle, the tallest buildable) leaves the
+        # other to make up the rest: steeper, so only once sharing it fell short.
+        if make_up:
+            # No steeper between them than the rope may leave a station.
+            grade = math.tan(math.radians(MAX_EXIT_ANGLE[kind])) * length
+            tries = []
+            for mover, fixed, station in ((q, p, st_q), (p, q, st_p)):
+                was = mover["top"]
+                solve(mover, fixed, station)
+                low = min(was, fixed["top"] - grade)
+                mover["top"] = min(max(mover["top"], low), max(was, fixed["top"] + grade))
+                reach = rope.height(p["top"], q["top"], cat, length, u)
+                tries.append((abs(reach - target) + 0.01 * len(tries), mover, mover["top"]))
+                mover["top"] = was
+            _, mover, top = min(tries, key=lambda x: x[0])
+            mover["top"] = top
     else:
         # One side is a station's exit: the other tower alone sets the rope here.
-        mover, fixed, station = (q, p, st_q) if move_q else (p, q, st_p)
-        w = u if move_q else 1 - u
-        want = fixed["top"] + (target + sag_here - fixed["top"]) / max(w, 0.05)
-        mover["top"] = clamp(mover, want, station)
+        if move_q:
+            solve(q, p, st_q)
+        else:
+            solve(p, q, st_p)
     reached = rope.height(p["top"], q["top"], cat, length, u)
     if (reached - now) * (target - now) <= 0:
         # Buildable towers there would only make it worse (a dip whose new towers stand
@@ -184,21 +267,38 @@ def _shift(lift: dict, i: int, t: float, target: float, ground, limit) -> float:
 
 def separate(lifts: list[dict], ground) -> dict:
     """Make every pair of crossing lifts pass cleanly. Returns stats."""
-    stats = {"crossings": 0, "lifted": 0, "unresolved": 0}
+    stats = {"crossings": 0, "lifted": 0, "unresolved": 0, "atStations": 0}
     roped = [lift for lift in lifts if KIND.get(lift["type"]) is not None]
     for x, first in enumerate(roped):
         for second in roped[x + 1 :]:
             # Re-scan after each change: towers were inserted.
             fixed_pair = False
+            met = set()  # where they meet at stations instead of crossing (plan position)
             short = 0.0
             for attempt in range(5):
                 hit = None
                 for i, a0, a1 in _segments(first):
                     for j, b0, b1 in _segments(second):
                         tu = _intersect(a0, a1, b0, b1)
-                        if tu:
-                            hit = (i, j, *tu)
-                            break
+                        if not tu:
+                            continue
+                        key = (
+                            round(a0["east"] + (a1["east"] - a0["east"]) * tu[0], 1),
+                            round(a0["north"] + (a1["north"] - a0["north"]) * tu[0], 1),
+                        )
+                        if key in met:
+                            continue
+                        if at_stations(first, i, tu[0], second, j, tu[1], ground):
+                            met.add(key)
+                            stats["atStations"] += 1
+                            log.info(
+                                "Lifts %s and %s meet at their stations, not a crossing",
+                                first.get("name") or first["id"],
+                                second.get("name") or second["id"],
+                            )
+                            continue
+                        hit = (i, j, *tu)
+                        break
                     if hit:
                         break
                 if not hit:
@@ -225,7 +325,9 @@ def separate(lifts: list[dict], ground) -> dict:
                     high = sup["ground"] + p.tower_height * MAX_TOWER_FACTOR
                     return max(sup["top"], min(target, high))
 
-                reached = _shift(upper, ui, ut, need, ground, up_limit)
+                # The first attempt sets both towers either side to an even share; later
+                # ones let one tower make up what the other, held short, couldn't.
+                reached = _shift(upper, ui, ut, need, ground, up_limit, attempt > 0)
                 rest = need - reached
                 if rest > 0.05:
                     floor_low = hl - rest
@@ -238,7 +340,7 @@ def separate(lifts: list[dict], ground) -> dict:
                             lowest if sup["kind"] == "synthetic-tower" else min(sup["top"], lowest)
                         )
 
-                    _shift(lower, li, lt, floor_low, ground, down_limit)
+                    _shift(lower, li, lt, floor_low, ground, down_limit, attempt > 0)
                 stats["lifted"] += not fixed_pair
                 fixed_pair = True
             if short > 0.05:
