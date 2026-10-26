@@ -9,6 +9,7 @@ test('controls modal opens from the main menu, in sections, and closes with ✕ 
   await page.locator('#open-controls').click();
   await expect(modal).toBeVisible();
   await expect(modal.locator('h3:visible')).toHaveText([
+    'Fly aircraft with',
     'Getting around',
     'Ski',
     'Drone',
@@ -16,6 +17,7 @@ test('controls modal opens from the main menu, in sections, and closes with ✕ 
     'Snowmobile',
     'Plane',
     'Helicopter',
+    'Skydiving',
     'View & sound',
   ]);
   await expect(modal.locator('dt', { hasText: /^G$/ })).toBeVisible();

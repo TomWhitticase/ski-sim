@@ -88,7 +88,7 @@ export class SettingsMenu extends OptionsTab {
     fields.append(field);
 
     // Options → Controls: what flies a plane or helicopter (keyboard and mouse only).
-    const controls = document.querySelector<HTMLElement>('#opt-controls .modal-body');
+    const controls = document.querySelector<HTMLElement>('#opt-controls .controls-sections');
     if (controls) {
       const fly = document.createElement('section');
       fly.className = 'desktop-only fly-with';

@@ -1878,8 +1878,10 @@ dialog.stacked::backdrop {
   margin-top: 12px;
 }
 
+/* Columns inside the scrolling body, not on it: a multi-column box of fixed height
+   overflows sideways once its sections outgrow it (the aircraft sections did). */
 .controls-sections {
-  columns: 3;
+  columns: 3 230px;
   column-gap: 24px;
 }
 
