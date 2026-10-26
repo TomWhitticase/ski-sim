@@ -87,11 +87,6 @@ const ICONS = {
   fast: svg('<path d="M3 5l8 7-8 7z"/><path d="M12 5l8 7-8 7z"/>'),
   off: svg('<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4M6 12h10"/>'),
   lean: svg('<circle cx="14" cy="5" r="2"/><path d="M13 8l-4 6 5 2-2 5"/><path d="M4 21h16"/>'),
-  // A high-wing plane and a helicopter, seen from above and the side.
-  plane: svg('<path d="M12 3v18M3 9h18M8 19h8"/><path d="M12 3c-1 0-1.5 1-1.5 2v4"/>'),
-  heli: svg(
-    '<path d="M3 5h18M12 5v3"/><path d="M6 13a4 4 0 0 1 4-5h3a4 4 0 0 1 4 4v1H6z"/><path d="M17 11h4l1-2M8 16l-1 2h10l-1-2"/>',
-  ),
   flaps: svg('<path d="M3 10h12l6 2"/><path d="M15 10l5 6"/>'),
   turnLeft: svg('<path d="M9 7H15a5 5 0 0 1 0 10h-4"/><path d="M12 4L9 7l3 3"/>'),
   turnRight: svg('<path d="M15 7H9a5 5 0 0 0 0 10h4"/><path d="M12 4l3 3-3 3"/>'),
@@ -123,7 +118,6 @@ export class TouchControls {
   private lookTouch: { id: number; x: number; y: number } | null = null;
   private stopping = false;
   private stateKey = '';
-  private lastMode = '';
 
   constructor(
     private readonly root: HTMLElement,
@@ -181,7 +175,6 @@ export class TouchControls {
         if (el.hidden && el.classList.contains('down')) this.release(spec, el);
       }
       this.root.dataset.mode = state.mode;
-      this.lastMode = state.mode;
     }
     if (this.kind !== 'touch') return;
     // Stop: a snowplough, or a hockey stop to the side the stick's pushed. While it's
@@ -338,7 +331,7 @@ export class TouchControls {
         id: 'bail',
         label: 'Jump out',
         icon: ICONS.bail,
-        press: () => this.actions.key(this.lastMode === 'plane' ? 'KeyU' : 'KeyY'),
+        press: () => this.actions.key('KeyU'),
         when: (st) => (st.mode === 'plane' || st.mode === 'heli') && !!st.flying,
       },
       {
@@ -419,22 +412,6 @@ export class TouchControls {
         when: (st) =>
           st.mode !== 'ride' && st.mode !== 'plane' && st.mode !== 'heli' && st.mode !== 'skydive',
         on: (st) => st.mode === 'sled',
-      },
-      {
-        id: 'plane',
-        label: 'Plane',
-        icon: ICONS.plane,
-        press: () => this.actions.key('KeyU'),
-        when: (st) => st.mode !== 'ride' && st.mode !== 'heli' && st.mode !== 'skydive',
-        on: (st) => st.mode === 'plane',
-      },
-      {
-        id: 'heli',
-        label: 'Helicopter',
-        icon: ICONS.heli,
-        press: () => this.actions.key('KeyY'),
-        when: (st) => st.mode !== 'ride' && st.mode !== 'plane' && st.mode !== 'skydive',
-        on: (st) => st.mode === 'heli',
       },
       {
         id: 'view',

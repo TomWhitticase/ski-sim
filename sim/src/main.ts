@@ -1111,7 +1111,10 @@ async function main(): Promise<void> {
       // Parked where it stood; left in mid-air, it goes away (it would hang in the sky).
       const ctl = aircraftFor(body);
       if (ctl.onGround) ctl.setActive(false);
-      else ctl.stow();
+      else {
+        ctl.stow();
+        fleet.take(null, ctl.type.id); // back at its airfield spot
+      }
     }
     body = null;
   };
@@ -1155,7 +1158,7 @@ async function main(): Promise<void> {
     activate();
     persistPose();
   };
-  /** How the next switch into a plane or helicopter puts you in one (see `takeAircraft`). */
+  /** How the next switch into a plane or helicopter puts you in one (see `boardNearby`). */
   let boardAircraft: (() => void) | null = null;
   const setMode = (next: Mode) => {
     if (mode === 'fly') dropBody();
@@ -1263,131 +1266,47 @@ async function main(): Promise<void> {
   /** The aircraft left flying on empty, if any (its airfield spot frees once it's gone). */
   let abandoned: 'plane' | 'heli' | null = null;
   /** A parked plane or helicopter within reach (yours, or one at the airfield), if any. */
-  const nearbyAircraft = (p: Vector3): 'plane' | 'heli' | null => {
-    if (!gameRules.aircraft) return null;
+  const nearbyAircraft = (p: Vector3, pressed = false): 'plane' | 'heli' | null => {
+    // With aircraft off, E beside one says so (the prompt just doesn't offer it).
+    if (!gameRules.aircraft && !pressed) return null;
     for (const kind of ['plane', 'heli'] as const) {
       const ctl = aircraftFor(kind);
       if (ctl.canBoard(p) || fleet.nearest(p, BOARD_RANGE, ctl.type.id) !== null) return kind;
     }
     return null;
   };
-  /** Ground heading (Look yaw) with a clear run ahead for a take-off from here, if any. */
-  const takeoffRun = (x: number, z: number, yaw: number): number | null => {
-    const RUN = 260;
-    for (let k = 0; k < 16; k++) {
-      // Your heading first, then alternately either side of it.
-      const a = yaw + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 8);
-      const fx = -Math.sin(a);
-      const fz = -Math.cos(a);
-      const start = groundHeight(x, z);
-      let ok = true;
-      for (let d = 10; d <= RUN && ok; d += 10) {
-        const px = x + fx * d;
-        const pz = z + fz * d;
-        const h = groundHeight(px, pz);
-        // Level or downhill, and not across a steep side slope.
-        const across =
-          Math.abs(
-            groundHeight(px - fz * 8, pz + fx * 8) - groundHeight(px + fz * 8, pz - fx * 8),
-          ) / 16;
-        if (h > start + 0.03 * d || across > 0.12) ok = false;
-        else if (aircraftTerrain.clear && !aircraftTerrain.clear(px, pz, 9)) ok = false;
-      }
-      if (ok) return a;
-    }
-    return null;
-  };
   /**
-   * U / Y: into a plane or helicopter. Your own parked one if you're beside it, or one
-   * waiting at the airfield you're at; otherwise (with teleporting on) one comes to you:
-   * in the air, flying; a helicopter on ground flat enough for its skids; a plane where
-   * there's a clear take-off run, or else at the nearest runway's top.
+   * Into a plane or helicopter: only one parked at an airfield (a Porter at a runway's top,
+   * an H125 on a helipad), or yours where you left it, and only beside it (E, or tap the
+   * "Fly the …" prompt). Nothing comes to you.
    */
-  const takeAircraft = (kind: 'plane' | 'heli') => {
+  const boardNearby = (kind: 'plane' | 'heli') => {
     const ctl = aircraftFor(kind);
-    if (mode === kind) {
-      // Its key always gets you out: stopped, beside it; rolling, onto your skis at its
-      // speed (it brakes to a stop and stays parked); in the air, a skydive.
-      if (ctl.canLeaveOnGround) setMode('ski');
-      else if (!ctl.crashing) bailOut(kind);
-      return;
-    }
-    if (mode === 'ride' || mode === 'plane' || mode === 'heli') return;
     if (!allowed('aircraft')) return;
     const p = whereAmI();
     if (ctl.canBoard(p)) {
       boardAircraft = () => ctl.board();
     } else {
       const spot = fleet.nearest(p, BOARD_RANGE, ctl.type.id);
-      if (spot !== null) {
-        boardAircraft = () => {
-          fleet.take(spot, ctl.type.id);
-          ctl.boardAt(fleet.spots[spot]!);
-        };
-      } else if (!gameRules.teleport) {
-        partyHud.notify(
-          `No ${ctl.type.name} here · they wait at the airfields (anywhere with teleporting on)`,
-        );
-        return;
-      } else {
-        const ground = groundHeight(p.x, p.z);
-        const yaw = controls().look.yaw;
-        const high = p.y > ground + 30;
-        if (high) {
-          boardAircraft = () => {
-            fleet.take(null, ctl.type.id);
-            const v = kind === 'plane' ? 50 : 0;
-            ctl.mount(p.clone(), new Vector3(-Math.sin(yaw) * v, 0, -Math.cos(yaw) * v), yaw, true);
-          };
-        } else if (kind === 'heli') {
-          const n = new Vector3(
-            groundHeight(p.x - 3, p.z) - groundHeight(p.x + 3, p.z),
-            6,
-            groundHeight(p.x, p.z - 3) - groundHeight(p.x, p.z + 3),
-          ).normalize();
-          if (n.y < Math.cos(H125.ground.maxSlope - 0.03) || !aircraftTerrain.clear!(p.x, p.z, 7)) {
-            partyHud.notify('Too steep or tight for a helicopter here');
-            return;
-          }
-          boardAircraft = () => {
-            fleet.take(null, ctl.type.id);
-            ctl.mount(new Vector3(p.x, ground, p.z), new Vector3(), yaw, true);
-          };
-        } else {
-          const run = takeoffRun(p.x, p.z, yaw);
-          if (run !== null) {
-            boardAircraft = () => {
-              fleet.take(null, ctl.type.id);
-              ctl.mount(new Vector3(p.x, ground, p.z), new Vector3(), run, true);
-            };
-          } else {
-            // No room for a take-off run: the nearest runway's top instead.
-            let best = -1;
-            let bestD = Infinity;
-            fleet.spots.forEach((s, i) => {
-              const d = Math.hypot(s.east - p.x, -s.north - p.z);
-              if (s.type === ctl.type.id && d < bestD) {
-                bestD = d;
-                best = i;
-              }
-            });
-            if (best < 0) {
-              partyHud.notify('No room to take off here, and no runway on this map');
-              return;
-            }
-            const s = fleet.spots[best]!;
-            partyHud.notify(`No room to take off here · your ${ctl.type.name} is at ${s.name}`);
-            boardAircraft = () => {
-              fleet.take(best, ctl.type.id);
-              ctl.boardAt(s);
-              ctl.board(); // engine running, ready to go
-            };
-          }
-        }
-      }
+      if (spot === null) return;
+      boardAircraft = () => {
+        fleet.take(spot, ctl.type.id);
+        ctl.boardAt(fleet.spots[spot]!);
+      };
     }
     setMode(kind);
     persistPose();
+  };
+  /**
+   * U, in either aircraft, always gets you out: stopped on the ground, beside it (it stays
+   * parked); rolling, onto your skis at its speed (it brakes to a stop and stays parked);
+   * in the air, a skydive (it flies on and goes back to its airfield spot).
+   */
+  const getOut = (kind: 'plane' | 'heli') => {
+    const ctl = aircraftFor(kind);
+    if (ctl.crashing) return;
+    if (ctl.canLeaveOnGround) setMode('ski');
+    else bailOut(kind);
   };
   hud.setMode(mode);
   hud.setFlyKeys(mode === 'fly' ? 'free' : null);
@@ -1567,8 +1486,8 @@ async function main(): Promise<void> {
         if (near) boardLift(near.line, near.down);
         else if (mode === 'ski') {
           // Beside a parked plane or helicopter: climb in.
-          const kind = nearbyAircraft(p);
-          if (kind) takeAircraft(kind);
+          const kind = nearbyAircraft(p, true);
+          if (kind) boardNearby(kind);
         }
       }
     } else if (code === 'KeyF' && !worldMap.isOpen) {
@@ -1582,9 +1501,9 @@ async function main(): Promise<void> {
       }
     } else if (code === 'KeyR' && !worldMap.isOpen && mode === 'fly') {
       setMode('ski'); // your skier comes to the ground below you
-    } else if ((code === 'KeyU' || code === 'KeyY') && !worldMap.isOpen) {
-      // U: the plane; Y: the helicopter (in, or out once stopped on the ground).
-      takeAircraft(code === 'KeyU' ? 'plane' : 'heli');
+    } else if (code === 'KeyU' && !worldMap.isOpen && (mode === 'plane' || mode === 'heli')) {
+      // U: out of the plane or helicopter, whatever it's doing.
+      getOut(mode);
     } else if (code === 'KeyP' && !worldMap.isOpen && mode !== 'plane' && mode !== 'heli') {
       // Deploy the paraglider (keeping your momentum), or drop it and ski.
       if (mode === 'glide') setMode('ski');
@@ -1765,8 +1684,14 @@ async function main(): Promise<void> {
     } else if (mode === 'plane' || mode === 'heli') {
       const ctl = aircraftFor(mode);
       if (ctl.canExit) {
-        key = mode === 'plane' ? 'KeyU' : 'KeyY';
+        key = 'KeyU';
         text = `${tap ? 'Get' : 'get'} out`;
+      } else if (ctl.onGround && !ctl.crashing && !tap) {
+        key = 'KeyU';
+        text = 'jump out (onto your skis)';
+      } else if (!ctl.onGround && !ctl.crashing && !tap) {
+        key = 'KeyU';
+        text = 'jump out (skydive)';
       } else if (mode === 'plane' && ctl.onGround && ctl.speed < 3 && !tap) {
         text = 'W power · pull back (mouse down) to lift off · X flaps · Space brakes';
       } else if (mode === 'heli' && ctl.onGround && !tap) {
@@ -2215,10 +2140,11 @@ const VIEW_KEY = 'ski-sim.view';
 const NON_TEXT_INPUTS = new Set(['checkbox', 'radio', 'range']);
 
 function loadMode(): Mode {
-  // A reload mid-flight drops you into ski mode (you fall and land); sledders keep the
-  // sled, pilots their aircraft (flying again if it was in the air).
+  // A reload mid-flight drops you into ski mode (you fall and land); sledders keep the sled.
   const saved = localStorage.getItem(MODE_KEY);
-  if (saved === 'sled' || saved === 'plane' || saved === 'heli') return saved;
+  if (saved === 'sled') return 'sled';
+  // In a plane or helicopter (or under a canopy): it's back at its airfield, you on skis.
+  if (saved === 'plane' || saved === 'heli' || saved === 'skydive') return 'ski';
   return saved === 'ski' || saved === 'glide' || saved === 'ride' ? 'ski' : 'fly';
 }
 

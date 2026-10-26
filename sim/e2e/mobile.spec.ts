@@ -535,18 +535,48 @@ test('touch: fly with up, down and speed buttons; the ways out are buttons too',
   await fingers.lift(2);
 });
 
+/** Courchevel: the altiport's top and its heliport, where a Porter and H125s are parked. */
+const COURCHEVEL = 'at=45.39642,6.63514,1995&heading=153&pitch=-5';
+
+/**
+ * Ski up beside a parked aircraft at Courchevel ('pc6' or 'h125') and tap the prompt that
+ * offers it ("Fly the …"): the only way into one.
+ */
+async function boardByTouch(page: Page, fingers: Fingers, type: 'pc6' | 'h125') {
+  await page.evaluate((type) => {
+    const sim = window.__sim as unknown as {
+      fleet: {
+        spots: { type: string; east: number; north: number; heading: number; name: string }[];
+      };
+      ski: { place(pose: object): void };
+      groundHeight(x: number, z: number): number;
+    };
+    const spot = sim.fleet.spots.find((s) => s.type === type && s.name.includes('Courchevel'))!;
+    const h = (spot.heading * Math.PI) / 180;
+    // Beside it, 6 m to its left.
+    const east = spot.east - Math.cos(h) * 6;
+    const north = spot.north + Math.sin(h) * 6;
+    const ground = sim.groundHeight(east, -north);
+    sim.ski.place({ east, north, altitude: ground + 1.7, heading: spot.heading, pitch: 0 });
+  }, type);
+  const prompt = page.locator('#prompt');
+  await expect(prompt).toContainText('Fly the');
+  const c = await centre(page, '#prompt');
+  await fingers.tap(c.x, c.y);
+}
+
 test('the helicopter and the plane by touch: buttons for collective, power and flaps, the stick flies', async ({
   page,
 }) => {
   test.setTimeout(180_000);
-  await load(page, LAKE);
+  await load(page, COURCHEVEL);
   const fingers = await Fingers.on(page);
   await tapToPlay(page, fingers);
   const flight = (field: string) => page.locator(`#flight [data-flight="${field}"]`).textContent();
 
-  // The helicopter tool: one comes to you on the flat lake.
-  const heliTool = await centre(page, '[data-touch="heli"]');
-  await fingers.tap(heliTool.x, heliTool.y);
+  // No tools for aircraft: you walk up to one at an airfield and tap its prompt.
+  await expect(page.locator('[data-touch="heli"], [data-touch="plane"]')).toHaveCount(0);
+  await boardByTouch(page, fingers, 'h125');
   await expect.poll(() => mode(page)).toBe('HELICOPTER');
   await expect(page.locator('[data-touch="climb"]')).toBeVisible();
   await expect(page.locator('[data-touch="jump"]')).toBeHidden();
@@ -569,7 +599,7 @@ test('the helicopter and the plane by touch: buttons for collective, power and f
   await shot(page, 'heli-portrait');
   await page.setViewportSize(LANDSCAPE);
   await page.waitForTimeout(300);
-  // Down: it slows to a hover hands off and settles onto the snow; the tool gets you out.
+  // Down: it slows to a hover hands off and settles onto the snow; the prompt gets you out.
   await page.waitForTimeout(8000);
   const down = await centre(page, '[data-touch="descend"]');
   await fingers.press(3, down.x, down.y);
@@ -585,14 +615,13 @@ test('the helicopter and the plane by touch: buttons for collective, power and f
     )
     .toBe(true);
   await fingers.lift(3);
-  // (The toolbar's changed since: the tools for other modes went.)
-  const out = await centre(page, '[data-touch="heli"]');
+  await expect(page.locator('#prompt')).toContainText('Get out');
+  const out = await centre(page, '#prompt');
   await fingers.tap(out.x, out.y);
   await expect.poll(() => mode(page)).toBe('SKI');
 
-  // The plane tool: a Porter, with power, flaps and brake buttons.
-  const planeTool = await centre(page, '[data-touch="plane"]');
-  await fingers.tap(planeTool.x, planeTool.y);
+  // The Porter at the altiport's top, with power, flaps and brake buttons.
+  await boardByTouch(page, fingers, 'pc6');
   await expect.poll(() => mode(page)).toBe('PLANE');
   for (const id of ['power-up', 'power-down', 'flaps', 'brake']) {
     await expect(page.locator(`[data-touch="${id}"]`)).toBeVisible();
@@ -715,7 +744,7 @@ test('by touch: the cockpit view, jumping out, freefall and the canopy, upright 
 }) => {
   test.setTimeout(240_000);
   // On the Courchevel heliport, next to a parked H125.
-  await load(page, 'at=45.39642,6.63514,1995&heading=153&pitch=-5');
+  await load(page, COURCHEVEL);
   const fingers = await Fingers.on(page);
   await tapToPlay(page, fingers);
   // The arrow-key setting is keyboard-only.
@@ -724,7 +753,7 @@ test('by touch: the cockpit view, jumping out, freefall and the canopy, upright 
     const c = await centre(page, `[data-touch="${id}"]`);
     await fingers.tap(c.x, c.y);
   };
-  await tool('heli');
+  await boardByTouch(page, fingers, 'h125');
   await expect.poll(() => mode(page)).toBe('HELICOPTER');
   // Cockpit (the view tool: the tests start in first person), and a drag looks round.
   if (await page.locator('body.chase').count()) await tool('view');

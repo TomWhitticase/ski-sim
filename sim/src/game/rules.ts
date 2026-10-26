@@ -13,7 +13,7 @@ export type GameRules = {
   paraglider: boolean;
   /** On a lift: S skips to the end, W fast-forwards. */
   liftSkip: boolean;
-  /** U / Y: the plane and helicopter at the airfields (anywhere, if teleporting's on too). */
+  /** The plane and helicopter parked at the airfields (and skydiving from them). */
   aircraft: boolean;
 };
 
@@ -65,7 +65,7 @@ export const RULES: readonly { name: Rule; label: string; detail: string; off: s
   {
     name: 'aircraft',
     label: 'Aircraft',
-    detail: 'U flies a plane, Y a helicopter from the airfields (anywhere, with teleporting)',
+    detail: 'Fly the planes and helicopters parked at the airfields, and skydive from them',
     off: 'Aircraft are off',
   },
 ];

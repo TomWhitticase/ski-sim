@@ -1925,9 +1925,7 @@ dialog.stacked::backdrop {
 body.rules-no-teleport .teleport-hint,
 body.rules-no-snowmobile [data-touch='sled'],
 body.rules-no-paraglider [data-touch='glider'],
-body.rules-no-lift-skip [data-touch='skip'],
-body.rules-no-aircraft [data-touch='plane'],
-body.rules-no-aircraft [data-touch='heli'] {
+body.rules-no-lift-skip [data-touch='skip'] {
   display: none !important;
 }
 

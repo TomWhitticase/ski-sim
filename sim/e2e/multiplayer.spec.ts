@@ -576,19 +576,44 @@ test("guests ski in the host's weather, fetching nothing, with the Weather tab l
   expect(errors).toEqual([]);
 });
 
+// At the Courchevel heliport, where H125s are parked (and a Porter at the altiport above).
+const HELIPORT_HOST = 'at=45.39642,6.63514,1995&heading=153&pitch=-5';
+const HELIPORT_GUEST = 'at=45.39700,6.63470,2000&heading=150&pitch=-8';
+
+/** Ski up beside a parked aircraft at Courchevel and climb in (E). */
+async function boardParked(page: Page, type: 'pc6' | 'h125') {
+  await page.evaluate((type) => {
+    const sim = window.__sim as unknown as {
+      fleet: {
+        spots: { type: string; east: number; north: number; heading: number; name: string }[];
+      };
+      ski: { place(pose: object): void };
+      groundHeight(x: number, z: number): number;
+    };
+    const spot = sim.fleet.spots.find((s) => s.type === type && s.name.includes('Courchevel'))!;
+    const h = (spot.heading * Math.PI) / 180;
+    const east = spot.east - Math.cos(h) * 6;
+    const north = spot.north + Math.sin(h) * 6;
+    const ground = sim.groundHeight(east, -north);
+    sim.ski.place({ east, north, altitude: ground + 1.7, heading: spot.heading, pitch: 0 });
+  }, type);
+  await page.waitForTimeout(200);
+  await page.keyboard.press('KeyE');
+}
+
 test('others see your helicopter and plane, rotor and prop turning, and hear them', async ({
   context,
 }) => {
   test.setTimeout(240_000);
   const errors: string[] = [];
-  const host = await open(context, HOST_AT, errors);
+  const host = await open(context, HELIPORT_HOST, errors);
   await host.keyboard.press('KeyN');
   const modal = host.locator('#mp-panel');
   await setName(host, 'Alice');
   await modal.locator('.mp-host').click();
   await expect(modal.locator('.mp-code')).toHaveText(/^[A-Z2-9]{6}$/);
   const code = (await modal.locator('.mp-code').textContent())!;
-  const guest = await open(context, `${GUEST_AT}&join=${code}`, errors);
+  const guest = await open(context, `${HELIPORT_GUEST}&join=${code}`, errors);
   await guest.keyboard.press('KeyN');
   await expect(guest.locator('#mp-panel .mp-status')).toHaveText('Connected');
   await setName(guest, 'Bob');
@@ -596,11 +621,20 @@ test('others see your helicopter and plane, rotor and prop turning, and hear the
     await page.locator('#menu-back').click();
     await page.locator('#resume').click();
   }
-  // Y on the flat frozen lake: a helicopter comes to Alice (teleporting is on), and she
-  // lifts off.
-  await host.keyboard.press('KeyY');
+  // Alice skis up to an H125 parked on the heliport, climbs in (E) and lifts off.
+  await boardParked(host, 'h125');
   await expect.poll(() => sim(guest, (s) => s.multiplayer.debug.modes[0])).toBe('heli');
+  // Boarded cold: the rotor spools up (~4 s) before it lifts.
   await host.keyboard.down('KeyW');
+  await expect
+    .poll(
+      () =>
+        host.evaluate(
+          () => (window.__sim as unknown as { heli: { onGround: boolean } }).heli.onGround,
+        ),
+      { timeout: 20_000 },
+    )
+    .toBe(false);
   await host.waitForTimeout(2000);
   await host.keyboard.up('KeyW');
   await guest.waitForTimeout(1500);
@@ -624,11 +658,10 @@ test('others see your helicopter and plane, rotor and prop turning, and hear the
   expect(seen.visible).toBe(true);
   expect(seen.heard?.kind).toBe('heli');
   expect(seen.heard!.rpm).toBeGreaterThan(0.5);
-  expect(seen.height).toBeGreaterThan(2420);
+  expect(seen.height).toBeGreaterThan(1996); // clearly up off the heliport (~1,993 m)
   await guest.screenshot({ path: 'test-results/views/multiplayer-guest-heli.png' });
 
-  // Down, out, and into a plane (on the lake if there's room to take off, else at the
-  // nearest runway): Bob sees a plane.
+  // Down, out (U), and into the Porter at the altiport's top: Bob sees a plane.
   await host.keyboard.down('KeyS');
   await expect
     .poll(
@@ -640,8 +673,8 @@ test('others see your helicopter and plane, rotor and prop turning, and hear the
     )
     .toBe(true);
   await host.keyboard.up('KeyS');
-  await host.keyboard.press('KeyY');
   await host.keyboard.press('KeyU');
+  await boardParked(host, 'pc6');
   await expect.poll(() => sim(guest, (s) => s.multiplayer.debug.modes[0])).toBe('plane');
   await guest.waitForTimeout(800);
   await guest.screenshot({ path: 'test-results/views/multiplayer-guest-plane.png' });
