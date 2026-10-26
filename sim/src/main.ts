@@ -1306,9 +1306,10 @@ async function main(): Promise<void> {
   const takeAircraft = (kind: 'plane' | 'heli') => {
     const ctl = aircraftFor(kind);
     if (mode === kind) {
-      if (ctl.canExit) setMode('ski');
-      else if (!ctl.onGround && !ctl.crashing) bailOut(kind);
-      else partyHud.notify('Stop to get out');
+      // Its key always gets you out: stopped, beside it; rolling, onto your skis at its
+      // speed (it brakes to a stop and stays parked); in the air, a skydive.
+      if (ctl.canLeaveOnGround) setMode('ski');
+      else if (!ctl.crashing) bailOut(kind);
       return;
     }
     if (mode === 'ride' || mode === 'plane' || mode === 'heli') return;

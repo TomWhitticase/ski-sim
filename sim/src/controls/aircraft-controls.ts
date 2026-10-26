@@ -97,7 +97,8 @@ const AXIS = new Vector3();
  * stick (pitch and roll, centring when you let go), A / D roll (and steer on the ground),
  * Q / E rudder, X flaps, Space brakes. Helicopter: W / S collective (climb / descend;
  * neither holds the height), mouse or the arrows the cyclic, A / D sideways, Q / E pedals.
- * Getting out (only stopped on the ground) leaves it parked where it is.
+ * Its key always gets you out: stopped, beside it (it stays parked); rolling, onto your skis
+ * at its speed (it brakes to a stop and stays parked there); in the air, a skydive.
  */
 export class AircraftControls {
   readonly look = new Look(FLY.mouseSensitivity);
@@ -257,9 +258,14 @@ export class AircraftControls {
     return 0;
   }
 
-  /** Stopped on the ground: you can climb out. */
+  /** Stopped on the ground: you step out beside it. */
   get canExit(): boolean {
     return this.onGround && !this.crashing && this.speed < STOPPED;
+  }
+
+  /** On the ground and not crashing: you can get out (rolling, you jump out onto your skis). */
+  get canLeaveOnGround(): boolean {
+    return this.onGround && !this.crashing;
   }
 
   /**
@@ -415,14 +421,21 @@ export class AircraftControls {
   }
 
   /** Climb out beside it (pilot's side), onto your skis. It stays parked there. */
+  /**
+   * Out beside the pilot's door onto your skis. Rolling, you jump out with its speed and
+   * ski on; it brakes to a stop by itself (`idle`) and stays parked where it stops.
+   */
   dismount(): { feet: Vector3; velocity: Vector3 } {
     const side = this.parts.seat.position.x < 0 ? -1 : 1;
     const out = (this.type.kind === 'plane' ? 1.8 : 2.0) * side;
     const feet = TMP.set(out, 0, -0.6).applyAxisAngle(UP, this.yaw).add(this.position).clone();
     feet.y = this.terrain.height(feet.x, feet.z);
+    const velocity = this.speed < STOPPED ? new Vector3() : this.velocity.clone();
+    velocity.y = 0;
     this.lever = 0;
+    this.heldStick = null;
     this.setActive(false);
-    return { feet, velocity: new Vector3() };
+    return { feet, velocity };
   }
 
   /** Parked: the prop or rotor runs down. */
@@ -489,6 +502,40 @@ export class AircraftControls {
       return;
     }
     if (this.status !== 'parked') return;
+    const state = (this.plane ?? this.heli)!;
+    if (state.onGround && this.speed > 0.02) {
+      // Left rolling: it brakes to a stop where it is (and if it bumps into something on
+      // the way, it just stops there).
+      if (this.plane) {
+        stepPlane(
+          this.plane,
+          { pitch: 0, roll: 0, yaw: 0, throttle: 0, brake: true, flaps: this.flapSetting },
+          dt,
+          this.type as PlaneType,
+          this.terrain,
+          this.air,
+        );
+      } else {
+        stepHeli(
+          this.heli!,
+          { collective: -1, cyclicX: 0, cyclicY: 0, pedal: 0 },
+          dt,
+          this.type as HeliType,
+          this.terrain,
+          this.air,
+        );
+      }
+      this.collide();
+      if (state.crash > 0) {
+        state.crash = 0;
+        state.crashed = null;
+        state.position.copy(this.prev);
+        state.velocity.set(0, 0, 0);
+      }
+      this.prev.copy(state.position);
+      this.root.position.copy(this.position);
+      this.orientation(this.root.quaternion);
+    }
     if (this.plane) this.plane.rpm = Math.max(0, this.plane.rpm - 0.25 * dt);
     else this.heli!.rotor = Math.max(0, this.heli!.rotor - 0.12 * dt);
     this.time += dt;
