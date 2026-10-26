@@ -881,6 +881,18 @@ def clearing_shapes(fields: dict) -> list:
     return shapes
 
 
+def surface_shapes(fields: dict, margin: float = 1.0) -> list:
+    """The ground every surface on the ground covers, plus `margin` (roads stop there)."""
+    return [
+        _shape(x, kind, margin)
+        for kind, xs in _kinds(
+            fields["runways"], fields["taxiways"], fields["aprons"], fields["helipads"]
+        )
+        for x in xs
+        if not x.get("roof")
+    ]
+
+
 def _bank_lines(fields: dict) -> list[LineString]:
     lines: list = []
     for rw in fields["runways"]:

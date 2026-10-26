@@ -120,6 +120,53 @@ def draw_airfields(draw: ImageDraw.ImageDraw, fields: dict | None, px) -> None:
         draw.ellipse((x - 3, y - 3, x + 3, y + 3), outline=HELIPAD, width=1)
 
 
+#: Roads on the map, under the runs (the sim's world map draws the same, `ui/roads-map.ts`):
+#: a casing and a fill, yellow for main roads, white for the rest; snow-covered roads and
+#: tracks a thin dashed line; tunnels dashed grey.
+ROAD_CASING = (128, 118, 108)
+ROAD_MAIN = (247, 215, 118)
+ROAD_MINOR = (255, 255, 255)
+ROAD_SNOW = (138, 124, 110)
+ROAD_TUNNEL = (120, 120, 120)
+#: Fill widths (px) by map rank (0 motorways .. 6 tracks).
+ROAD_PX = (4, 3, 3, 2, 2, 1, 1)
+
+
+def draw_roads(
+    image: Image.Image, record: dict | None, west: float, north: float, cell_size: float
+) -> None:
+    """Roads (features.json `roads`) at the minimap's scale: snow roads and tunnels
+    dashed, cleared roads cased, minor ones first so main roads cross over them."""
+    if not record:
+        return
+    from .roads import CLASSES
+
+    draw = ImageDraw.Draw(image)
+
+    def px(points: list) -> list[tuple[float, float]]:
+        return [((e - west) / cell_size, (north - n) / cell_size) for e, n in points]
+
+    cleared = []
+    for r in record["roads"]:
+        points = px(r["line"])
+        rank = CLASSES[r["class"]][0]
+        if r["structure"] == "tunnel":
+            for dash in dashes(points, 4, 3):
+                draw.line(dash, fill=ROAD_TUNNEL, width=1)
+        elif r["winter"] != "cleared":
+            for dash in dashes(points, 4, 3):
+                draw.line(dash, fill=ROAD_SNOW, width=1)
+        else:
+            cleared.append((rank, r, points))
+    cleared.sort(key=lambda c: -c[0])
+    for rank, _, points in cleared:
+        if ROAD_PX[rank] > 1:
+            draw.line(points, fill=ROAD_CASING, width=ROAD_PX[rank] + 2, joint="curve")
+    for rank, _, points in cleared:
+        colour = ROAD_MAIN if rank <= 2 else ROAD_MINOR if ROAD_PX[rank] > 1 else ROAD_CASING
+        draw.line(points, fill=colour, width=ROAD_PX[rank], joint="curve")
+
+
 #: Dashed routes on the map: pixels drawn, then pixels skipped, measured along the line.
 DASH_ON = 7.0
 DASH_OFF = 5.0

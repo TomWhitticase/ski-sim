@@ -71,6 +71,9 @@ export interface ResortManifest {
     count: number;
     markers: number;
   };
+  /** Road coverage for the terrain shader, on the piste overlay's grid (RGB: R cleared
+   * asphalt, G snow-covered road); missing in older builds. */
+  roads?: { raster: { file: string; cellSize: number; extent: Extent } };
   landCover: {
     /** How the texture's channels encode the layers (see landcover/land-cover.ts). */
     channels: string;
