@@ -6,6 +6,7 @@ import type { FlyControls } from '../controls/fly-controls';
 import type { GliderControls } from '../controls/glider-controls';
 import type { SkierModel } from '../controls/ski-model';
 import type { SkiControls } from '../controls/ski-controls';
+import type { SkydiveControls } from '../controls/skydive-controls';
 import type { SnowmobileControls } from '../controls/snowmobile-controls';
 import type { RideControls } from '../lifts/ride';
 import { type AvatarMode, Flag, type PlayerState, SLOT, stanceToSlots } from './codec';
@@ -18,6 +19,7 @@ export interface AvatarSources {
   sled: SnowmobileControls;
   plane: AircraftControls;
   heli: AircraftControls;
+  skydiver: SkydiveControls;
 }
 
 const UP = new Vector3(0, 1, 0);
@@ -103,6 +105,16 @@ export function sampleAvatar(mode: AvatarMode, src: AvatarSources, out: PlayerSt
     pose[SLOT.extra] = a.rpm;
     pose[SLOT.extra + 1] = a.kind === 'plane' ? a.flaps : a.load;
     pose[SLOT.carrier] = AIRCRAFT_TYPES.indexOf(a.type);
+  } else if (mode === 'freefall' || mode === 'canopy') {
+    // The body's orientation (pitched belly down, head down, or upright under the canopy).
+    const d = src.skydiver;
+    put(SLOT.position, d.root.position);
+    put(SLOT.velocity, d.velocity);
+    putRotation(d.rig.pivot.quaternion);
+    putModel(d.pilot);
+    pose[SLOT.extra] = d.open;
+    pose[SLOT.extra + 1] = d.bank;
+    pose[SLOT.spirit + 3] = d.bodyHeading;
   } else {
     const f = src.fly;
     put(SLOT.position, f.position);

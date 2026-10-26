@@ -1941,9 +1941,7 @@ dialog.stacked::backdrop {
 body.rules-no-teleport .teleport-hint,
 body.rules-no-snowmobile [data-touch='sled'],
 body.rules-no-paraglider [data-touch='glider'],
-body.rules-no-lift-skip [data-touch='skip'],
-body.rules-no-aircraft [data-touch='plane'],
-body.rules-no-aircraft [data-touch='heli'] {
+body.rules-no-lift-skip [data-touch='skip'] {
   display: none !important;
 }
 
@@ -2843,6 +2841,25 @@ body.touch #debug {
   body.touch .hud-stats > div {
     min-width: 0;
     padding: 6px 9px 7px;
+  }
+
+  /* Flying upright: airspeed and climb (and any warning), and a shorter mode label. */
+  body.touch #flight > div:nth-child(n + 3) {
+    display: none;
+  }
+
+  body.touch #flight > div {
+    min-width: 0;
+    padding: 6px 9px 7px;
+  }
+
+  body.touch .hud-stats .hud-speed .lab {
+    font-size: 8.5px;
+    letter-spacing: 0.02em;
+  }
+
+  body.touch .hud-stats .hud-speed {
+    padding-right: 6px;
   }
 
   body.touch .hud-stats .hud-speed {

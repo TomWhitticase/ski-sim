@@ -289,8 +289,11 @@ export function stepPlane(
   let left = dt;
   while (left > 1e-6) {
     const h = Math.min(left, MAX_STEP);
+    const crashing = s.crash > 0;
     stepOnce(s, input, h, type, terrain, air);
     left -= h;
+    // A crash just ended: stop, so the controller puts you back on the ground first.
+    if (crashing && s.crash === 0) break;
   }
 }
 
@@ -333,8 +336,8 @@ function stepOnce(
   const alpha = V > 2 ? Math.atan2(-VA.dot(U), along) : s.onGround ? s.groundPitch : 0;
   const beta = V > 2 ? Math.atan2(VA.dot(R), Math.max(Math.abs(along), 1)) : 0;
   const q = 0.5 * rho * V * V;
-  const cl = liftCoefficient(type, alpha, s.flaps);
-  const cd = dragCoefficient(type, alpha, s.flaps, cl);
+  const liftCoeff = liftCoefficient(type, alpha, s.flaps);
+  const cd = dragCoefficient(type, alpha, s.flaps, liftCoeff);
   const aStall = stallAlpha(type, s.flaps);
   s.alpha = alpha;
   s.airspeed = V;
@@ -345,7 +348,7 @@ function stepOnce(
   if (V > 0.5) {
     TMP.copy(VA).divideScalar(V);
     LIFT_DIR.copy(U).addScaledVector(TMP, -U.dot(TMP)).normalize();
-    FORCE.addScaledVector(LIFT_DIR, cl * q * type.wingArea);
+    FORCE.addScaledVector(LIFT_DIR, liftCoeff * q * type.wingArea);
     FORCE.addScaledVector(TMP, -cd * q * type.wingArea);
     if (!s.onGround)
       FORCE.addScaledVector(R, -beta * type.aero.sideForce * q * type.wingArea * 0.15);
@@ -373,7 +376,17 @@ function stepOnce(
     // Pitch: hold the asked-for angle of attack, following the flight path round.
     const accelLift = FORCE.dot(LIFT_DIR) / s.mass;
     s.pathRate = V > 3 ? accelLift / V : 0;
-    let pitchCmd = s.pathRate + 3 * (alphaCmd - alpha);
+    // The stick asks for the flight path to curve up (back) or down; hands off it levels
+    // out. The angle of attack that takes is held short of the stall, unless the stick's
+    // pulled right back.
+    const gamma = V > 3 ? Math.asin(clamp(VA.y / V, -1, 1)) : 0;
+    const wantRate = Math.abs(input.pitch) > 0.04 ? 0.45 * input.pitch : -0.25 * gamma;
+    const lift = s.mass * (V * wantRate + G * Math.cos(gamma));
+    const cl = lift / Math.max(q * type.wingArea, 1);
+    const top = aStall - 0.03 + Math.max(0, input.pitch - 0.85) * 0.6;
+    const flapLift = type.aero.cl0 + interp(type.aero.flapLift, s.flaps);
+    const alphaWant = clamp((cl - flapLift) / type.aero.clAlpha, -0.15, top);
+    let pitchCmd = s.pathRate + 3 * (alphaWant - alpha);
     if (alpha > aStall) pitchCmd -= 1.5 * (alpha - aStall); // the stalled nose drops
     pitchCmd = clamp(pitchCmd, -1.1 * tail, 1.1 * tail);
     // Roll: a rate from the stick; hands off, the wings come level.

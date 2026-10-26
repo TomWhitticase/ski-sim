@@ -108,6 +108,16 @@ describe('state codec', () => {
     expect(back.pose[SLOT.extra + 1]).toBeCloseTo(0.64, 3);
     s.mode = 'plane';
     expect(decodeState(encodeState(s))!.mode).toBe('plane');
+    // Skydiving: freefall, then the canopy with its inflation and bank.
+    s.mode = 'canopy';
+    s.pose[SLOT.extra] = 0.6;
+    s.pose[SLOT.extra + 1] = -0.3;
+    const sky = decodeState(encodeState(s))!;
+    expect(sky.mode).toBe('canopy');
+    expect(sky.pose[SLOT.extra]).toBeCloseTo(0.6, 3);
+    expect(sky.pose[SLOT.extra + 1]).toBeCloseTo(-0.3, 3);
+    s.mode = 'freefall';
+    expect(decodeState(encodeState(s))!.mode).toBe('freefall');
   });
 
   it('rejects malformed packets', () => {

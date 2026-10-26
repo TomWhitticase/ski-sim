@@ -11,7 +11,7 @@ import {
 } from './aircraft-model';
 import { type Cockpit, type CockpitState, COCKPITS, createCockpit } from './aircraft-cockpit';
 import type { AircraftType, HeliType, PlaneType } from './aircraft-types';
-import { cameraSettings } from './camera-settings';
+import { cameraSettings, keyStick } from './camera-settings';
 import type { Bounds } from './fly-controls';
 import {
   createHeliState,
@@ -62,6 +62,8 @@ const REVERSE_DELAY = 0.3;
 /** Chase camera: distance behind and height above (m), and how fast it swings round (1/s). */
 const CHASE = { plane: { distance: 21, height: 4.5 }, heli: { distance: 17, height: 4 } };
 const CHASE_RATE = 2.5;
+/** How long an abandoned aircraft flies on before it's put away (s). */
+const ABANDONED_FOR = 4;
 /** Within this of a parked aircraft (m), E or its key climbs in. */
 export const BOARD_RANGE = 14;
 /** Stopped enough to get out (m/s). */
@@ -95,7 +97,8 @@ const AXIS = new Vector3();
  * stick (pitch and roll, centring when you let go), A / D roll (and steer on the ground),
  * Q / E rudder, X flaps, Space brakes. Helicopter: W / S collective (climb / descend;
  * neither holds the height), mouse or the arrows the cyclic, A / D sideways, Q / E pedals.
- * Getting out (only stopped on the ground) leaves it parked where it is.
+ * Its key always gets you out: stopped, beside it (it stays parked); rolling, onto your skis
+ * at its speed (it brakes to a stop and stays parked there); in the air, a skydive.
  */
 export class AircraftControls {
   readonly look = new Look(FLY.mouseSensitivity);
@@ -103,7 +106,10 @@ export class AircraftControls {
   readonly root;
   readonly pilot = new SkierModel();
   view: 'first-person' | 'chase' = 'chase';
-  status: 'riding' | 'parked' | 'away' = 'away';
+  /** Flying it, parked, flying on empty after a bail-out (briefly), or not out at all. */
+  status: 'riding' | 'parked' | 'abandoned' | 'away' = 'away';
+  /** Seconds the empty aircraft flies on before it's put away. */
+  private abandonedFor = 0;
   /** Flap setting (0 up, 1 take-off, 2 landing). */
   flapSetting = 1;
   /** Power lever 0..1 (plane: below 0 is reverse). */
@@ -117,6 +123,9 @@ export class AircraftControls {
   private readonly stance = initialStance();
   private stickX = 0;
   private stickY = 0;
+  /** The arrow keys' own stick. */
+  private keysX = 0;
+  private keysY = 0;
   /** A stick position held by something other than the mouse (an autopilot in the tests). */
   private heldStick: { x: number; y: number } | null = null;
   private reverseFor = 0;
@@ -249,9 +258,14 @@ export class AircraftControls {
     return 0;
   }
 
-  /** Stopped on the ground: you can climb out. */
+  /** Stopped on the ground: you step out beside it. */
   get canExit(): boolean {
     return this.onGround && !this.crashing && this.speed < STOPPED;
+  }
+
+  /** On the ground and not crashing: you can get out (rolling, you jump out onto your skis). */
+  get canLeaveOnGround(): boolean {
+    return this.onGround && !this.crashing;
   }
 
   /**
@@ -407,19 +421,121 @@ export class AircraftControls {
   }
 
   /** Climb out beside it (pilot's side), onto your skis. It stays parked there. */
+  /**
+   * Out beside the pilot's door onto your skis. Rolling, you jump out with its speed and
+   * ski on; it brakes to a stop by itself (`idle`) and stays parked where it stops.
+   */
   dismount(): { feet: Vector3; velocity: Vector3 } {
     const side = this.parts.seat.position.x < 0 ? -1 : 1;
     const out = (this.type.kind === 'plane' ? 1.8 : 2.0) * side;
     const feet = TMP.set(out, 0, -0.6).applyAxisAngle(UP, this.yaw).add(this.position).clone();
     feet.y = this.terrain.height(feet.x, feet.z);
+    const velocity = this.speed < STOPPED ? new Vector3() : this.velocity.clone();
+    velocity.y = 0;
     this.lever = 0;
+    this.heldStick = null;
     this.setActive(false);
-    return { feet, velocity: new Vector3() };
+    return { feet, velocity };
   }
 
   /** Parked: the prop or rotor runs down. */
+  /**
+   * Bail out: through the pilot's door with the aircraft's velocity and a push sideways
+   * (2 m/s). The empty aircraft flies on, hands off, for a few seconds and is then put
+   * away (`idle`): no wreck. Returns where you leave (feet, world) and how fast.
+   */
+  abandon(): { at: Vector3; velocity: Vector3; heading: number } {
+    const side = this.parts.seat.position.x < 0 ? -1 : 1;
+    const door = this.toWorld(
+      side * 1.1,
+      this.parts.seat.position.y,
+      this.parts.seat.position.z,
+      TMP2,
+    );
+    const push = TMP.set(side * 2, 0, 0).applyQuaternion(this.orientation(QT));
+    const out = { at: door.clone(), velocity: this.velocity.clone().add(push), heading: this.yaw };
+    this.status = 'abandoned';
+    this.abandonedFor = 0;
+    this.heldStick = null;
+    this.pilot.root.visible = false;
+    if (this.cockpit) this.cockpit.root.visible = false;
+    setGlassTint(this.parts, false);
+    return out;
+  }
+
   idle(dt: number): void {
+    if (this.status === 'abandoned') {
+      // Flying on empty, hands off, then gone (and free to summon or park again).
+      this.abandonedFor += dt;
+      const state = (this.plane ?? this.heli)!;
+      if (this.plane) {
+        stepPlane(
+          this.plane,
+          {
+            pitch: 0,
+            roll: 0,
+            yaw: 0,
+            throttle: this.lever,
+            brake: false,
+            flaps: this.flapSetting,
+          },
+          dt,
+          this.type as PlaneType,
+          this.terrain,
+          this.air,
+        );
+      } else {
+        stepHeli(
+          this.heli!,
+          { collective: -0.3, cyclicX: 0, cyclicY: 0, pedal: 0 },
+          dt,
+          this.type as HeliType,
+          this.terrain,
+          this.air,
+        );
+      }
+      this.time += dt;
+      this.root.position.copy(this.position);
+      this.orientation(this.root.quaternion);
+      animateAircraft(this.parts, this.type, this.rpm, this.time, dt, true);
+      if (this.abandonedFor > ABANDONED_FOR || state.crash > 0 || state.onGround) this.stow();
+      return;
+    }
     if (this.status !== 'parked') return;
+    const state = (this.plane ?? this.heli)!;
+    if (state.onGround && this.speed > 0.02) {
+      // Left rolling: it brakes to a stop where it is (and if it bumps into something on
+      // the way, it just stops there).
+      if (this.plane) {
+        stepPlane(
+          this.plane,
+          { pitch: 0, roll: 0, yaw: 0, throttle: 0, brake: true, flaps: this.flapSetting },
+          dt,
+          this.type as PlaneType,
+          this.terrain,
+          this.air,
+        );
+      } else {
+        stepHeli(
+          this.heli!,
+          { collective: -1, cyclicX: 0, cyclicY: 0, pedal: 0 },
+          dt,
+          this.type as HeliType,
+          this.terrain,
+          this.air,
+        );
+      }
+      this.collide();
+      if (state.crash > 0) {
+        state.crash = 0;
+        state.crashed = null;
+        state.position.copy(this.prev);
+        state.velocity.set(0, 0, 0);
+      }
+      this.prev.copy(state.position);
+      this.root.position.copy(this.position);
+      this.orientation(this.root.quaternion);
+    }
     if (this.plane) this.plane.rpm = Math.max(0, this.plane.rpm - 0.25 * dt);
     else this.heli!.rotor = Math.max(0, this.heli!.rotor - 0.12 * dt);
     this.time += dt;
@@ -432,7 +548,9 @@ export class AircraftControls {
     const k = (cameraSettings.sensitivity * 1) / STICK_PX;
     // The mouse is the stick on a desktop (holding the right button looks round instead);
     // on a touchscreen a drag looks round.
-    const looking = !input.touch && (input.buttons & 2) !== 0;
+    // Flying with the arrow keys alone, the mouse only ever looks round.
+    const arrowsOnly = cameraSettings.flyWith === 'arrows' && !input.touch;
+    const looking = !input.touch && (arrowsOnly || (input.buttons & 2) !== 0);
     const invert = cameraSettings.invertY ? -1 : 1;
     if (!input.touch && !looking) {
       this.stickX = clamp1(this.stickX + input.mouseX * k);
@@ -448,8 +566,8 @@ export class AircraftControls {
         this.stickY *= centre;
       }
       const look = looking ? FLY.mouseSensitivity * cameraSettings.sensitivity : 0.004;
-      // Heli by touch: a sideways drag is the pedals (below); otherwise it swings the view.
-      if (this.plane || looking) this.orbitYaw -= input.mouseX * look;
+      // By touch a drag looks round (the helicopter's pedals are buttons).
+      this.orbitYaw -= input.mouseX * look;
       this.orbitPitch -= input.mouseY * look * (looking ? invert : 1);
     }
     const cockpit = this.view === 'first-person';
@@ -466,10 +584,13 @@ export class AircraftControls {
       this.stickX = this.heldStick.x;
       this.stickY = this.heldStick.y;
     }
+    // The arrow keys are a stick of their own: they ramp in and spring back (`keyStick`).
     const arrowsX = (input.down('ArrowRight') ? 1 : 0) - (input.down('ArrowLeft') ? 1 : 0);
     const arrowsY = (input.down('ArrowDown') ? 1 : 0) - (input.down('ArrowUp') ? 1 : 0);
-    const side = clamp1(this.stickX + arrowsX - input.turn);
-    const back = clamp1(this.stickY + arrowsY - input.stickY);
+    this.keysX = keyStick(this.keysX, arrowsX, dt);
+    this.keysY = keyStick(this.keysY, arrowsY, dt);
+    const side = clamp1(this.stickX + this.keysX - input.turn);
+    const back = clamp1(this.stickY + this.keysY - input.stickY);
     const pedal = (input.down('KeyE') ? 1 : 0) - (input.down('KeyQ') ? 1 : 0);
     this.inputs.stickX = side;
     this.inputs.stickY = back;
@@ -511,7 +632,7 @@ export class AircraftControls {
         collective,
         cyclicX: side,
         cyclicY: -back,
-        pedal: input.touch ? clamp1(pedal + input.mouseX * 0.02) : pedal,
+        pedal,
       };
       stepHeli(this.heli!, heli, dt, this.type as HeliType, this.terrain, this.air);
     }

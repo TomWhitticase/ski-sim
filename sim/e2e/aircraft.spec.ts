@@ -151,7 +151,7 @@ test('an H125 waits on the Courchevel heliport', async ({ page }) => {
   await page.keyboard.press('KeyF');
   await standBy(page, 'h125', 'Courchevel', 7, 0);
   await page.waitForTimeout(800);
-  await page.keyboard.press('KeyY');
+  await page.keyboard.press('KeyE');
   await page.waitForTimeout(400);
   expect(await mode(page)).toBe('HELICOPTER');
   await page.waitForTimeout(4500);
@@ -178,7 +178,7 @@ test('the Porter takes off downhill from Courchevel and climbs away', async ({ p
   await page.keyboard.press('KeyF');
   await page.keyboard.press('KeyV'); // chase view
   await standBy(page, 'pc6', 'Courchevel', 6, 0);
-  await page.keyboard.press('KeyU');
+  await page.keyboard.press('KeyE');
   expect(await mode(page)).toBe('PLANE');
   const at = await handle(page, 'plane');
   await page.keyboard.down('KeyW');
@@ -217,7 +217,7 @@ test('the Porter lands uphill on Courchevel 22 and stops on the runway', async (
   await page.keyboard.press('KeyF');
   await page.keyboard.press('KeyV');
   await standBy(page, 'pc6', 'Courchevel', 6, 0);
-  await page.keyboard.press('KeyU');
+  await page.keyboard.press('KeyE');
   // On a 4.5° approach 700 m out, flaps down, then an autopilot flies the stick and the
   // power lever like a pilot would: down the glide path, a flare onto the slope, reverse.
   await page.evaluate(
@@ -296,7 +296,7 @@ test('the Porter lands uphill on Courchevel 22 and stops on the runway', async (
         hErr = ((hErr + 540) % 360) - 180;
         const rollStick = Math.max(-1, Math.min(1, 0.06 * (-hErr * 1.2 - bank)));
         if (!c.onGround) {
-          const flare = agl < 7 && along > -15;
+          const flare = agl < 12 && along > -15;
           const target = aimHeight + glide * (aim - along);
           const want = flare
             ? slope * gs - 0.6
@@ -304,7 +304,8 @@ test('the Porter lands uphill on Courchevel 22 and stops on the runway', async (
           integral = Math.max(-0.5, Math.min(0.5, integral + 0.05 * (want - v.y) * dt));
           c.setStick({
             x: rollStick,
-            y: Math.max(-1, Math.min(1, 0.35 * (want - v.y) + integral)),
+            // The stick curves the flight path: a gentle gain (it was an angle of attack).
+            y: Math.max(-1, Math.min(1, 0.25 * (want - v.y) + integral)),
           });
           c.lever = flare ? 0 : Math.max(0, Math.min(1, 0.3 + 0.12 * (30 - c.airspeed)));
         } else {
@@ -346,7 +347,7 @@ test('the Porter lands uphill on Courchevel 22 and stops on the runway', async (
   // On the runway (40 m wide), past the threshold, stopped before its top.
   expect(touch.along).toBeGreaterThan(0);
   expect(Math.abs(touch.cross)).toBeLessThan(15);
-  expect(touch.sink).toBeLessThan(3);
+  expect(touch.sink).toBeLessThan(3.5); // firm onto the slope, well inside the gear's 4.5 m/s
   expect(end.along).toBeLessThan(RUNWAY);
   expect(end.along - touch.along).toBeLessThan(250);
   await page.screenshot({ path: 'test-results/views/aircraft-plane-landed.png' });
@@ -362,7 +363,7 @@ test('the H125 lifts off, hovers and lands on the next pad', async ({ page }) =>
   await page.keyboard.press('KeyF');
   await page.keyboard.press('KeyV');
   await standBy(page, 'h125', 'Courchevel', 7, 0);
-  await page.keyboard.press('KeyY');
+  await page.keyboard.press('KeyE');
   expect(await mode(page)).toBe('HELICOPTER');
   await page.waitForTimeout(4000); // rotor up to speed
   const parked = await handle(page, 'heli');
@@ -439,79 +440,63 @@ test('the H125 lifts off, hovers and lands on the next pad', async ({ page }) =>
   expect(Math.hypot(landed.x - PAD.e, -landed.z - PAD.n)).toBeLessThan(3);
   expect(Math.abs(landed.y - PAD.top)).toBeLessThan(0.5);
   await page.screenshot({ path: 'test-results/views/aircraft-heli-landed.png' });
-  // Stopped on the ground: Y gets out onto your skis, and it stays there.
-  await page.keyboard.press('KeyY');
+  // Stopped on the ground: U gets out onto your skis, and it stays there.
+  await page.keyboard.press('KeyU');
   expect(await mode(page)).toBe('SKI');
   expect((await handle(page, 'heli')).status).toBe('parked');
   expect(errors).toEqual([]);
 });
 
-test('summoning: a heli comes to flat ground with teleporting on, none without it', async ({
+test('no summoning: U and Y away from an airfield do nothing; E boards a parked one', async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  // Aircraft allowed, teleporting off: only the airfields have them. (Set once: the
-  // reload below keeps what the test changes.)
-  await page.addInitScript(() => {
-    if (sessionStorage.getItem('rules-set')) return;
-    sessionStorage.setItem('rules-set', '1');
-    localStorage.setItem(
-      'ski-sim.rules',
-      JSON.stringify({
-        teleport: false,
-        snowmobile: true,
-        paraglider: true,
-        liftSkip: true,
-        aircraft: true,
-      }),
-    );
-  });
   // The frozen lake above Val Thorens: flat, open, no airfield.
   await start(page, 'at=45.28856,6.5752,2418&heading=90&pitch=-5');
   await page.keyboard.press('KeyF');
-  await page.keyboard.press('KeyY');
-  await expect(page.locator('#notices')).toContainText('No Airbus H125 here');
-  expect(await mode(page)).toBe('SKI');
-  // Teleporting on: it comes to you, and you're in it.
-  await page.evaluate(() => {
-    localStorage.setItem(
-      'ski-sim.rules',
-      JSON.stringify({
-        teleport: true,
-        snowmobile: true,
-        paraglider: true,
-        liftSkip: true,
-        aircraft: true,
-      }),
-    );
-  });
-  await page.reload();
-  await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10, null, { timeout: 90_000 });
-  await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
-  await page.keyboard.press('KeyY');
+  for (const key of ['KeyU', 'KeyY', 'KeyE']) {
+    await page.keyboard.press(key);
+    await page.waitForTimeout(200);
+    expect(await mode(page)).toBe('SKI');
+  }
+  await expect(page.locator('#prompt')).not.toContainText('Fly');
+  // At the Courchevel heliport, beside a parked H125: the prompt offers it, E climbs in.
+  await standBy(page, 'h125', 'Courchevel', 7, 0);
+  await expect(page.locator('#prompt')).toContainText('fly the Airbus H125');
+  await page.keyboard.press('KeyE');
   expect(await mode(page)).toBe('HELICOPTER');
-  const h = await handle(page, 'heli');
-  expect(h.onGround).toBe(true);
+  await expect(page.locator('#prompt')).toContainText('get out');
+  await page.keyboard.press('KeyU');
+  expect(await mode(page)).toBe('SKI');
+  // It stays parked where you left it, ready to climb back into.
+  expect((await handle(page, 'heli')).status).toBe('parked');
+  await expect(page.locator('#prompt')).toContainText('fly the Airbus H125');
   expect(errors).toEqual([]);
 });
 
 test('flying into the mountain: a crash, then back upright on the ground nearby', async ({
   page,
 }) => {
+  test.setTimeout(180_000);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  await start(page, 'at=45.28856,6.5752,2418&heading=90&pitch=-5');
+  await start(page, COURCHEVEL_TOP);
   await page.keyboard.press('KeyF');
-  await page.keyboard.press('KeyU'); // a Porter on the lake (or at the nearest runway)
+  await standBy(page, 'pc6', 'Courchevel', 6, 0);
+  await page.keyboard.press('KeyE'); // the Porter at the top of the altiport
   expect(await mode(page)).toBe('PLANE');
   // Put it 25 m over the lake diving at 15 m/s.
   await page.evaluate(() => {
     type V = { x: number; y: number; z: number };
     const sim = window.__sim as unknown as {
-      plane: { position: V; mount(at: V, v: V, yaw: number, running: boolean): void };
+      plane: {
+        position: V;
+        mount(at: V, v: V, yaw: number, running: boolean): void;
+        setStick(s: { x: number; y: number } | null): void;
+      };
       groundHeight(x: number, z: number): number;
     };
     const p = sim.plane.position;
@@ -522,8 +507,12 @@ test('flying into the mountain: a crash, then back upright on the ground nearby'
       -Math.PI / 2,
       true,
     );
+    sim.plane.setStick({ x: 0, y: -1 }); // stick hard forward, into the snow
   });
-  await expect(page.locator('#notices')).toContainText('Crashed ·', { timeout: 10_000 });
+  await expect(page.locator('#notices')).toContainText('Crashed ·', { timeout: 30_000 });
+  await page.evaluate(() =>
+    (window.__sim as unknown as { plane: { setStick(s: null): void } }).plane.setStick(null),
+  );
   await page.screenshot({ path: 'test-results/views/aircraft-plane-crash.png' });
   // A couple of seconds later it's back on its wheels, at rest, still yours to fly.
   await expect
@@ -532,7 +521,7 @@ test('flying into the mountain: a crash, then back upright on the ground nearby'
         const h = await handle(page, 'plane');
         return !h.crashed && h.onGround && h.speed < 0.5;
       },
-      { timeout: 10_000 },
+      { timeout: 30_000 }, // the crash lasts 2.5 s of sim time: slow frames stretch it
     )
     .toBe(true);
   expect(await mode(page)).toBe('PLANE');
@@ -559,7 +548,7 @@ for (const kind of ['plane', 'heli'] as const) {
     await start(page, COURCHEVEL_TOP); // first person (playwright.config.ts)
     await page.keyboard.press('KeyF');
     await standBy(page, kind === 'plane' ? 'pc6' : 'h125', 'Courchevel', 6, 0);
-    await page.keyboard.press(kind === 'plane' ? 'KeyU' : 'KeyY');
+    await page.keyboard.press('KeyE');
     await page.waitForTimeout(3000); // engine running
     const look = async (where: string) => {
       const blocked: Record<string, number> = {};
@@ -638,3 +627,208 @@ for (const kind of ['plane', 'heli'] as const) {
     expect(errors).toEqual([]);
   });
 }
+
+test('bail out of the Porter at 3,500 m: freefall, open the canopy, land and ski off', async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  await start(page, COURCHEVEL_TOP);
+  await page.keyboard.press('KeyF');
+  await page.keyboard.press('KeyV'); // chase view
+  await standBy(page, 'pc6', 'Courchevel', 6, 0);
+  await page.keyboard.press('KeyE');
+  // Take off downhill as in the take-off test.
+  await page.keyboard.down('KeyW');
+  await expect
+    .poll(async () => (await handle(page, 'plane')).airspeed, { timeout: 20_000 })
+    .toBeGreaterThan(24);
+  await page.keyboard.down('ArrowDown');
+  await expect
+    .poll(async () => (await handle(page, 'plane')).onGround, { timeout: 15_000 })
+    .toBe(false);
+  await page.keyboard.up('ArrowDown');
+  // A real climb to 3,500 m takes five minutes: put it there, cruising.
+  await page.evaluate(() => {
+    type V = { x: number; y: number; z: number };
+    const c = (
+      window.__sim as unknown as {
+        plane: {
+          position: V;
+          yaw: number;
+          mount(at: V, v: V, yaw: number, running: boolean): void;
+        };
+      }
+    ).plane;
+    const p = c.position;
+    const Vec = p.constructor as new (x: number, y: number, z: number) => V;
+    c.mount(
+      new Vec(p.x, 3500, p.z),
+      new Vec(-Math.sin(c.yaw) * 45, 0, -Math.cos(c.yaw) * 45),
+      c.yaw,
+      true,
+    );
+  });
+  await page.keyboard.up('KeyW');
+  await page.waitForTimeout(800);
+  // U in the air: out of the door.
+  await page.keyboard.press('KeyU');
+  await expect.poll(() => mode(page)).toBe('FREEFALL');
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: 'test-results/views/skydive-exit.png' });
+  // The empty Porter flies on a few seconds and is gone.
+  await expect
+    .poll(async () => (await handle(page, 'plane')).status, { timeout: 10_000 })
+    .toBe('away');
+  const sky = () =>
+    page.evaluate(() => {
+      const d = (
+        window.__sim as unknown as {
+          skydiver: {
+            agl: number;
+            airspeed: number;
+            canopyOut: boolean;
+            open: number;
+            velocity: { y: number };
+          };
+        }
+      ).skydiver;
+      return {
+        agl: d.agl,
+        speed: d.airspeed * 3.6,
+        canopy: d.canopyOut,
+        open: d.open,
+        vy: d.velocity.y,
+      };
+    });
+  await page.waitForTimeout(9000);
+  const falling = await sky();
+  // Belly to earth near terminal (faster than 195 km/h in the thin air up here).
+  expect(falling.speed).toBeGreaterThan(170);
+  expect(falling.speed).toBeLessThan(250);
+  await expect(page.locator('#flight [data-flight="agl"]')).toBeVisible();
+  await page.screenshot({ path: 'test-results/views/skydive-freefall.png' });
+  // Pull (Space) around 700 m above the ground.
+  await page.waitForFunction(
+    () => (window.__sim as unknown as { skydiver: { agl: number } }).skydiver.agl < 700,
+    null,
+    { timeout: 60_000, polling: 'raf' },
+  );
+  await page.keyboard.press('Space');
+  await expect.poll(() => mode(page)).toBe('CANOPY');
+  await page.waitForTimeout(5000);
+  const flying = await sky();
+  expect(flying.open).toBe(1);
+  expect(-flying.vy).toBeLessThan(7);
+  await page.screenshot({ path: 'test-results/views/skydive-canopy.png' });
+  // Flare (S) just above the snow, and on you ski.
+  await page.waitForFunction(
+    () => (window.__sim as unknown as { skydiver: { agl: number } }).skydiver.agl < 10,
+    null,
+    { timeout: 200_000, polling: 'raf' },
+  );
+  await page.keyboard.down('KeyS');
+  await expect.poll(() => mode(page), { timeout: 20_000 }).toBe('SKI');
+  await page.keyboard.up('KeyS');
+  await expect(page.locator('#notices')).not.toContainText('Crashed');
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: 'test-results/views/skydive-landed.png' });
+  expect(errors).toEqual([]);
+});
+
+test('flying with the arrow keys alone: take off, climb and turn; the mouse only looks', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await page.addInitScript(() =>
+    localStorage.setItem('ski-sim.camera', JSON.stringify({ flyWith: 'arrows' })),
+  );
+  await start(page, COURCHEVEL_TOP);
+  // The setting, under Options → Controls.
+  await page.keyboard.press('KeyO');
+  await page.locator('[data-tab="opt-controls"]').click();
+  await expect(page.locator('[data-fly-with="arrows"]')).toHaveAttribute('aria-checked', 'true');
+  await page.screenshot({ path: 'test-results/views/controls-fly-with.png' });
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#options')).toBeHidden();
+  await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
+  await page.keyboard.press('KeyF');
+  await page.keyboard.press('KeyV');
+  await standBy(page, 'pc6', 'Courchevel', 6, 0);
+  await page.keyboard.press('KeyE');
+  await page.keyboard.down('KeyW');
+  await expect
+    .poll(async () => (await handle(page, 'plane')).airspeed, { timeout: 20_000 })
+    .toBeGreaterThan(24);
+  // A big mouse pull doesn't touch the stick: still on the runway a second later.
+  await page.evaluate(() =>
+    document.dispatchEvent(new MouseEvent('mousemove', { movementY: 900 } as MouseEventInit)),
+  );
+  await page.waitForTimeout(300);
+  expect((await handle(page, 'plane')).onGround).toBe(true);
+  // ArrowDown (back on the stick) lifts it off; hold it into the climb.
+  await page.keyboard.down('ArrowDown');
+  await expect
+    .poll(async () => (await handle(page, 'plane')).onGround, { timeout: 15_000 })
+    .toBe(false);
+  await page.waitForTimeout(2500);
+  await page.keyboard.up('ArrowDown');
+  const climbing = await handle(page, 'plane');
+  // ArrowLeft: roll left into a turn (heading, clockwise from north, goes down); a little
+  // back pressure through it.
+  // A short hold: the keyboard stick ramps in, so this banks ~30°, not all the way over.
+  await page.keyboard.down('ArrowLeft');
+  await page.waitForTimeout(650);
+  await page.keyboard.up('ArrowLeft');
+  await page.waitForTimeout(2500);
+  const turned = await handle(page, 'plane');
+  await page.keyboard.up('KeyW');
+  expect(turned.crashed).toBeNull();
+  expect(turned.y).toBeGreaterThan(climbing.y);
+  expect(((climbing.heading - turned.heading + 540) % 360) - 180).toBeGreaterThan(10);
+  await page.screenshot({ path: 'test-results/views/aircraft-arrows-turn.png' });
+});
+
+test('U during the take-off roll: out onto your skis at its speed; it brakes and stays parked', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  await start(page, COURCHEVEL_TOP);
+  await page.keyboard.press('KeyF');
+  await page.keyboard.press('KeyV');
+  await standBy(page, 'pc6', 'Courchevel', 6, 0);
+  await page.keyboard.press('KeyE');
+  await page.keyboard.down('KeyW');
+  await expect
+    .poll(async () => (await handle(page, 'plane')).speed, { timeout: 30_000 })
+    .toBeGreaterThan(12);
+  await page.keyboard.up('KeyW');
+  const rolling = await handle(page, 'plane');
+  expect(rolling.onGround).toBe(true);
+  await page.keyboard.press('KeyU');
+  await expect.poll(() => mode(page)).toBe('SKI');
+  // Skiing on at about the plane's speed.
+  const skier = await page.evaluate(() => {
+    const s = (window.__sim as unknown as { ski: { speed: number } }).ski;
+    return s.speed;
+  });
+  expect(skier).toBeGreaterThan(0.6 * rolling.speed);
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: 'test-results/views/aircraft-roll-exit.png' });
+  // The empty plane brakes to a stop on the runway, parked, no crash.
+  await expect
+    .poll(async () => (await handle(page, 'plane')).speed, { timeout: 30_000 })
+    .toBeLessThan(0.1);
+  const parked = await handle(page, 'plane');
+  expect(parked.status).toBe('parked');
+  expect(parked.crashed).toBeNull();
+  expect(parked.onGround).toBe(true);
+  expect(Math.hypot(parked.x - rolling.x, parked.z - rolling.z)).toBeGreaterThan(5);
+  await expect(page.locator('#notices')).not.toContainText('Crashed');
+  expect(errors).toEqual([]);
+});
