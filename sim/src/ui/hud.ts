@@ -83,6 +83,7 @@ export const DISPLAY_TOGGLES = [
   { name: 'peak', key: '2', label: 'Peak names', short: 'Peaks' },
   { name: 'pistes', key: '3', label: 'Piste colours', short: 'Pistes' },
   { name: 'restaurant', key: '4', label: 'Restaurant names', short: 'Restaurants' },
+  { name: 'airfield', key: '5', label: 'Airfield names', short: 'Airfields' },
   { name: 'sound', key: 'K', label: 'Sound', short: 'Sound' },
 ] as const;
 

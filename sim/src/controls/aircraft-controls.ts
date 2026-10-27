@@ -33,6 +33,7 @@ import {
   planeYaw,
   STILL_AIR,
   stepPlane,
+  type Surface,
 } from './plane-physics';
 import { EYE_HEIGHT } from './ski-controls';
 import { SkierModel } from './ski-model';
@@ -247,6 +248,17 @@ export class AircraftControls {
 
   get flaps(): number {
     return this.plane?.flaps ?? 0;
+  }
+
+  /** The flaps are travelling toward their setting (the motor's running). */
+  get flapsMoving(): boolean {
+    return this.plane !== null && Math.abs(this.plane.flaps - this.flapSetting) > 0.005;
+  }
+
+  /** What's under the wheels or skids: a cleared runway, groomed snow or powder. */
+  get surface(): Surface {
+    const p = this.position;
+    return this.terrain.surface?.(p.x, p.z) ?? 'groomed';
   }
 
   /** Which way the nose points (Look convention). */

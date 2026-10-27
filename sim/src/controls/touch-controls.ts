@@ -18,7 +18,7 @@ export interface TouchState {
   tucked: boolean;
   /** Riding a lift that may be fast-forwarded (not in a multiplayer game). */
   fastForward: boolean;
-  /** Any of the lift, peak and restaurant names are showing. */
+  /** Any of the lift, peak, restaurant and airfield names are showing. */
   names: boolean;
   /** Piste colours are on the snow. */
   pistes: boolean;
@@ -31,7 +31,7 @@ export interface TouchState {
 export interface TouchActions {
   /** Do what a key does in game (`main.ts`): KeyM map, KeyF drone, KeyE ride... */
   key: (code: string) => void;
-  /** Lift, peak and restaurant names on or off together. */
+  /** Lift, peak, restaurant and airfield names on or off together. */
   labels: () => void;
 }
 

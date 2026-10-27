@@ -1,6 +1,11 @@
 import type { Airfields, Border, Lift, Peak, Restaurant } from '../features/types';
 import type { Place } from '../nav/places';
-import { RESTAURANT_COLOUR, drawBorders, drawRestaurantIcon } from './map-icons';
+import {
+  AIRFIELD_LABEL_COLOUR,
+  RESTAURANT_COLOUR,
+  drawBorders,
+  drawRestaurantIcon,
+} from './map-icons';
 import {
   DIFFICULTY,
   FREERIDE,
@@ -73,7 +78,7 @@ const LIFT_COLOURS: Record<string, string> = {
 const DRAG_COLOUR = '#7048e8';
 const BORDER_TEXT = '#862e9c';
 /** Airfield surfaces: paved (cleared) and snow, as the pipeline's minimap draws them. */
-export const AIRFIELD_COLOURS = { paved: '#4e5056', snow: '#b2bac6', label: '#2f3a4a' };
+export const AIRFIELD_COLOURS = { paved: '#4e5056', snow: '#b2bac6', label: AIRFIELD_LABEL_COLOUR };
 /** Airfield names show from this zoom in; heliports' from closer. */
 const AIRFIELD_NAMES_MPP = 30;
 const HELIPORT_NAMES_MPP = 8;

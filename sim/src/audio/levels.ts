@@ -199,3 +199,125 @@ export function aircraftFalloff(distance: number): number {
   const fade = 1 - d / AIRCRAFT_HEARD_WITHIN;
   return Math.min(1, AIRCRAFT_NEAR / Math.max(d, AIRCRAFT_NEAR)) ** 0.8 * fade;
 }
+
+/** What an aircraft's wheels or skids are on. */
+export type GroundSurface = 'paved' | 'groomed' | 'powder';
+
+export interface TouchdownSound {
+  /** The gear taking the weight: a low thud. */
+  thump: number;
+  /** Tyres spinning up on tarmac: a short squeal. */
+  chirp: number;
+  /** Wheels or skids into snow: a soft, gritty crunch. */
+  crunch: number;
+}
+
+export const TOUCHDOWN_SILENT: TouchdownSound = { thump: 0, chirp: 0, crunch: 0 };
+
+/**
+ * A plane or helicopter touching down at `sink` m/s down and `speed` m/s along the
+ * ground. Thud by the sink rate (a greaser is barely heard, a firm arrival thumps); a
+ * plane's tyres chirp on tarmac (louder the faster they spin up); snow crunches instead.
+ */
+export function touchdownSound(
+  kind: 'plane' | 'heli',
+  sink: number,
+  speed: number,
+  surface: GroundSurface,
+): TouchdownSound {
+  if (sink < 0.15) return TOUCHDOWN_SILENT;
+  const firm = clamp01(sink / 4);
+  const paved = surface === 'paved';
+  return {
+    thump: 0.12 + 0.6 * firm,
+    chirp: kind === 'plane' && paved ? clamp01(speed / 30) * (0.12 + 0.2 * firm) : 0,
+    crunch: paved ? 0 : (surface === 'powder' ? 0.7 : 1) * (0.1 + 0.3 * firm),
+  };
+}
+
+export interface RollingSound {
+  /** Tyres (or skids) rumbling over the surface: low-passed noise. */
+  rumble: number;
+  /** Its low-pass cutoff (Hz): higher, harder tarmac and faster. */
+  rumbleCutoff: number;
+  /** Snow under wheels or skids: band-passed, fluttering grit. */
+  crunch: number;
+  /** Centre of the crunch (Hz). */
+  crunchPitch: number;
+  /** Brakes squealing (tarmac, hard braking at speed). */
+  squeal: number;
+}
+
+export const ROLLING_OFF: RollingSound = {
+  rumble: 0,
+  rumbleCutoff: 120,
+  crunch: 0,
+  crunchPitch: 1200,
+  squeal: 0,
+};
+
+/**
+ * An aircraft on the ground at `speed` m/s on `surface`. A plane's wheels rumble on
+ * tarmac (brighter with speed) and crunch on snow (duller in powder), and its brakes
+ * squeal braking hard on tarmac above walking pace; a helicopter's skids are silent
+ * resting and scrape when they slide (on snow a crunch, on a pad a brighter scrape).
+ */
+export function rollingSound(
+  kind: 'plane' | 'heli',
+  onGround: boolean,
+  speed: number,
+  surface: GroundSurface,
+  braking: boolean,
+): RollingSound {
+  const s = Math.abs(speed);
+  if (!onGround || s < 0.2) return ROLLING_OFF;
+  const paved = surface === 'paved';
+  if (kind === 'heli') {
+    const slide = clamp01(s / 4) ** 0.7;
+    return {
+      rumble: 0.08 * slide,
+      rumbleCutoff: 160,
+      crunch: 0.28 * slide,
+      crunchPitch: paved ? 3200 : 1100,
+      squeal: 0,
+    };
+  }
+  const roll = clamp01(s / 25) ** 0.7;
+  return {
+    rumble: (paved ? 0.2 : surface === 'powder' ? 0.08 : 0.12) * roll,
+    rumbleCutoff: (paved ? 140 : 90) + (paved ? 9 : 4) * Math.min(s, 40),
+    crunch: paved ? 0 : (surface === 'powder' ? 0.12 : 0.18) * roll,
+    crunchPitch: (surface === 'powder' ? 700 : 1100) + 20 * Math.min(s, 40),
+    squeal: paved && braking ? 0.13 * clamp01((s - 3) / 12) : 0,
+  };
+}
+
+/** The stall warning horn, sounding while STALL shows: loud in the cockpit, faint outside. */
+export function stallHornLevel(warning: boolean, cockpit: boolean): number {
+  if (!warning) return 0;
+  return cockpit ? 0.11 : 0.035;
+}
+
+/** The flap motor's whine while the flaps travel: heard in the cockpit, barely outside. */
+export function flapMotorLevel(moving: boolean, cockpit: boolean): number {
+  if (!moving) return 0;
+  return cockpit ? 0.07 : 0.02;
+}
+
+/** A crash's impact (0..1) from the speed it hit at (m/s): a crunch at a crawl, a boom fast. */
+export function crashSeverity(speed: number): number {
+  return 0.45 + 0.55 * clamp01(speed / 50);
+}
+
+/**
+ * The slipstream in a plane or helicopter, by airspeed (m/s) and the weather's wind:
+ * it roars round the chase camera (the 35 m/s scale of skiing tops out long before a
+ * plane's cruise, so this one runs to ~70 m/s), and is a muffled hiss under the engine
+ * from the cockpit.
+ */
+export function aircraftWindLevel(airspeed: number, cockpit: boolean, weatherWind = 0): number {
+  const v = clamp01(Math.max(0, airspeed) / 70) ** 1.6;
+  const rushing = cockpit ? 0.02 + 0.2 * v : 0.04 + 0.56 * v;
+  const outside = cockpit ? 0.3 * weatherWindLevel(weatherWind) : weatherWindLevel(weatherWind);
+  return Math.min(cockpit ? 0.3 : 0.75, Math.hypot(rushing, outside));
+}
