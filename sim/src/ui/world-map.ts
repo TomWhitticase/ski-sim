@@ -1,6 +1,7 @@
-import type { Airfields, Border, Lift, Peak, Restaurant } from '../features/types';
+import type { Airfields, Border, Lift, Peak, Restaurant, Road } from '../features/types';
 import type { Place } from '../nav/places';
 import { RESTAURANT_COLOUR, drawBorders, drawRestaurantIcon } from './map-icons';
+import { ROAD_COLOURS, RoadLayer } from './roads-map';
 import {
   DIFFICULTY,
   FREERIDE,
@@ -35,6 +36,8 @@ export interface WorldMapData {
   borders: Border[];
   /** Runways, taxiways, aprons and helipads (missing in older builds). */
   airfields?: Airfields;
+  /** Roads, drawn under everything else (missing in older builds). */
+  roads?: Road[];
   places: Place[];
   groundHeight: (east: number, north: number) => number;
   toLatLon: (east: number, north: number) => { lat: number; lon: number };
@@ -135,6 +138,7 @@ export class WorldMap {
   private longPress = 0;
   private frameRequested = false;
   private paths?: WorldPaths;
+  private roadLayer?: RoadLayer;
   /** The bare relief (`WorldMapData.baseUrl`), once asked for; null if it failed. */
   private base: HTMLImageElement | null | undefined;
   /** The guide marker, if one is placed. */
@@ -294,6 +298,7 @@ export class WorldMap {
     const bare = !!(this.base?.complete && this.base.naturalWidth > 0);
     ctx.drawImage(bare ? this.base! : data.image, x0, y0, x1 - x0, y1 - y0);
     const shapes = bare || this.mpp < cell;
+    if (shapes) this.drawRoads();
     if (shapes) this.drawAirfields();
     if (shapes) this.drawBuildings();
     if (shapes && this.show.piste) this.drawPisteLines(cell, bare);
@@ -327,6 +332,8 @@ export class WorldMap {
     if (this.show.lift) this.drawLifts(tryPlace);
     if (this.show.piste && this.mpp < 6) this.drawPisteNames(tryPlace);
     if (this.show.peak) this.drawPeaks(tryPlace);
+    if (shapes)
+      this.roads()?.drawLabels(ctx, this.mpp, (e, n) => this.toScreen(e, n), { w, h }, tryPlace);
     if (this.show.restaurant && this.mpp < RESTAURANT_ICONS_MPP) this.drawRestaurants(tryPlace);
     this.drawOthers();
     if (this.hoverPlace) this.drawHighlight(this.hoverPlace.pose);
@@ -567,6 +574,22 @@ export class WorldMap {
       ctx.fillStyle = '#fff';
       ctx.fillText(name, x, y - 17);
     }
+  }
+
+  private roads(): RoadLayer | undefined {
+    if (!this.roadLayer && this.data.roads?.length) this.roadLayer = new RoadLayer(this.data.roads);
+    return this.roadLayer;
+  }
+
+  /** Roads in a map style, under the airfields, buildings and runs. */
+  private drawRoads(): void {
+    const layer = this.roads();
+    if (!layer) return;
+    const { ctx } = this;
+    ctx.save();
+    this.worldTransform();
+    layer.draw(ctx, this.mpp, this.screenBox(0));
+    ctx.restore();
   }
 
   /** Building footprints as shapes (the minimap's colour): one fill of a cached path. */
@@ -988,6 +1011,11 @@ export class WorldMap {
     if (strips.some((r) => r.winter !== 'cleared'))
       rows.push(['runway', AIRFIELD_COLOURS.snow, 'Snow runway']);
     if (fields?.helipads.length) rows.push(['helipad', AIRFIELD_COLOURS.paved, 'Helipad']);
+    const roads = this.roads();
+    if (roads?.has.main) rows.push(['road', ROAD_COLOURS.main, 'Main road']);
+    if (roads?.has.cleared) rows.push(['road', ROAD_COLOURS.minor, 'Road, cleared']);
+    if (roads?.has.snow) rows.push(['dash', ROAD_COLOURS.snow, 'Road or track under snow']);
+    if (roads?.has.tunnel) rows.push(['dash', ROAD_COLOURS.tunnel, 'Tunnel']);
     if (this.data.restaurants.length) rows.push(['restaurant', RESTAURANT_COLOUR, 'Restaurant']);
     if (this.data.peaks.length) rows.push(['peak', '#1e1e24', 'Summit']);
     if (this.data.borders.length) rows.push(['border', BORDER_TEXT, 'National border']);

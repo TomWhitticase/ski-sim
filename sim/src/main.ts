@@ -8,7 +8,16 @@ import {
   WebGPURenderer,
 } from 'three/webgpu';
 
-import { BLUEBIRD_DATE, CAMERA, DEFAULT_RESORT, FLY, SIM_DAY, simDate, TERRAIN } from './config';
+import {
+  BLUEBIRD_DATE,
+  CAMERA,
+  DEFAULT_RESORT,
+  FLY,
+  ROADS,
+  SIM_DAY,
+  simDate,
+  TERRAIN,
+} from './config';
 import { Sound } from './audio/sound';
 import {
   AIRCRAFT_OFF,
@@ -59,6 +68,7 @@ import { ObstacleIndex } from './features/obstacles';
 import { createBuildings } from './features/buildings';
 import { airfieldSolids, createAirfields } from './features/airfields';
 import { WreckSmoke } from './fx/wreck-smoke';
+import { RoadNetwork, roadSolids } from './features/roads';
 import { createRestaurants, terraceSolids } from './features/restaurants';
 import type { ResortFeatures } from './features/types';
 import { Heightmap } from './geo/heightmap';
@@ -371,6 +381,7 @@ async function main(): Promise<void> {
     litPixels,
     nearCoverPixels,
     farCoverPixels,
+    roadPixels,
   ] = await Promise.all([
     loadHeightmap(resortId, manifest.terrain.near, get),
     loadHeightmap(resortId, manifest.terrain.far, get),
@@ -384,6 +395,7 @@ async function main(): Promise<void> {
     litMeta ? loadPixels(resortUrl(resortId, litMeta.file), get) : null,
     loadPixels(resortUrl(resortId, manifest.landCover.near.file), get),
     loadPixels(resortUrl(resortId, manifest.landCover.far.file), get),
+    manifest.roads ? loadPixels(resortUrl(resortId, manifest.roads.raster.file), get) : null,
   ]);
   const { near: nearCoverMeta, far: farCoverMeta, trees: treeMeta } = manifest.landCover;
   const nearCover = new LandCover(nearCoverPixels, nearCoverMeta.cellSize, nearCoverMeta.extent);
@@ -525,13 +537,20 @@ async function main(): Promise<void> {
 
   menu.progress('Building terrain…', 0.82);
   await nextFrame();
+  const pisteOverlayTexture = overlayTexture(pisteOverlay);
+  const ungroomedTexture = ungroomedPixels ? overlayTexture(ungroomedPixels) : undefined;
+  // Road surfaces are meshes within this distance; the terrain shades them beyond it.
+  const roadRange = ROADS.range * quality.terrainLod;
   const nearTerrain = new Terrain(
     near,
     createTerrainMaterial(near, createNormalTexture(near), undefined, {
       snowDetail: true,
+      roads: roadPixels
+        ? { texture: overlayTexture(roadPixels), fade: [roadRange * 0.85, roadRange] }
+        : undefined,
       pistes: {
-        overlay: overlayTexture(pisteOverlay),
-        ungroomed: ungroomedPixels ? overlayTexture(ungroomedPixels) : undefined,
+        overlay: pisteOverlayTexture,
+        ungroomed: ungroomedTexture,
         tint: pisteTint,
         floodlit:
           litMeta && litPixels
@@ -577,6 +596,19 @@ async function main(): Promise<void> {
     ? createAirfields(features.airfields, (east, north) => groundHeight(east, -north))
     : null;
   if (airfields) scene.add(airfields.root);
+  const roads = features.roads
+    ? new RoadNetwork(
+        features.roads,
+        (east, north) => groundHeight(east, -north),
+        {
+          overlay: pisteOverlayTexture,
+          ungroomed: ungroomedTexture,
+          grid: { ...near.extent, cellSize: near.cellSize, width: near.width, height: near.height },
+        },
+        { range: roadRange, detailRange: ROADS.detailRange * quality.terrainLod },
+      )
+    : null;
+  if (roads) scene.add(roads.root);
   scene.add(
     nearTerrain.object,
     farTerrain.object,
@@ -636,7 +668,8 @@ async function main(): Promise<void> {
       // Buildings and terminals like the skier, and lift towers too.
       collideSled: (p, v, radius) => {
         const hitBuilding = obstacles.resolve(p, v, radius, 1.2);
-        return towers.resolve(p, v, radius, 1.2) || hitBuilding;
+        const hitBank = roadside.resolve(p, v, radius, 1.2);
+        return towers.resolve(p, v, radius, 1.2) || hitBuilding || hitBank;
       },
     },
     bounds,
@@ -704,6 +737,10 @@ async function main(): Promise<void> {
       : []),
   ]);
   const towers = new ObstacleIndex(lifts.towerObstacles());
+  // Road snowbanks and snow poles stop the snowmobile; skiers ski through the soft banks.
+  const roadside = new ObstacleIndex(
+    features.roads ? roadSolids(features.roads, (east, north) => groundHeight(east, -north)) : [],
+  );
   const cables = new CableIndex(lifts.ropeSegments());
   scene.add(lifts.root, createLiftSigns(lifts.lines, lifts.signMounts));
   const ride = new RideControls(camera, lifts, ski);
@@ -779,6 +816,7 @@ async function main(): Promise<void> {
   nearTerrain.update(camera.position, Infinity);
   farTerrain.update(camera.position, Infinity);
   forest?.update(camera);
+  roads?.update(camera.position, 6); // the nearest now, the rest over the next frames
 
   const hud = new Hud($('#hud'));
   const partyHud = new PartyHud($('#hud'));
@@ -1036,6 +1074,7 @@ async function main(): Promise<void> {
       ),
       pistes: pisteData.pistes,
       airfields: features.airfields,
+      roads: features.roads?.roads,
       restaurants,
       buildings: features.buildings,
       mapPlaces:
@@ -1593,6 +1632,8 @@ async function main(): Promise<void> {
       camera,
       labels,
       minimap,
+      worldMap,
+      roads,
       waypoint,
       lifts,
       ski,
@@ -1897,6 +1938,7 @@ async function main(): Promise<void> {
     nearTerrain.update(pos, TERRAIN.buildBudgetMs);
     farTerrain.update(pos, TERRAIN.buildBudgetMs);
     forest?.update(camera);
+    roads?.update(pos);
     if (clock.rate !== 0) {
       clock.advance(dt);
       environment.setTime(simDate(clock.seconds));

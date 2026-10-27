@@ -25,6 +25,7 @@ from . import (
     parks,
     pistes,
     restaurants,
+    roads,
     terminals,
     territory,
 )
@@ -572,6 +573,17 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         graded["climbAfter"],
         graded["maxFill"],
     )
+    # Roads after the pistes (nowhere on a run: the piste's grading stays) and before
+    # the airfields (a runway wins where a road meets it).
+    log.info("Building roads into the terrain (OpenStreetMap)")
+    groomed_shapes = [geom for idx, geom, _, _ in piste_shapes if piste_runs[idx - 1]["groomed"]]
+    road_list = roads.collect(
+        osm.fetch_roads(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root),
+        frame,
+        near_grid.extent,
+    )
+    road_grading = roads.grade(road_list, near, near_grid, groomed_shapes)
+    log.info("Roads graded: %s", road_grading)
     # Airfields after the pistes (a runway is level across even where a run crosses it)
     # and before terminals and buildings, which are placed on the result.
     log.info("Building airfields (OpenStreetMap, OurAirports)")
@@ -631,9 +643,20 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         fields, ground_now, feature_data["buildings"], terminal_pads
     )
     runway_checks = airfields.validate(fields, ground_now, cfg.runways)
+    feature_data["roads"] = roads.finish(
+        road_list,
+        feature_data["buildings"],
+        groomed_shapes,
+        airfields.surface_shapes(fields),
+        terminal_pads,
+    )
     log.info("Building pistes (OpenStreetMap)")
     pistes_meta = build_pistes(frame, raw_root, near, near_grid, out_dir, ours, feature_data)
     piste_records = json.loads((out_dir / "pistes.json").read_text())["pistes"]
+    road_factor = round(pistes_meta["overlay"]["cellSize"] / pistes.RASTER_CELL)
+    roads.raster(road_list, near_grid.extent, road_factor).save(
+        out_dir / "roads.png", optimize=True
+    )
 
     feature_data["borders"] = borders.build(
         osm.fetch_borders(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root),
@@ -655,7 +678,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         feature_data,
         # Skiable off-piste routes (not walking ones) get a glade through any forest.
         {r["index"] for r in piste_runs if not r["groomed"] and r["type"] != "hike"},
-        airfields.clearing_shapes(fields),
+        [*airfields.clearing_shapes(fields), *roads.clearing_shapes(road_list)],
     )
 
     log.info("Writing outputs to %s", out_dir)
@@ -674,6 +697,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     # The bare relief, for the world map zoomed in past the image's resolution: it draws
     # runs, buildings and lifts as shapes on top, so they stay sharp.
     image.save(out_dir / "minimap-base.png", optimize=True)
+    minimap.draw_roads(image, feature_data["roads"], ext.west - half, ext.north + half, mm_cell)
     minimap.draw_pistes(image, piste_records, ext.west - half, ext.north + half, mm_cell)
     minimap.draw_features(image, feature_data, ext.west - half, ext.north + half, mm_cell)
     image.save(out_dir / "minimap.png", optimize=True)
@@ -740,6 +764,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
                 f"{airfields.BANK_RUN:.0f} m); others groomed snow with edge markers",
             },
         },
+        "roads": roads.manifest_entry(feature_data["roads"], road_grading, pistes_meta),
         "landCover": land_cover,
         "validation": {
             "landmarks": validation,

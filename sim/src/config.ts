@@ -52,6 +52,10 @@ export const TERRAIN = {
   buildBudgetMs: 6,
 };
 
+/** Roads (`features/roads.ts`): asphalt meshes within `range` m (the terrain shades them
+ *  beyond), snowbanks and snow poles within `detailRange`; both × the device's terrain LOD. */
+export const ROADS = { range: 3000, detailRange: 1200 };
+
 export const MINIMAP = {
   /** Selectable map widths in metres; cycled with the - and = keys. */
   zoomLevels: [1000, 2000, 4000, 8000],

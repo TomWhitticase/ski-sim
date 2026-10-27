@@ -139,6 +139,9 @@ export interface ResortFeatures {
   /** Runways, taxiways, aprons, helipads and windsocks (pipeline/airfields.py); missing in
    *  older builds. */
   airfields?: Airfields;
+  /** Roads, with their snowbanks and snow poles (pipeline/roads.py); missing in older
+   * builds. */
+  roads?: Roads;
   /** Named towns, villages and hamlets for map labels (pipeline `map_places`); missing in
    *  older builds. */
   places?: {
@@ -240,4 +243,50 @@ export interface Airfields {
   snowbanks: [number, number][][];
   /** Edge markers on groomed snow surfaces: [east, north, ground]. */
   markers: [number, number, number][];
+}
+
+/** OSM `highway` classes the pipeline keeps (`osm.ROAD_CLASSES`). */
+export type RoadClass =
+  | 'motorway'
+  | 'trunk'
+  | 'primary'
+  | 'secondary'
+  | 'tertiary'
+  | 'motorway_link'
+  | 'trunk_link'
+  | 'primary_link'
+  | 'secondary_link'
+  | 'tertiary_link'
+  | 'unclassified'
+  | 'residential'
+  | 'living_street'
+  | 'service'
+  | 'track';
+
+/** A road (one OSM way), from pipeline/roads.py. */
+export interface Road {
+  id: number;
+  class: RoadClass;
+  name: string | null;
+  ref: string | null;
+  /** Carriageway width (m): tagged, from its lanes, or a class default. */
+  width: number;
+  widthSource: 'osm' | 'lanes' | 'estimate';
+  surface: string | null;
+  /** Ploughed asphalt, or under the snow (closed in winter, a track, unpaved). */
+  winter: 'cleared' | 'snow';
+  structure: 'bridge' | 'tunnel' | null;
+  /** Centreline (local metres). */
+  line: [number, number][];
+  /** What's drawn in the world where part of the road is under an airfield's surface. */
+  drawn?: [number, number][][];
+}
+
+export interface Roads {
+  /** Minor roads first, so main roads draw over them at junctions. */
+  roads: Road[];
+  /** Ploughed bank lines along cleared roads (synthetic). */
+  snowbanks: [number, number][][];
+  /** Snow poles along cleared mountain roads: [east, north] (synthetic). */
+  poles: [number, number][];
 }

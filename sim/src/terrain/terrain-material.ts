@@ -70,6 +70,17 @@ export interface PisteShading {
 /** Emissive strength of a fully lit pool on the snow under the floodlights. */
 const FLOODLIT_GLOW = 0.35;
 
+/** Roads on the piste overlay's grid (RGB coverage: R cleared asphalt, G snow road). */
+export interface RoadShading {
+  texture: Texture;
+  /** Cleared roads are meshes nearer than this (m): the terrain shades them from
+   *  `fade[0]`, fully by `fade[1]`. */
+  fade: [number, number];
+}
+
+/** Far asphalt, seen from beyond the road meshes' range. */
+const ROAD_FAR = vec3(0.1, 0.105, 0.11);
+
 /** Land cover on its own grid: R tree cover, G bare rock, B 0.5 + ½ ice − ½ water. */
 export interface LandCoverShading {
   texture: Texture;
@@ -89,7 +100,13 @@ export function createTerrainMaterial(
     snowDetail: withSnowDetail = false,
     pistes,
     landCover,
-  }: { snowDetail?: boolean; pistes?: PisteShading; landCover?: LandCoverShading } = {},
+    roads,
+  }: {
+    snowDetail?: boolean;
+    pistes?: PisteShading;
+    landCover?: LandCoverShading;
+    roads?: RoadShading;
+  } = {},
 ): MeshStandardNodeMaterial {
   // Double-sided so chunk skirts hide LOD cracks whichever side they're seen from.
   const material = new MeshStandardNodeMaterial({ side: DoubleSide });
@@ -106,6 +123,17 @@ export function createTerrainMaterial(
   const groomed = pistes?.ungroomed
     ? coverage.sub(texture(pistes.ungroomed, uv).r).max(0)
     : coverage;
+  // Roads under the snow are packed (smoother, a shade darker) unless a run is on top;
+  // cleared ones are drawn as meshes nearby and shaded here beyond them.
+  const roadCover = roads ? texture(roads.texture, uv) : null;
+  const pisteFree = groomed.oneMinus();
+  const snowRoad = roadCover ? roadCover.g.mul(pisteFree) : float(0);
+  const farRoad =
+    roadCover && roads
+      ? roadCover.r
+          .mul(pisteFree)
+          .mul(smoothstep(roads.fade[0], roads.fade[1], cameraPosition.distance(positionWorld)))
+      : float(0);
   let shadingNormal = normal;
   if (withSnowDetail) {
     // Below-lidar-resolution snow texture near the camera, faded out with distance.
@@ -120,7 +148,7 @@ export function createTerrainMaterial(
       texture(tex, positionWorld.xz.div(tile)).xy.mul(2).sub(1).mul(DETAIL_STRENGTH[i]!),
     );
     // Groomed corduroy is smooth; untracked off-piste snow is lumpier.
-    const roughness = mix(float(1.25), float(0.3), groomed);
+    const roughness = mix(float(1.25), float(0.3), groomed.max(snowRoad.mul(0.75)));
     const slope = coarse!.add(fine!).mul(fade).mul(roughness);
     shadingNormal = normal.add(vec3(slope.x.negate(), 0, slope.y.negate())).normalize();
   }
@@ -179,7 +207,12 @@ export function createTerrainMaterial(
     const surface = mix(mix(snow, stone, rock), LAKE_ICE.mul(detail.mul(0.04).add(1)), water);
     // Snow under drawn trees lies in their shade; far off, crowns and snow blend.
     const crowns = mix(CANOPY, CANOPY_SNOW, breakup.mul(0.5).add(0.5).mul(0.35).add(0.3));
-    const base = mix(surface.mul(tree.sub(canopy).mul(0.15).oneMinus()), crowns, canopy.mul(0.85));
+    const forest = mix(
+      surface.mul(tree.sub(canopy).mul(0.15).oneMinus()),
+      crowns,
+      canopy.mul(0.85),
+    );
+    const base = mix(forest.mul(snowRoad.mul(rock.oneMinus()).mul(-0.1).add(1)), ROAD_FAR, farRoad);
     if (!piste || !pistes) return base;
     // Freshly groomed snow reads a touch brighter; optional difficulty-colour tint.
     const brightened = base.mul(groomed.mul(rock.oneMinus()).mul(0.05).add(1));

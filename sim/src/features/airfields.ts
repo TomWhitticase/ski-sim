@@ -57,7 +57,7 @@ const FULL_WIND = 7.7;
 const LIMP = 72; // degrees below level with no wind
 
 /** Triangles with per-vertex colours, in local ENU (east, up, north) until written out. */
-class Builder {
+export class Builder {
   readonly positions: number[] = [];
   readonly colours: number[] = [];
 

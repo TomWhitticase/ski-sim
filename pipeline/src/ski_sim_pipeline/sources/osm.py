@@ -85,6 +85,38 @@ def fetch_airfields(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[d
     return _query(query, cache_dir, "airfields")
 
 
+#: Road classes fetched (`highway=*`): through roads to residential streets, service roads
+#: and tracks. Footways, paths, steps, cycleways and bridleways aren't: in winter they're
+#: under the snow (walking routes the resort keeps open are mapped as pistes).
+ROAD_CLASSES = (
+    "motorway",
+    "trunk",
+    "primary",
+    "secondary",
+    "tertiary",
+    "motorway_link",
+    "trunk_link",
+    "primary_link",
+    "secondary_link",
+    "tertiary_link",
+    "unclassified",
+    "residential",
+    "living_street",
+    "service",
+    "track",
+)
+
+
+def fetch_roads(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict]:
+    """Road ways (`highway` of ROAD_CLASSES) within the bounds, with geometry."""
+    classes = "|".join(ROAD_CLASSES)
+    query = (
+        f'[out:json][timeout:180];way["highway"~"^({classes})$"]({_bbox(lonlat_bounds)});'
+        "out tags geom;"
+    )
+    return _query(query, cache_dir, "roads")
+
+
 def fetch_places(lonlat_bounds: tuple[float, ...], cache_dir: Path) -> list[dict]:
     """Named settlements (towns, villages, hamlets, suburbs) within the bounds."""
     query = (
