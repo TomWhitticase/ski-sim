@@ -530,6 +530,41 @@ test('flying into the mountain: a crash, then on your skis where it stopped', as
   });
   expect(Math.hypot(feet.x - hit.x, feet.z - hit.z)).toBeLessThan(15);
   expect(feet.speed).toBeLessThan(0.5);
+  // The wreck stays where it stopped, smoking, and can't be flown again.
+  const wreck = await page.evaluate(() => {
+    const sim = window.__sim as unknown as {
+      plane: { status: string; root: { visible: boolean } };
+      scene: { getObjectByName(n: string): { visible: boolean } | undefined };
+    };
+    return {
+      status: sim.plane.status,
+      shown: sim.plane.root.visible,
+      smoke: sim.scene.getObjectByName('wreck-smoke')?.visible ?? false,
+    };
+  });
+  expect(wreck).toEqual({ status: 'wrecked', shown: true, smoke: true });
+  await page.keyboard.press('KeyE');
+  await page.waitForTimeout(500);
+  expect(await mode(page)).toBe('SKI');
+  // From the drone, 45 m off and a little up, once the column has built up.
+  await page.keyboard.press('KeyF');
+  await page.evaluate((h) => {
+    const sim = window.__sim as unknown as {
+      fly: { place(p: object): void };
+      groundHeight(x: number, z: number): number;
+    };
+    const e = h.x - 45;
+    const z = h.z + 10;
+    sim.fly.place({
+      east: e,
+      north: -z,
+      altitude: sim.groundHeight(e, z) + 12,
+      heading: 77,
+      pitch: 8,
+    });
+  }, hit);
+  await page.waitForTimeout(6000);
+  await page.screenshot({ path: 'test-results/views/aircraft-plane-wreck.png' });
   expect(errors).toEqual([]);
 });
 

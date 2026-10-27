@@ -82,6 +82,7 @@ const PROBE_RADIUS = 0.7;
 
 const UP = new Vector3(0, 1, 0);
 const TMP = new Vector3();
+const SMOKE_AT = new Vector3();
 const TMP2 = new Vector3();
 const QT = new Quaternion();
 const EULER = new Euler(0, 0, 0, 'YXZ');
@@ -107,7 +108,7 @@ export class AircraftControls {
   readonly pilot = new SkierModel();
   view: 'first-person' | 'chase' = 'chase';
   /** Flying it, parked, flying on empty after a bail-out (briefly), or not out at all. */
-  status: 'riding' | 'parked' | 'abandoned' | 'away' = 'away';
+  status: 'riding' | 'parked' | 'abandoned' | 'wrecked' | 'away' = 'away';
   /** Seconds the empty aircraft flies on before it's put away. */
   private abandonedFor = 0;
   /** Flap setting (0 up, 1 take-off, 2 landing). */
@@ -316,6 +317,24 @@ export class AircraftControls {
     this.root.visible = this.status !== 'away';
     this.pilot.root.visible = this.status === 'riding';
     this.setView(this.view);
+  }
+
+  /**
+   * Left as a wreck where it came to rest (after `wrecked`, once you're out): still shown,
+   * engine dead, never boardable (`canBoard` wants it parked), smoking (main.ts). It's put
+   * away when you're far off, or when its airfield's one is flown.
+   */
+  leaveWreck(): void {
+    this.status = 'wrecked';
+    this.root.visible = true;
+    this.pilot.root.visible = false;
+  }
+
+  /** Where smoke comes off the wreck (world), or null if it isn't one. */
+  get smokeFrom(): Vector3 | null {
+    if (this.status !== 'wrecked') return null;
+    // The engine: at the nose of a plane, under the rotor of a helicopter.
+    return this.toWorld(0, this.plane ? 1.2 : 1.6, this.plane ? -3.5 : -0.5, SMOKE_AT);
   }
 
   /** Put away (another one came instead). */

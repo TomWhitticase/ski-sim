@@ -58,6 +58,7 @@ import { weatherProvenance } from './env/weather-source';
 import { ObstacleIndex } from './features/obstacles';
 import { createBuildings } from './features/buildings';
 import { airfieldSolids, createAirfields } from './features/airfields';
+import { WreckSmoke } from './fx/wreck-smoke';
 import { createRestaurants, terraceSolids } from './features/restaurants';
 import type { ResortFeatures } from './features/types';
 import { Heightmap } from './geo/heightmap';
@@ -662,6 +663,7 @@ async function main(): Promise<void> {
       !obstacles.resolve(probe.set(x, groundHeight(x, z), z), still.set(0, 0, 0), radius, 4),
   };
   const plane = new AircraftControls(PC6, camera, aircraftTerrain, bounds);
+  const wreckSmoke = new WreckSmoke(scene);
   const heli = new AircraftControls(H125, camera, aircraftTerrain, bounds);
   scene.add(plane.root, heli.root);
   // Bailing out of either: freefall, then the canopy.
@@ -1860,13 +1862,13 @@ async function main(): Promise<void> {
         sound.thump(8);
       }
       if (ctl.wrecked) {
-        // Thrown clear onto your skis where it came to rest, standing; the wreck goes back
-        // to its airfield (no wreckage left, as after a bail-out).
+        // Thrown clear onto your skis where it came to rest, standing; the wreck stays
+        // there, smoking, and its airfield has another.
         ctl.wrecked = false;
         crashNoted = false;
         setMode('ski');
-        ctl.stow();
-        fleet.take(null, ctl.type.id);
+        ctl.leaveWreck(); // smoking where it stopped, never to fly again
+        fleet.take(null, ctl.type.id); // its airfield has one again
         persistPose();
       }
     }
@@ -1936,6 +1938,14 @@ async function main(): Promise<void> {
     };
     plane.air = air;
     heli.air = air;
+    // Smoke off a wreck; the wreck goes once you're well away from it.
+    let smokeFrom: Vector3 | null = null;
+    for (const ctl of [plane, heli]) {
+      const at = ctl.smokeFrom;
+      if (at && at.distanceTo(camera.position) > WRECK_GONE) ctl.stow();
+      else if (at) smokeFrom = at;
+    }
+    wreckSmoke.update(dt, smokeFrom, air.wind);
     skydiver.air = air;
     environment.setWeather(conditions, sunlitAt(conditions.cloud, weatherClock));
     const light = daylight(environment.sun.elevation);
@@ -2144,6 +2154,8 @@ function poseFromUrl(params: URLSearchParams, frame: LocalFrame, spawn: Pose): P
 
 type Mode = 'fly' | 'ski' | 'glide' | 'ride' | 'sled' | 'plane' | 'heli' | 'skydive';
 const MODE_KEY = 'ski-sim.mode';
+/** A crashed aircraft's wreck is cleared away once you're this far from it (m). */
+const WRECK_GONE = 2500;
 /** Width of the groove each snowmobile ski's keel cuts (m). */
 const SLED_SKI_GROOVE = 0.1;
 const VIEW_KEY = 'ski-sim.view';
