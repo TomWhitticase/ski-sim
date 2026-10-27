@@ -116,8 +116,12 @@ export class AircraftControls {
   lever = 0;
   /** Why it last crashed (cleared when you're reset), for a notice. */
   crashed: string | null = null;
-  /** Set when a crash has just finished and you've been put back on the ground. */
-  reset = false;
+  /**
+   * Set when a crash has just finished: it came to rest where it hit and you're thrown
+   * clear there (main.ts puts you on your skis beside it and sends it back to its
+   * airfield). Nothing moves you anywhere else.
+   */
+  wrecked = false;
   private readonly plane: PlaneState | null;
   private readonly heli: HeliState | null;
   private readonly stance = initialStance();
@@ -544,7 +548,7 @@ export class AircraftControls {
 
   update(dt: number, input: Input): void {
     this.time += dt;
-    this.reset = false;
+    this.wrecked = false;
     const k = (cameraSettings.sensitivity * 1) / STICK_PX;
     // The mouse is the stick on a desktop (holding the right button looks round instead);
     // on a touchscreen a drag looks round.
@@ -636,7 +640,7 @@ export class AircraftControls {
       };
       stepHeli(this.heli!, heli, dt, this.type as HeliType, this.terrain, this.air);
     }
-    if (wasCrashing && state.crash === 0) this.recover();
+    if (wasCrashing && state.crash === 0) this.wreck();
     else if (state.crash === 0) this.collide();
     const p = state.position;
     p.x = Math.min(Math.max(p.x, this.bounds.minX), this.bounds.maxX);
@@ -692,40 +696,14 @@ export class AircraftControls {
     return this.plane ? out.copy(this.plane.orientation) : heliOrientation(this.heli!, out);
   }
 
-  /** After a crash: back upright on open ground nearby, at rest, engine running. */
-  private recover(): void {
-    const p = this.position;
-    const spot = this.flatSpot(p.x, p.z);
-    // The plane faces along the slope's contour so it doesn't roll away.
-    const n = this.normal(spot.x, spot.z, TMP2);
-    const contour = Math.hypot(n.x, n.z) > 0.02 ? Math.atan2(-n.z, n.x) : this.yaw;
-    const yaw = this.plane ? contour : this.yaw;
-    this.mount(
-      new Vector3(spot.x, this.terrain.height(spot.x, spot.z), spot.z),
-      new Vector3(),
-      yaw,
-      true,
-    );
-    this.reset = true;
-  }
-
-  /** Nearest ground flat and clear enough to stand on, searching outward. */
-  private flatSpot(x: number, z: number): { x: number; z: number } {
-    const limit = this.plane ? 0.12 : 0.15;
-    const reach = this.plane ? 9 : 6;
-    for (let r = 0; r <= 300; r += 12) {
-      const steps = r === 0 ? 1 : Math.ceil((2 * Math.PI * r) / 12);
-      for (let i = 0; i < steps; i++) {
-        const a = (i / steps) * Math.PI * 2;
-        const cx = x + Math.cos(a) * r;
-        const cz = z + Math.sin(a) * r;
-        const n = this.normal(cx, cz, TMP2, reach);
-        if (Math.hypot(n.x, n.z) > limit) continue;
-        if (this.terrain.clear && !this.terrain.clear(cx, cz, reach + 4)) continue;
-        return { x: cx, z: cz };
-      }
-    }
-    return { x, z };
+  /** After a crash: at rest where it stopped, engine off, for main.ts to throw you clear. */
+  private wreck(): void {
+    const state = (this.plane ?? this.heli)!;
+    state.velocity.set(0, 0, 0);
+    if (this.plane) this.plane.rpm = 0;
+    else this.heli!.rotor = 0;
+    this.lever = 0;
+    this.wrecked = true;
   }
 
   private normal(x: number, z: number, out: Vector3, d = 3): Vector3 {

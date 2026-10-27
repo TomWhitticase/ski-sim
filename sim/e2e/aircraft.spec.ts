@@ -476,9 +476,7 @@ test('no summoning: U and Y away from an airfield do nothing; E boards a parked 
   expect(errors).toEqual([]);
 });
 
-test('flying into the mountain: a crash, then back upright on the ground nearby', async ({
-  page,
-}) => {
+test('flying into the mountain: a crash, then on your skis where it stopped', async ({ page }) => {
   test.setTimeout(180_000);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -514,17 +512,24 @@ test('flying into the mountain: a crash, then back upright on the ground nearby'
     (window.__sim as unknown as { plane: { setStick(s: null): void } }).plane.setStick(null),
   );
   await page.screenshot({ path: 'test-results/views/aircraft-plane-crash.png' });
-  // A couple of seconds later it's back on its wheels, at rest, still yours to fly.
-  await expect
-    .poll(
-      async () => {
-        const h = await handle(page, 'plane');
-        return !h.crashed && h.onGround && h.speed < 0.5;
-      },
-      { timeout: 30_000 }, // the crash lasts 2.5 s of sim time: slow frames stretch it
-    )
-    .toBe(true);
-  expect(await mode(page)).toBe('PLANE');
+  const hit = await page.evaluate(() => {
+    const p = (window.__sim as unknown as { plane: { position: { x: number; z: number } } }).plane
+      .position;
+    return { x: p.x, z: p.z };
+  });
+  // A couple of seconds later you're thrown clear onto your skis right there, standing,
+  // and the plane's gone back to its airfield: nothing moves you anywhere else.
+  await expect.poll(() => mode(page), { timeout: 30_000 }).toBe('SKI');
+  const feet = await page.evaluate(() => {
+    const s = (
+      window.__sim as unknown as {
+        ski: { feet: { x: number; z: number }; speed: number };
+      }
+    ).ski;
+    return { x: s.feet.x, z: s.feet.z, speed: s.speed };
+  });
+  expect(Math.hypot(feet.x - hit.x, feet.z - hit.z)).toBeLessThan(15);
+  expect(feet.speed).toBeLessThan(0.5);
   expect(errors).toEqual([]);
 });
 

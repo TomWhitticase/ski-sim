@@ -1859,7 +1859,16 @@ async function main(): Promise<void> {
         partyHud.notify(`Crashed · ${ctl.crashed}`);
         sound.thump(8);
       }
-      if (ctl.reset) crashNoted = false;
+      if (ctl.wrecked) {
+        // Thrown clear onto your skis where it came to rest, standing; the wreck goes back
+        // to its airfield (no wreckage left, as after a bail-out).
+        ctl.wrecked = false;
+        crashNoted = false;
+        setMode('ski');
+        ctl.stow();
+        fleet.take(null, ctl.type.id);
+        persistPose();
+      }
     }
     fleet.update(camera.position);
     updateLiftSound();
