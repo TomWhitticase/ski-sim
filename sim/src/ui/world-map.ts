@@ -95,6 +95,9 @@ const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCa
  * marker (shown in the world and on the minimap; click it again to remove it). By touch:
  * drag to pan, pinch to zoom, tap for the marker, touch and hold to teleport.
  */
+/** Roads are cached this many px past each edge of the view, so a drag can slide them. */
+const ROAD_MARGIN = 400;
+
 interface WorldPaths {
   buildings: Path2D;
   /** Per piste, in `data.pistes` order. */
@@ -139,6 +142,15 @@ export class WorldMap {
   private frameRequested = false;
   private paths?: WorldPaths;
   private roadLayer?: RoadLayer;
+  private roadCache?: {
+    canvas: HTMLCanvasElement;
+    mpp: number;
+    east: number;
+    north: number;
+    w: number;
+    h: number;
+    dpr: number;
+  };
   /** The bare relief (`WorldMapData.baseUrl`), once asked for; null if it failed. */
   private base: HTMLImageElement | null | undefined;
   /** The guide marker, if one is placed. */
@@ -582,14 +594,59 @@ export class WorldMap {
   }
 
   /** Roads in a map style, under the airfields, buildings and runs. */
+  /**
+   * Roads, from a cached image: stroking ~1,700 km of them cost 14-26 ms a frame, so they're
+   * drawn once into an off-screen canvas the view plus `ROAD_MARGIN` on every side, and a
+   * pan just slides that image. It's redrawn on a zoom, a resize, or when a drag passes the
+   * margin (roads are under everything else, so nothing above them is lost).
+   */
   private drawRoads(): void {
     const layer = this.roads();
     if (!layer) return;
-    const { ctx } = this;
-    ctx.save();
-    this.worldTransform();
-    layer.draw(ctx, this.mpp, this.screenBox(0));
-    ctx.restore();
+    const dpr = window.devicePixelRatio || 1;
+    const w = this.canvas.clientWidth;
+    const h = this.canvas.clientHeight;
+    const pad = ROAD_MARGIN;
+    const c = this.roadCache;
+    const dx = c ? (this.centerEast - c.east) / this.mpp : 0;
+    const dy = c ? (c.north - this.centerNorth) / this.mpp : 0;
+    const fresh =
+      c &&
+      c.mpp === this.mpp &&
+      c.w === w &&
+      c.h === h &&
+      c.dpr === dpr &&
+      Math.abs(dx) < pad &&
+      Math.abs(dy) < pad;
+    if (!fresh) {
+      const canvas = c?.canvas ?? document.createElement('canvas');
+      canvas.width = Math.round((w + 2 * pad) * dpr);
+      canvas.height = Math.round((h + 2 * pad) * dpr);
+      const rc = canvas.getContext('2d')!;
+      const k = dpr / this.mpp;
+      rc.setTransform(
+        k,
+        0,
+        0,
+        -k,
+        dpr * (w / 2 + pad) - k * this.centerEast,
+        dpr * (h / 2 + pad) + k * this.centerNorth,
+      );
+      rc.clearRect(-1e9, -1e9, 2e9, 2e9);
+      layer.draw(rc, this.mpp, this.screenBox(pad));
+      this.roadCache = {
+        canvas,
+        mpp: this.mpp,
+        east: this.centerEast,
+        north: this.centerNorth,
+        w,
+        h,
+        dpr,
+      };
+      this.ctx.drawImage(canvas, -pad, -pad, w + 2 * pad, h + 2 * pad);
+      return;
+    }
+    this.ctx.drawImage(c.canvas, -pad - dx, -pad - dy, w + 2 * pad, h + 2 * pad);
   }
 
   /** Building footprints as shapes (the minimap's colour): one fill of a cached path. */

@@ -104,6 +104,7 @@ test('roads on the world map, in its key, and a drag stays fast', async ({ page 
     const roads = wm.data.roads;
     wm.data.roads = undefined;
     wm.roadLayer = undefined;
+    (wm as unknown as { roadCache?: unknown }).roadCache = undefined;
     const without = zooms.map(frame);
     wm.data.roads = roads;
     return { withRoads, without };
