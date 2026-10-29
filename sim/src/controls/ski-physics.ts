@@ -33,6 +33,14 @@ export const SKI = {
   /** Double-poling: a gentler push that keeps you going on the flat. */
   poleAccel: 1.5,
   poleMaxSpeed: 9,
+  /**
+   * W skates below `skateMaxSpeed` and double-poles above it (m/s, ~16 km/h). Once poling
+   * it keeps poling down to `poleMinSpeed` (~13 km/h): on a gentle climb skating gets you
+   * past the switch but poling can't hold you there, so one threshold flipped between
+   * the two every frame or two.
+   */
+  skateMaxSpeed: 4.5,
+  poleMinSpeed: 3.5,
   /** Walking uphill: fastest on gentle grades, a slow plod on steep ones (m/s). */
   climbSpeedMax: 1.3,
   climbSpeedMin: 0.35,
@@ -221,6 +229,11 @@ export function skiDirection(yaw: number, normal: Vector3, out: Vector3): Vector
     out.lerp(down, w).normalize();
   }
   return out;
+}
+
+/** Whether W double-poles rather than skates, given whether it was poling last step. */
+export function doublePoling(flatSpeed: number, poling: boolean): boolean {
+  return flatSpeed >= (poling ? SKI.poleMinSpeed : SKI.skateMaxSpeed);
 }
 
 export function stepSki(
