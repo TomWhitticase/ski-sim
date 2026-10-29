@@ -7,6 +7,7 @@ import type { Bounds } from './fly-controls';
 import { type Input, Look } from './input';
 import { SkierModel } from './ski-model';
 import {
+  doublePoling,
   type Landing,
   SKI,
   type SkiState,
@@ -22,8 +23,6 @@ import type { SnowContact } from '../fx/intensity';
 export const EYE_HEIGHT = 1.7;
 /** How far the eye drops in a full tuck (m). */
 const CROUCH_DROP = 0.6;
-/** Below this W skates (or walks); above it W double-poles instead (m/s, ~16 km/h). */
-const SKATE_MAX = 4.5;
 /** Slower than this, skating strides are really steps, so they sound like steps (m/s). */
 const WALK_MAX = 2.5;
 const TURN_RATE = 1.8; // rad/s with A/D
@@ -91,6 +90,8 @@ export class SkiControls {
   private flip = 0;
   /** Ctrl toggles the tuck; skating, ploughing or a crash stand you back up. */
   tucked = false;
+  /** W double-poles rather than skates (see `SKI.poleMinSpeed`). */
+  private poling = false;
   /** Smoothed rate the direction of travel is turning (rad/s, > 0 = left). */
   private turnRate = 0;
   private travelYaw = 0;
@@ -319,7 +320,8 @@ export class SkiControls {
     const tuck = this.tucked;
     const forward = input.down('KeyW') && !plough;
     const flatSpeed = Math.hypot(this.state.velocity.x, this.state.velocity.z);
-    const skate = forward && (flatSpeed < SKATE_MAX || this.climbing);
+    this.poling = doublePoling(flatSpeed, this.poling);
+    const skate = forward && (!this.poling || this.climbing);
     const pole = forward && !skate;
     const wasAirborne = this.state.airborne;
     const fallSpeed = -this.state.velocity.y;
