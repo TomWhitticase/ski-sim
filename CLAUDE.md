@@ -186,6 +186,7 @@ pipeline/src/ski_sim_pipeline/
   features.py         Lifts (stations, towers, clearance-driven synthetic towers) and buildings
   airfields.py        Runways, taxiways, aprons, helipads, windsocks: graded in, winter state, validation
   roads.py            Roads: widths, winter state, graded in (not on pistes), snowbanks, snow poles, raster
+  signposts.py        On-mountain signs: decision points on the piste graph, blades, post placement
   pistes.py, parks.py Runs of every type, overlay/lookup/lit rasters, floodlights; generated snow park layouts
   frame.py, grid.py   Local projection; grid resampling, sampling and near/far stitching
   landcover.py        Forest / rock / ice / water coverage textures, tree clearings, tree line
@@ -198,6 +199,7 @@ sim/src/
                       roads (roads.ts: tiled asphalt meshes, banks, poles), aircraft parking spots and the
                       parked fleet, lift cables as obstacles
   landcover/          Land cover texture; trees placed from it (instanced LODs, collisions)
+  signposts/          On-mountain signs: hybrid boards/fingerposts/markers, atlas, HUD readout (layout.ts pure)
   lifts/              Lift operation model, carriers, lift system (statics + moving carriers), riding
   env/                Sky, sun position, time-of-day clock, lights, cascaded shadows, fog; weather (field, model, Open-Meteo source, cloud deck, particles)
   parks/              Snow park surfaces (height, normals) and their meshes
@@ -350,6 +352,15 @@ Difficulty codes are 1 green (novice), 2 blue (easy), 3 red (intermediate), 4/5 
 - **Run types** (`RUN_TYPES`, first known value of a multi-valued `piste:type`): `downhill`, `snow_park` (orange), `sled`, `nordic` (thin), `playground`, `skitour` and `hike` (unprepared: dashed on the snow and the minimap, powder physics), `connection` (grey, or its difficulty colour). Other types default to no difficulty. Edge markers line only downhill runs and connections. The HUD row shows `runLabel`: ref + name, plus the type for non-downhill runs (and "one-way").
 - **Bridges and tunnels** (`bridge`/`tunnel` other than `no`; a bare `layer` > 0 is a bridge, < 0 a tunnel): kept out of a piste's `lines` (in `bridges`/`tunnels`), so they're never graded. Tunnels are also left out of the overlay and lookup (the snow above isn't the run) and drawn dashed on the minimap.
 - **Floodlit runs** (`lit`/`piste:lit` other than `no`, only `FLOODLIT_TYPES`; a lit street or footpath has street lamps): masts every 40 m alternating sides, 3 m outside the edge, and `pistes-lit.png`, a glow mask on its own 4 m grid (manifest `pistes.lit`) with a pool round each mast's aim point, clipped to the run plus 8 m. The terrain shader adds it as warm emissive × `Environment.floodlights` (`daylight().floodlights`: on as the sun sets); lamp heads glow by the same uniform (`pistes/floodlights.ts`). No real lights.
+
+### Signposts
+
+On-mountain signs that tell you where you are and where each run goes, so you don't keep opening the minimap (ADR 0005). Placed in the pipeline, drawn in the sim; optional, so older builds just show none.
+- **Pipeline** (`signposts.py`): `place(piste_records, lifts, places, ground, obstacles)` runs after the pistes and lifts in `build.py`. It densifies and orients every signable run, finds decision points on the piste graph — where a run starts, branches off another (within `TOUCH` 14 m), or a lift loads/unloads — clusters events within `CLUSTER` 35 m into nodes, and signs any node with two or more ways out (plus every lift top). Each way out is a blade (run number/name, difficulty colour, an arrow relative to the skiers' approach, and "to &lt;lift or village&gt;" at its bottom), sorted left-to-right then easiest-first. The post is placed in the gore of a fork (or at the edge just before), then a ring search keeps it `CLEAR` 9 m off every centreline and `OBSTACLE_MARGIN` outside buildings and terminal pads; a 4 m tree clearing is cut round it (`clearing_shapes`, passed to `landcover`). Writes `signposts.json` and an optional `manifest.signposts` (`{file, count, synthetic}`, **no `MANIFEST_VERSION` bump**, like roads). Geometry-based (no `out body geom` OSM refetch), so it rebuilds from the existing caches. Regenerate without a full build: `uv run python -m ski_sim_pipeline.signposts data/processed/<id>`. Tested in `tests/test_signposts.py` (Y fork, lift top, merge-is-not-signed, spacing, clearance, determinism).
+- **Sim** (`sim/src/signposts/`): loaded from `manifest.signposts` in `main.ts` (absent → no signs). `?signs=hybrid|fingerpost|board|marker|off` picks the variant (default **hybrid**: a blue French-style board at lift tops, arm-blades at forks and lift bottoms); `?signstyle=eu|na` picks the difficulty symbols (defaulting `na` for US/CA). The whole resort is three draw calls (posts, bodies, text faces) from one canvas atlas, as `lifts/signs.ts`. `layout.ts` (pure, unit-tested) holds `bladeColour`, `inkFor` (WCAG contrast ink), `bladeSide`, `naShape`.
+- **Blades carry the run's colour**, not a fixed yellow: each fingerpost blade, board row and marker plate is drawn in its piste colour (green/blue/red/black, off-piste and run-type colours), with the text and number badge in the contrasting ink (`inkFor`: white on blue/red/black, dark on green and other light colours). Lift blades are dark slate. The post always stands behind the sign face; marker plates stack vertically up one post on backing panels.
+- **HUD readout** (`#signpost-hint`, dark glass under the compass): the nearest sign ahead within 45 m, the same blades as text you can read on a phone. A Display option ("Sign readout", `displaySettings.signReadout`, on by default; `?signhint=0` off). The 3-D signs are part of the world, hidden only by H (full immersion).
+- **Not yet** (ADR 0005): maps (sign glyphs, tap-to-read), guide-marker routing, numbered edge discs, closure/warning panels, a full per-country signage style, snowmobile collision, and streaming the atlas to the nearest ~40 signs for 3 Vallées-scale builds.
 
 ### Snow parks
 
