@@ -185,6 +185,24 @@ const VIEWS = [
   },
   { name: 'soelden', query: 'resort=soelden&at=46.9750,11.0200,2000&heading=240&pitch=-6' },
   { name: 'les-2-alpes', query: 'resort=les-2-alpes&at=45.0300,6.1100,2200&heading=150&pitch=-8' },
+  // On-mountain signposts (signposts/signposts.ts): the default "hybrid" set — a blue
+  // board at a lift top, arm-blades in each run's colour at a fork and lift bottom.
+  {
+    name: 'sign-fingerpost-fork',
+    query: 'resort=les-2-alpes&at=45.010725,6.108724,2056.7&heading=46.6&pitch=-1',
+  },
+  {
+    name: 'sign-lift-bottom',
+    query: 'resort=les-2-alpes&at=45.006670,6.119627,1696&heading=167.3&pitch=-1',
+  },
+  {
+    name: 'sign-lift-top-board',
+    query: 'resort=romme-alpin&at=60.383780,15.402185,390.9&heading=118.7&pitch=-0.9',
+  },
+  {
+    name: 'sign-marker-numbered',
+    query: 'resort=romme-alpin&at=60.384078,15.403326,388.7&heading=17.7&pitch=-1&signs=marker',
+  },
   {
     name: 'sella-ronda-sella',
     query: 'resort=sella-ronda&at=46.5650,11.7800,2600&heading=120&pitch=-8',
@@ -362,6 +380,24 @@ test('labels for places behind the camera stay hidden', async ({ page }) => {
   expect(shown).toContain('Mont Blanc / Monte Bianco');
   expect(shown).not.toContain('Rocher Blanc');
   expect(shown).not.toContain("Télécabine d'Orelle");
+});
+
+test('signposts load and the readout shows the sign ahead', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  // 12 m back from a three-way fork, facing it.
+  await page.goto('/?resort=les-2-alpes&at=45.010725,6.108724,2056.7&heading=46.6&pitch=-1');
+  await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 30, null, { timeout: 90_000 });
+  const stats = await page.evaluate(
+    () => (window.__sim as unknown as { signposts: { stats: { faces: number } } }).signposts.stats,
+  );
+  expect(stats.faces).toBeGreaterThan(0);
+  // The readout names the sign ahead (within 45 m, in front).
+  const hint = page.locator('#signpost-hint');
+  await expect(hint).toBeVisible();
+  expect(await hint.locator('.sh-row').count()).toBeGreaterThan(0);
+  expect(errors).toEqual([]);
 });
 
 // Weather (C) set directly, Open-Meteo mocked (weather-mock.ts): clear, overcast, in

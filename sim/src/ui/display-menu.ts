@@ -23,6 +23,7 @@ export class DisplayMenu extends OptionsTab {
   private readonly glassButtons: HTMLButtonElement[] = [];
   private readonly scale: HTMLInputElement;
   private readonly scaleValue: HTMLElement;
+  private readonly signSwitch: HTMLButtonElement;
 
   constructor(
     el: HTMLElement,
@@ -85,6 +86,18 @@ export class DisplayMenu extends OptionsTab {
     });
     ui.append(size);
 
+    const sign = document.createElement('div');
+    sign.className = 'option-row';
+    sign.innerHTML =
+      '<span class="option-label">Sign readout<small>The signpost ahead, as text under the compass</small></span>' +
+      '<button class="switch" type="button" role="switch" aria-label="Sign readout"></button>';
+    this.signSwitch = sign.querySelector<HTMLButtonElement>('.switch')!;
+    this.signSwitch.addEventListener('click', () => {
+      displaySettings.signReadout = !displaySettings.signReadout;
+      this.changed();
+    });
+    ui.append(sign);
+
     const reset = document.createElement('button');
     reset.type = 'button';
     reset.className = 'btn';
@@ -115,6 +128,7 @@ export class DisplayMenu extends OptionsTab {
     this.scale.value = String(displaySettings.uiScale);
     fillRange(this.scale);
     this.scaleValue.textContent = `×${displaySettings.uiScale.toFixed(2)}`;
+    this.signSwitch.setAttribute('aria-checked', String(displaySettings.signReadout));
   }
 }
 

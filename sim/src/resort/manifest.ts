@@ -74,6 +74,8 @@ export interface ResortManifest {
   /** Road coverage for the terrain shader, on the piste overlay's grid (RGB: R cleared
    * asphalt, G snow-covered road); missing in older builds. */
   roads?: { raster: { file: string; cellSize: number; extent: Extent } };
+  /** On-mountain signposts (`signposts.json`); missing in older builds (the sim shows none). */
+  signposts?: { file: string; count: number; synthetic: boolean };
   landCover: {
     /** How the texture's channels encode the layers (see landcover/land-cover.ts). */
     channels: string;

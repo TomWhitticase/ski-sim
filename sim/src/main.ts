@@ -97,6 +97,12 @@ import { type RailContact, SnowParks } from './parks/park-shapes';
 import { createFloodlights, FLOODLIGHT_COLOUR } from './pistes/floodlights';
 import { createPisteMarkers } from './pistes/markers';
 import {
+  createSignposts,
+  loadSignposts,
+  type Signposts,
+  type Variant,
+} from './signposts/signposts';
+import {
   loadPixels,
   overlayTexture,
   type PisteData,
@@ -109,7 +115,7 @@ import { showCredits } from './ui/credits';
 import { BodyMarker } from './ui/body-marker';
 import { DisplayMenu, type WorldToggle } from './ui/display-menu';
 import { RulesMenu } from './ui/rules-menu';
-import { applyDisplay, loadDisplay, saveDisplay } from './ui/display-settings';
+import { applyDisplay, displaySettings, loadDisplay, saveDisplay } from './ui/display-settings';
 import { Hud } from './ui/hud';
 import {
   type GameRules,
@@ -334,10 +340,15 @@ async function main(): Promise<void> {
   window.addEventListener('resize', () => applyDisplay());
   // World switches (1–4, V, K) do nothing until a map is loaded (they're disabled till then).
   let onWorldToggle: (name: WorldToggle) => void = () => {};
+  // Signposts are loaded once a map is ready; the readout follows the Display switch.
+  let signposts: Signposts | null = null;
   const displayMenu = new DisplayMenu(
     $('#opt-display'),
     (name) => onWorldToggle(name),
-    () => saveDisplay(localStorage),
+    () => {
+      saveDisplay(localStorage);
+      signposts?.setHintEnabled(displaySettings.signReadout);
+    },
   );
   // Game rules (Options → Rules): your own until a world (and maybe a party) is loaded.
   let ownRules = loadRules(localStorage);
@@ -618,6 +629,21 @@ async function main(): Promise<void> {
     createParkMeshes(parks.features, (east, north) => groundHeight(east, -north)),
     createFloodlights(pisteData.lights ?? [], environment.floodlights),
   );
+  // On-mountain signposts from signposts.json, listed in the manifest (absent in older
+  // builds: none). `?signs=` overrides the variant, `?signstyle=` the difficulty symbols.
+  if (manifest.signposts) {
+    menu.progress('Putting up signposts…', 0.86);
+    const params = new URLSearchParams(location.search);
+    const variant = (params.get('signs') ?? 'hybrid') as Variant;
+    const style = (params.get('signstyle') ??
+      (['US', 'CA'].includes(manifest.resort.country) ? 'na' : 'eu')) as 'eu' | 'na';
+    const sites = await loadSignposts(resortUrl(resortId, manifest.signposts.file));
+    if (sites) {
+      signposts = await createSignposts(sites, (e, n) => groundHeight(e, -n), variant, style);
+      signposts.setHintEnabled(displaySettings.signReadout);
+      scene.add(signposts.root);
+    }
+  }
   menu.progress('Growing forests…', 0.88);
   await nextFrame();
   // Trees from the land cover's tree cover (none without a tree line: no forest mapped).
@@ -1627,6 +1653,7 @@ async function main(): Promise<void> {
   // Dev-only handles for profiling scripts and debugging from the console.
   if (import.meta.env.DEV)
     Object.assign(sim, {
+      signposts,
       scene,
       renderer,
       camera,
@@ -2142,6 +2169,7 @@ async function main(): Promise<void> {
       canopy: mode === 'skydive' && skydiver.canopyOut,
     });
     labels.update(camera);
+    signposts?.update(camera);
     waypoint.update(camera, here);
 
     if (!debug.hidden) {

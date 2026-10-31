@@ -10,9 +10,15 @@ export interface DisplaySettings {
   glass: GlassStrength;
   /** × the automatic scale (which follows the window height). */
   uiScale: number;
+  /** Show the readout of the signpost ahead under the compass. */
+  signReadout: boolean;
 }
 
-export const DEFAULT_DISPLAY: Readonly<DisplaySettings> = { glass: 'full', uiScale: 1 };
+export const DEFAULT_DISPLAY: Readonly<DisplaySettings> = {
+  glass: 'full',
+  uiScale: 1,
+  signReadout: true,
+};
 
 export const UI_SCALE_RANGE = { min: 0.8, max: 1.5, step: 0.05 };
 
@@ -36,7 +42,9 @@ export function sanitizeDisplay(raw: unknown): DisplaySettings {
     typeof r.uiScale === 'number' && Number.isFinite(r.uiScale)
       ? Math.min(UI_SCALE_RANGE.max, Math.max(UI_SCALE_RANGE.min, r.uiScale))
       : DEFAULT_DISPLAY.uiScale;
-  return { glass, uiScale: scale };
+  const signReadout =
+    typeof r.signReadout === 'boolean' ? r.signReadout : DEFAULT_DISPLAY.signReadout;
+  return { glass, uiScale: scale, signReadout };
 }
 
 /**
