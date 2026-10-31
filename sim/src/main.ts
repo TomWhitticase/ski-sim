@@ -55,6 +55,14 @@ import { WaypointMarker } from './ui/waypoint-marker';
 import { loadWaypoint, saveWaypoint } from './nav/waypoint';
 import { EYE_HEIGHT, SkiControls } from './controls/ski-controls';
 import { loadSetup, saveSetup, type SkiSetup } from './controls/ski-setup';
+import {
+  type BoardSetup,
+  type Discipline,
+  loadBoardSetup,
+  loadDiscipline,
+  saveBoardSetup,
+  saveDiscipline,
+} from './controls/discipline';
 import { daylight, Environment } from './env/environment';
 import { sunPosition } from './env/sun-position';
 import { dayPresets, formatRate, formatTime, loadTime, saveTime } from './env/time-of-day';
@@ -321,10 +329,36 @@ async function main(): Promise<void> {
   );
   $('#open-multiplayer').addEventListener('click', () => multiplayerMenu.open());
   let changeSkis: (setup: SkiSetup) => void = () => {};
-  const skiSetup = new SkiSetupMenu($('#opt-ski'), loadSetup(localStorage), (setup) => {
-    saveSetup(localStorage, setup);
-    changeSkis(setup);
-  });
+  let discipline: Discipline = loadDiscipline(localStorage);
+  let boardSetup: BoardSetup = loadBoardSetup(localStorage);
+  let changeDiscipline: (
+    discipline: Discipline,
+    board: BoardSetup,
+    announce?: boolean,
+  ) => void = () => {};
+  let changeBoard: (board: BoardSetup) => void = () => {};
+  const skiSetup = new SkiSetupMenu(
+    $('#opt-ski'),
+    loadSetup(localStorage),
+    (setup) => {
+      saveSetup(localStorage, setup);
+      changeSkis(setup);
+    },
+    {
+      discipline,
+      setup: boardSetup,
+      onDiscipline: (d) => {
+        discipline = d;
+        saveDiscipline(localStorage, d);
+        changeDiscipline(d, boardSetup);
+      },
+      onBoard: (b) => {
+        boardSetup = b;
+        saveBoardSetup(localStorage, b);
+        changeBoard(b);
+      },
+    },
+  );
   $('#open-ski-setup').addEventListener('click', () => skiSetup.open());
   loadCamera(localStorage);
   const settingsMenu = new SettingsMenu($('#opt-camera'), () => saveCamera(localStorage));
@@ -656,7 +690,21 @@ async function main(): Promise<void> {
     bounds,
   );
   ski.setSetup(skiSetup.current);
+  ski.setDiscipline(discipline, boardSetup);
   changeSkis = (setup) => ski.setSetup(setup);
+  changeDiscipline = (next, board, announce = false) => {
+    ski.setDiscipline(next, board);
+    hud.setDiscipline(next, announce);
+  };
+  changeBoard = (board) => ski.setBoardSetup(board);
+  /** Y / the on-screen toggle: flip ski ↔ snowboard in place, momentum carried. */
+  const toggleDiscipline = () => {
+    discipline = discipline === 'snowboard' ? 'ski' : 'snowboard';
+    saveDiscipline(localStorage, discipline);
+    changeDiscipline(discipline, boardSetup, true);
+    skiSetup.syncDiscipline(discipline);
+    partyHud.notify(discipline === 'snowboard' ? 'Snowboard' : 'Skis');
+  };
   scene.add(ski.skier);
   const glider = new GliderControls(camera, snowHeight, bounds);
   scene.add(glider.root);
@@ -819,6 +867,7 @@ async function main(): Promise<void> {
   roads?.update(camera.position, 6); // the nearest now, the rest over the next frames
 
   const hud = new Hud($('#hud'));
+  hud.setDiscipline(discipline);
   const partyHud = new PartyHud($('#hud'));
   let partyClock = 0;
   const minimap = await Minimap.load(
@@ -1574,6 +1623,8 @@ async function main(): Promise<void> {
       toggleHud();
     } else if (code === 'KeyK') {
       toggleSound();
+    } else if (code === 'KeyY') {
+      toggleDiscipline();
     }
   };
   /** Start (or restart) at a ski village: on your skis in front of its main lift. */
@@ -1803,7 +1854,7 @@ async function main(): Promise<void> {
     }
     spray.update(dt, snowHeight);
     trails.flush();
-    const levels = soundLevels(airSpeed, contact, weatherWind);
+    const levels = soundLevels(airSpeed, contact, weatherWind, mode === 'ski' && ski.isSnowboard);
     if (mode === 'fly') levels.wind = 0; // the drone's camera hears its props, not the wind
     // In a cockpit the slipstream is a muffled hiss under the engine.
     if ((mode === 'plane' || mode === 'heli') && view === 'first-person') levels.wind *= 0.35;
@@ -1834,7 +1885,11 @@ async function main(): Promise<void> {
     } else sound.setAircraft('other', AIRCRAFT_OFF);
     if (flying && flying.impact > 0) sound.thump(flying.impact * 2);
     if (mode === 'sled' && sled.impact > 0) sound.thump(sled.impact);
-    if (mode === 'ski' && ski.landingImpact > 0 && !ski.onRail) sound.thump(ski.landingImpact);
+    // A board lands flat on its base — one heavier, duller thud than two skis.
+    if (mode === 'ski' && ski.landingImpact > 0 && !ski.onRail)
+      sound.thump(ski.landingImpact * (ski.isSnowboard ? 1.3 : 1));
+    // Catching an edge slams the board (and you) into the snow.
+    if (mode === 'ski' && ski.caughtEdge) sound.thump(6);
     // Rails: a clank as you get on (harder dropping onto it), then the grind.
     const grinding = mode === 'ski' && ski.onRail;
     if (grinding && !wasGrinding) sound.railHit(ski.landingImpact / 5 + ski.contact.speed / 20);
@@ -1845,6 +1900,7 @@ async function main(): Promise<void> {
     if (mode === 'ski' && ski.polePlant) sound.polePlant();
   };
 
+  const shotCam = new URLSearchParams(location.search).get('shotcam');
   renderer.setAnimationLoop(() => {
     const now = performance.now();
     const frameMs = now - last;
@@ -1867,6 +1923,21 @@ async function main(): Promise<void> {
           allowed('liftSkip');
       }
       const landed = controls().update(dt, input);
+      // Dev/screenshot only: ?shotcam=<deg>[,elev][,dist] orbits the camera around the
+      // skier's feet so a sideways snowboard stance can be seen from the side. Overrides the
+      // controller's camera after it runs; has no effect on gameplay.
+      if (shotCam && (mode === 'ski' || mode === 'ride')) {
+        const [az = 90, el = 16, dist = 6] = shotCam.split(',').map(Number);
+        const f = ski.feet;
+        const a = (az * Math.PI) / 180;
+        const e = (el * Math.PI) / 180;
+        camera.position.set(
+          f.x + Math.sin(a) * Math.cos(e) * dist,
+          f.y + 1.1 + Math.sin(e) * dist,
+          f.z + Math.cos(a) * Math.cos(e) * dist,
+        );
+        camera.lookAt(f.x, f.y + 1.0, f.z);
+      }
       if (mode === 'glide' && landed) setMode('ski');
       if (mode === 'skydive') {
         const touch = skydiver.state.landed;
@@ -2134,6 +2205,7 @@ async function main(): Promise<void> {
     touch.update({
       mode,
       airborne: mode === 'ski' && ski.airborne,
+      snowboard: ski.isSnowboard,
       tucked: mode === 'ski' && ski.tucked,
       fastForward: ride.fastForward,
       names: labels.isVisible('lift') || labels.isVisible('peak') || labels.isVisible('restaurant'),

@@ -21,16 +21,28 @@ export function weatherWindLevel(wind: number): number {
 /**
  * `airSpeed` is your speed through the air (m/s); `weatherWind` the weather's own wind
  * (m/s, 0 with weather off). The two add like noise does (root sum of squares).
+ *
+ * `snowboard` shapes the on-snow voice for a board instead of skis: the whole base runs
+ * on the snow, so the glide is a broader, lower hiss (and a touch louder), and a skid
+ * drags the single long edge rather than two narrow ones — a louder, gritty chatter.
  */
 export function soundLevels(
   airSpeed: number,
   contact: SnowContact | null,
   weatherWind = 0,
+  snowboard = false,
 ): SoundLevels {
   const rushing = 0.04 + 0.5 * clamp01((airSpeed / 35) ** 2);
   const wind = Math.min(0.75, Math.hypot(rushing, weatherWindLevel(weatherWind)));
   if (!contact || !contact.onSnow) return { wind, glide: 0, glidePitch: 800, skid: 0 };
   const moving = clamp01(contact.speed / 12);
+  if (snowboard)
+    return {
+      wind,
+      glide: moving * (0.22 + 0.38 * carveAmount(contact)),
+      glidePitch: (contact.groomed ? 620 : 420) + contact.speed * 32,
+      skid: 0.9 * skidAmount(contact),
+    };
   return {
     wind,
     glide: moving * (0.18 + 0.35 * carveAmount(contact)),

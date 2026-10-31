@@ -1,3 +1,6 @@
+export type HudMode =
+  'fly' | 'ski' | 'glide' | 'ride' | 'sled' | 'plane' | 'heli' | 'skydive' | 'freefall' | 'canopy';
+
 export interface HudState {
   altitude: number;
   lat: number;
@@ -146,6 +149,12 @@ export class Hud {
     this.toggles.innerHTML = DISPLAY_TOGGLES.map(
       (t) => `<div data-toggle="${t.name}"><kbd>${t.key}</kbd><span>${t.short}</span></div>`,
     ).join('');
+    // The ski / snowboard switch: a quick toggle in the desktop strip (Y), lit on a board.
+    // (The strip is hidden on touch; there the switch lives in Options → Ski setup.)
+    this.toggles.insertAdjacentHTML(
+      'beforeend',
+      '<div data-toggle="discipline"><kbd>Y</kbd><span>Snowboard</span></div>',
+    );
     this.tape = this.compass.querySelector('.compass-tape')!;
     this.heading = this.compass.querySelector('.compass-heading')!;
     this.marker = this.compass.querySelector('.compass-marker')!;
@@ -236,19 +245,12 @@ export class Hud {
         : key('F', 'Ski from here');
   }
 
-  setMode(
-    mode:
-      | 'fly'
-      | 'ski'
-      | 'glide'
-      | 'ride'
-      | 'sled'
-      | 'plane'
-      | 'heli'
-      | 'skydive'
-      | 'freefall'
-      | 'canopy',
-  ): void {
+  private lastMode: HudMode = 'ski';
+  /** Whether on-snow riding is on skis or a snowboard (changes only the 'ski' mode label). */
+  private discipline: 'ski' | 'snowboard' = 'ski';
+
+  setMode(mode: HudMode): void {
+    this.lastMode = mode;
     this.root.querySelector('[data-mode]')!.textContent =
       mode === 'ride'
         ? 'LIFT'
@@ -260,7 +262,25 @@ export class Hud {
               ? 'HELICOPTER'
               : mode === 'skydive'
                 ? 'FREEFALL'
-                : mode.toUpperCase();
+                : mode === 'ski' && this.discipline === 'snowboard'
+                  ? 'SNOWBOARD'
+                  : mode.toUpperCase();
+  }
+
+  /** Ski or snowboard: re-labels the stat strip when riding on snow and lights the Y toggle. */
+  setDiscipline(discipline: 'ski' | 'snowboard', announce = false): void {
+    this.discipline = discipline;
+    this.setMode(this.lastMode);
+    const row = this.toggles.querySelector<HTMLElement>('[data-toggle="discipline"]');
+    if (!row) return;
+    row.classList.toggle('on', discipline === 'snowboard');
+    if (!announce) return;
+    row.classList.add('flash');
+    clearTimeout(this.flashTimers.get('discipline'));
+    this.flashTimers.set(
+      'discipline',
+      window.setTimeout(() => row.classList.remove('flash'), FLASH_MS),
+    );
   }
 
   /**
