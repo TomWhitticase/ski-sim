@@ -47,6 +47,20 @@ function run(
 const DOWNHILL = Math.PI;
 const ACROSS = Math.PI / 2;
 
+describe('ollie', () => {
+  it('pops higher than a flat jump and lifts the nose off the tail', () => {
+    const t = slope(0);
+    const plain = skier(t, DOWNHILL);
+    stepSki(plain, { ...idle, jump: true }, 1 / 60, t);
+    const board = skier(t, DOWNHILL);
+    stepSki(board, { ...idle, jump: true, ollie: true }, 1 / 60, t);
+    expect(board.airborne).toBe(true);
+    expect(board.velocity.y).toBeGreaterThan(plain.velocity.y);
+    // Nose-up pitch rate as you leave (the tail-load pop), eased back by the spotting.
+    expect(board.pitchRate ?? 0).toBeGreaterThan(0);
+  });
+});
+
 describe('stepSki', () => {
   it('stays put on the flat and on gentle slopes below the friction angle', () => {
     expect(run(skier(slope(0), DOWNHILL), slope(0), 5).velocity.length()).toBe(0);

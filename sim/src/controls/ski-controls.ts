@@ -17,6 +17,15 @@ import {
   surfaceNormal,
 } from './ski-physics';
 import { DEFAULT_HANDLING, type SkiSetup, skiHandling } from './ski-setup';
+import {
+  type BoardSetup,
+  boardHandling,
+  catchesEdge,
+  DEFAULT_BOARD_SETUP,
+  type Discipline,
+  ridingSwitch,
+  switchHandling,
+} from './discipline';
 import { initialStance, type Stance, updateStance } from './ski-stance';
 import type { SnowContact } from '../fx/intensity';
 
@@ -67,6 +76,11 @@ export class SkiControls {
   view: SkiCamera = 'first-person';
   /** How the current skis handle (see `setSetup`). */
   private handling = DEFAULT_HANDLING;
+  /** Ski or snowboard (see `setDiscipline`). A board gates off poling and the plough. */
+  private discipline: Discipline = 'ski';
+  /** Handling for whichever discipline is active. */
+  private skiHandlingValue = DEFAULT_HANDLING;
+  private boardHandlingValue = boardHandling(DEFAULT_BOARD_SETUP);
 
   private readonly state: SkiState = {
     position: new Vector3(),
@@ -111,6 +125,10 @@ export class SkiControls {
   footstep = false;
   /** Poles planted this frame. */
   polePlant = false;
+  /** Caught an edge this frame (snowboard): triggered a crash. */
+  caughtEdge = false;
+  /** Riding switch (snowboard travelling tail-first): less stable this frame. */
+  switchRiding = false;
   /** How the touchdown went, if you landed this frame (flips counted). */
   landing: Landing | null = null;
   /** The last landing that came out of the air (for tests and the HUD). */
@@ -199,8 +217,29 @@ export class SkiControls {
 
   /** Change skis: handling and the visible skis follow the setup. */
   setSetup(setup: SkiSetup): void {
-    this.handling = skiHandling(setup);
+    this.skiHandlingValue = skiHandling(setup);
     this.model.setSkiSetup(setup);
+    if (this.discipline === 'ski') this.handling = this.skiHandlingValue;
+  }
+
+  /** Ski or snowboard. Flips the handling and the body/board model together. */
+  setDiscipline(discipline: Discipline, board: BoardSetup = DEFAULT_BOARD_SETUP): void {
+    this.discipline = discipline;
+    this.boardHandlingValue = boardHandling(board);
+    this.handling = discipline === 'snowboard' ? this.boardHandlingValue : this.skiHandlingValue;
+    this.model.setSnowboard(discipline === 'snowboard', board.stance === 'regular');
+    this.model.setBoardSetup(board);
+  }
+
+  /** Change the board's geometry/stance (handling and the deck follow). */
+  setBoardSetup(board: BoardSetup): void {
+    this.boardHandlingValue = boardHandling(board);
+    if (this.discipline === 'snowboard') this.handling = this.boardHandlingValue;
+    this.model.setBoardSetup(board);
+  }
+
+  get isSnowboard(): boolean {
+    return this.discipline === 'snowboard';
   }
 
   setActive(active: boolean): void {
@@ -320,11 +359,19 @@ export class SkiControls {
     const tuck = this.tucked;
     const forward = input.down('KeyW') && !plough;
     const flatSpeed = Math.hypot(this.state.velocity.x, this.state.velocity.z);
-    this.poling = doublePoling(flatSpeed, this.poling);
+    // A board has no poles: W is a slow one-foot skate/push on the flat, never a double-pole.
+    this.poling = this.discipline === 'snowboard' ? false : doublePoling(flatSpeed, this.poling);
     const skate = forward && (!this.poling || this.climbing);
     const pole = forward && !skate;
     const wasAirborne = this.state.airborne;
     const fallSpeed = -this.state.velocity.y;
+    // Riding switch (a board going tail-first) is less stable: penalise the handling this
+    // frame. Only the physics feels it; steering (turn / pivot above) is unchanged.
+    this.switchRiding =
+      this.discipline === 'snowboard' &&
+      !this.state.airborne &&
+      ridingSwitch(this.skiYaw, this.state.velocity.x, this.state.velocity.z);
+    const handling = this.switchRiding ? switchHandling(this.handling) : this.handling;
     stepSki(
       this.state,
       {
@@ -333,11 +380,12 @@ export class SkiControls {
         pole,
         brake: plough,
         jump: input.wasPressed('Space') && !this.state.airborne,
+        ollie: this.discipline === 'snowboard',
         lean,
       },
       dt,
       this.terrain,
-      this.handling,
+      handling,
     );
 
     if (this.crashed) this.skiYaw = this.state.yaw;
@@ -391,6 +439,23 @@ export class SkiControls {
       .applyQuaternion(this.inverse);
     // Edge angle: how far the balance line tips across the skis from the slope normal.
     const balanceEdge = Math.atan2(-this.bodyUp.x, this.bodyUp.y);
+
+    // Catching an edge (snowboard): committing the downhill edge into a fast sideways slide
+    // throws you. Gated behind the same forgiveness as a ski crash — it takes a genuine
+    // mistake at speed, and tumbles you to a stop exactly like a botched landing.
+    if (
+      this.discipline === 'snowboard' &&
+      !this.state.airborne &&
+      !this.onRail &&
+      !this.crashed &&
+      catchesEdge(speed, sideslip, balanceEdge)
+    ) {
+      this.state.crash = SKI.crashTime;
+      this.state.velocity.multiplyScalar(0.5);
+      this.caughtEdge = true;
+    } else {
+      this.caughtEdge = false;
+    }
 
     this.landingImpact = wasAirborne && !this.state.airborne ? Math.max(0, fallSpeed) : 0;
     Object.assign(this.contact, {

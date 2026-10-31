@@ -15,6 +15,8 @@ export interface TouchState {
   mode: TouchMode;
   /** Skiing in the air (flip buttons instead of tuck and stop). */
   airborne: boolean;
+  /** Riding a snowboard (Jump becomes Ollie; no ski-only nuances). */
+  snowboard?: boolean;
   tucked: boolean;
   /** Riding a lift that may be fast-forwarded (not in a multiplayer game). */
   fastForward: boolean;
@@ -219,7 +221,16 @@ export class TouchControls {
         icon: ICONS.jump,
         hold: 'Space',
         big: true,
-        when: (st) => ski(st) && !st.airborne,
+        when: (st) => ski(st) && !st.airborne && !st.snowboard,
+      },
+      {
+        // On a board the same pop is an ollie (loaded off the tail).
+        id: 'ollie',
+        label: 'Ollie',
+        icon: ICONS.jump,
+        hold: 'Space',
+        big: true,
+        when: (st) => ski(st) && !st.airborne && !!st.snowboard,
       },
       {
         id: 'tuck',
