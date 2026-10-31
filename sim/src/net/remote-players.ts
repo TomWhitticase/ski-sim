@@ -170,6 +170,7 @@ class RemoteAvatar {
     if (skier) {
       skier.root.position.copy(this.position);
       skier.root.quaternion.copy(this.rotation);
+      skier.setSnowboard((flags & Flag.Snowboard) !== 0);
       skier.setStowed((flags & Flag.Stowed) !== 0);
       skier.setFlyingDrone(spirit);
       skier.apply(this.stance, this.up);

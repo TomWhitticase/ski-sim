@@ -2,6 +2,7 @@ import { Vector3 } from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
 
 import {
+  doublePoling,
   type Landing,
   SKI,
   type SkiIntent,
@@ -45,6 +46,20 @@ function run(
 // Yaw π faces south (downhill on these slopes); yaw π/2 faces west (across the slope).
 const DOWNHILL = Math.PI;
 const ACROSS = Math.PI / 2;
+
+describe('ollie', () => {
+  it('pops higher than a flat jump and lifts the nose off the tail', () => {
+    const t = slope(0);
+    const plain = skier(t, DOWNHILL);
+    stepSki(plain, { ...idle, jump: true }, 1 / 60, t);
+    const board = skier(t, DOWNHILL);
+    stepSki(board, { ...idle, jump: true, ollie: true }, 1 / 60, t);
+    expect(board.airborne).toBe(true);
+    expect(board.velocity.y).toBeGreaterThan(plain.velocity.y);
+    // Nose-up pitch rate as you leave (the tail-load pop), eased back by the spotting.
+    expect(board.pitchRate ?? 0).toBeGreaterThan(0);
+  });
+});
 
 describe('stepSki', () => {
   it('stays put on the flat and on gentle slopes below the friction angle', () => {
@@ -186,6 +201,39 @@ describe('double-poling', () => {
     coasting.velocity.set(0, 0, 5);
     run(coasting, t, 20);
     expect(coasting.velocity.length()).toBeLessThan(state.velocity.length());
+  });
+
+  it('holds one mode while the speed hovers at the switch', () => {
+    let poling = false;
+    const modes = [4.4, 4.6, 4.4, 4.6, 4.0, 4.6, 3.6].map(
+      (speed) => (poling = doublePoling(speed, poling)),
+    );
+    expect(modes).toEqual([false, true, true, true, true, true, true]);
+    expect(doublePoling(3.4, true)).toBe(false);
+  });
+
+  it("doesn't flip between skating and poling on a climb poling can't hold", () => {
+    // Up these grades skating gets you past the switch but poling slows you back down.
+    for (const degrees of [6, 8, 10]) {
+      const terrain = slope(degrees);
+      const state = skier(terrain, 0); // facing uphill (north)
+      state.velocity.set(0, 0, -4);
+      let poling = false;
+      let held = Infinity; // the run-up to the first switch doesn't count
+      let shortest = Infinity;
+      for (let t = 0; t < 10; t += 1 / 60) {
+        const next = doublePoling(Math.hypot(state.velocity.x, state.velocity.z), poling);
+        if (next !== poling) {
+          shortest = Math.min(shortest, held);
+          held = 0;
+        }
+        poling = next;
+        held += 1 / 60;
+        stepSki(state, { ...idle, push: !poling, pole: poling }, 1 / 60, terrain, DEFAULT_HANDLING);
+      }
+      // A single threshold switched 65-430 times in these 10 s, every frame or two.
+      expect(shortest).toBeGreaterThan(1);
+    }
   });
 });
 

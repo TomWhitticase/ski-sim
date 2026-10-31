@@ -33,12 +33,26 @@ export const SKI = {
   /** Double-poling: a gentler push that keeps you going on the flat. */
   poleAccel: 1.5,
   poleMaxSpeed: 9,
+  /**
+   * W skates below `skateMaxSpeed` and double-poles above it (m/s, ~16 km/h). Once poling
+   * it keeps poling down to `poleMinSpeed` (~13 km/h): on a gentle climb skating gets you
+   * past the switch but poling can't hold you there, so one threshold flipped between
+   * the two every frame or two.
+   */
+  skateMaxSpeed: 4.5,
+  poleMinSpeed: 3.5,
   /** Walking uphill: fastest on gentle grades, a slow plod on steep ones (m/s). */
   climbSpeedMax: 1.3,
   climbSpeedMin: 0.35,
   /** Uphill pull along the skis (m/s²) beyond which skating gives way to stepping. */
   climbThreshold: 0.8,
   jumpSpeed: 3.5,
+  /**
+   * Ollie (snowboard): a jump popped off the loaded tail. More pop than a flat jump, and the
+   * nose lifts as you leave (a nose-up pitch rate the spotting then brings back for landing).
+   */
+  ollieBoost: 1.3,
+  olliePop: 2.4,
   /** Flips: the pitch rate holding [ or ] builds in the air (rad/s), and how fast (rad/s²). */
   flipRate: 5,
   flipAccel: 9,
@@ -169,6 +183,8 @@ export interface SkiIntent {
   pole?: boolean;
   brake: boolean;
   jump: boolean;
+  /** The jump is a snowboard ollie (popped off the tail): more pop, and the nose lifts. */
+  ollie?: boolean;
   /** Fore/aft lean, -1 (back, ]) to 1 (forward, [). In the air it flips you. */
   lean?: number;
 }
@@ -221,6 +237,11 @@ export function skiDirection(yaw: number, normal: Vector3, out: Vector3): Vector
     out.lerp(down, w).normalize();
   }
   return out;
+}
+
+/** Whether W double-poles rather than skates, given whether it was poling last step. */
+export function doublePoling(flatSpeed: number, poling: boolean): boolean {
+  return flatSpeed >= (poling ? SKI.poleMinSpeed : SKI.skateMaxSpeed);
 }
 
 export function stepSki(
@@ -376,8 +397,11 @@ function substep(
   if (v.length() > ski.maxSpeed) v.setLength(ski.maxSpeed);
 
   if (intent.jump) {
-    v.addScaledVector(n, SKI.jumpSpeed);
+    v.addScaledVector(n, intent.ollie ? SKI.jumpSpeed * SKI.ollieBoost : SKI.jumpSpeed);
     takeOff(state);
+    // An ollie pops off the tail: the nose rises as you leave, then the spotting brings the
+    // board back to the slope for the landing (same as letting a flip settle).
+    if (intent.ollie) state.pitchRate = SKI.olliePop;
     p.addScaledVector(v, h);
     return;
   }

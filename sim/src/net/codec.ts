@@ -71,6 +71,8 @@ export const Flag = {
   Spirit: 8,
   /** On a lift's carrier, placed by `SLOT.carrier`. */
   OnCarrier: 16,
+  /** On-snow rider is on a snowboard, not skis (the model shows a board, sideways stance). */
+  Snowboard: 32,
 } as const;
 
 export interface PlayerState {

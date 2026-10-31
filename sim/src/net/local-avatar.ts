@@ -69,6 +69,7 @@ export function sampleAvatar(mode: AvatarMode, src: AvatarSources, out: PlayerSt
     put(SLOT.velocity, mode === 'ski' ? src.ski.velocity : src.ride.velocity);
     putRotation(root.quaternion);
     putModel(src.ski.model);
+    if (src.ski.isSnowboard) out.flags |= Flag.Snowboard;
     if (mode === 'ride' && src.ride.onCarrier) {
       // Where you sit on the carrier, so others draw you on theirs (not interpolated).
       const ride = src.ride;

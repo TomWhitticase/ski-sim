@@ -22,6 +22,8 @@ import {
 } from 'three/webgpu';
 
 import { createDroneController } from './drone-model';
+import { boardDimensions, createBinding, createBoardGeometry } from './board-model';
+import { DEFAULT_BOARD_SETUP, type BoardSetup } from './discipline';
 import { headGeometries } from './skier-head';
 import { DEFAULT_SETUP, type SkiDimensions, type SkiSetup, skiDimensions } from './ski-setup';
 import type { SkiPose, Stance } from './ski-stance';
@@ -145,6 +147,8 @@ interface SkiRig {
   ski: Mesh;
   /** The boot's cuff, hinged at the ankle, swung to follow the shin. */
   cuff: Group;
+  /** The snowboard binding under this boot (hidden unless riding a board). */
+  binding: Group;
 }
 
 /**
@@ -172,6 +176,15 @@ export class SkierModel {
   /** Skis and bindings without the boots (stowed in a cabin's rack). */
   private readonly skiParts: Mesh[] = [];
   private stowed = false;
+  /** Snowboard discipline: a board + sideways stance instead of two skis and poles. */
+  private snowboard = false;
+  private boardRegular = true;
+  /** Front / back binding splay (deg). */
+  private boardAngles: [number, number] = [15, -6];
+  private boardSetup: BoardSetup = DEFAULT_BOARD_SETUP;
+  private readonly board = new Group();
+  private boardDeck!: Mesh;
+  private boardGeometry!: BufferGeometry;
   /** The gloved fists on the pole grips (hidden while the hands hold the controller). */
   private readonly fists: Mesh[] = [];
   private readonly controller = createDroneController();
@@ -252,12 +265,32 @@ export class SkierModel {
         b.rotation.x = tilt;
       }
       for (const p of parts) p.castShadow = true;
+      // Snowboard binding under the boot (hidden unless riding a board). Faces +toe for a
+      // regular rider (toe edge at +x); flipped for goofy by `setBoardStance`.
+      const bindingGroup = createBinding(UNDERFOOT + 0.009, binding, bindingMetal, cuff, 1);
+      bindingGroup.visible = false;
+      group.add(bindingGroup);
       group.position.x = side * 0.11;
       group.name = side === -1 ? 'ski-left' : 'ski-right';
       this.root.add(group);
-      return { group, ski, cuff: cuffGroup };
+      return { group, ski, cuff: cuffGroup, binding: bindingGroup };
     };
     this.skis = { left: makeSki(-1), right: makeSki(1) };
+
+    // Snowboard deck: a proper vertex-coloured board (sidecut, camber, turned-up nose and
+    // tail, steel edges), nose at -z. One draw call. Hidden until the board discipline is on.
+    // The deck sits on the snow; the bindings and boots stack on top.
+    this.boardGeometry = createBoardGeometry(boardDimensions(DEFAULT_BOARD_SETUP), 0);
+    const deckMat = new MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.28 });
+    this.boardDeck = new Mesh(this.boardGeometry, deckMat);
+    this.boardDeck.castShadow = true;
+    // A stomp pad between the bindings (where the back foot rests off a lift).
+    const pad = new Mesh(new BoxGeometry(0.09, 0.01, 0.1), mat(0x25282c, 0.95));
+    pad.position.set(0, UNDERFOOT + 0.012, 0);
+    this.board.name = 'snowboard';
+    this.board.add(this.boardDeck, pad);
+    this.board.visible = false;
+    this.root.add(this.board);
 
     this.buildFigure(mat, poleShaft, poleGrip, glove);
   }
@@ -423,6 +456,33 @@ export class SkierModel {
     this.skiGeometry = geometry;
   }
 
+  /**
+   * Switch between skis and a snowboard. On a board: the skis and poles are hidden, the deck
+   * shows, and `apply()` poses the rider sideways (see `applyBoard`).
+   */
+  setSnowboard(on: boolean, regular = this.boardRegular): void {
+    this.snowboard = on;
+    this.boardRegular = regular;
+  }
+
+  get isSnowboard(): boolean {
+    return this.snowboard;
+  }
+
+  /** Board geometry and stance follow the setup (deck rebuilt, bindings re-oriented). */
+  setBoardSetup(setup: BoardSetup): void {
+    this.boardSetup = setup;
+    this.boardRegular = setup.stance === 'regular';
+    this.boardAngles = [setup.angleFront, setup.angleBack];
+    const geometry = createBoardGeometry(boardDimensions(setup), 0);
+    this.boardDeck.geometry = geometry;
+    this.boardGeometry.dispose();
+    this.boardGeometry = geometry;
+    // The highback sits behind the heel: toe edge at +x for a regular rider, -x for goofy.
+    const toe = this.boardRegular ? 1 : -1;
+    for (const rig of [this.skis.left, this.skis.right]) rig.binding.scale.x = toe;
+  }
+
   /** Skis, bindings and boots. */
   setSkisVisible(visible: boolean): void {
     this.skis.left.group.visible = visible;
@@ -495,6 +555,21 @@ export class SkierModel {
   apply(stance: Stance, up: Vector3 = Y_AXIS): void {
     this.lastStance = stance;
     this.lastUp.copy(up);
+    // On a board: ride sideways (riding), or seated on a lift with the board hung off the
+    // lead foot. Frozen flying the drone falls back to the standing drone pose.
+    const onBoard = this.snowboard && !stance.sit && !this.flyingDrone;
+    const boardSeated = this.snowboard && !!stance.sit && !this.flyingDrone;
+    const leadRig = this.boardRegular ? this.skis.left : this.skis.right;
+    const backRig = this.boardRegular ? this.skis.right : this.skis.left;
+    this.board.visible = onBoard || boardSeated;
+    leadRig.binding.visible = onBoard || boardSeated; // the lead foot stays strapped on a lift
+    backRig.binding.visible = onBoard; // the back foot is out of its binding seated
+    for (const p of this.skiParts) p.visible = !this.snowboard && !this.stowed;
+    for (const p of this.poles) p.visible = !this.snowboard && !this.stowed;
+    if (onBoard) {
+      this.applyBoard(stance, up);
+      return;
+    }
     const place = (rig: SkiRig, pose: SkiPose) => {
       // Rolling about the centreline would sink one edge into the snow; rest it on top.
       const edgeLift = Math.abs(Math.sin(pose.roll)) * 0.06;
@@ -624,6 +699,146 @@ export class SkierModel {
       this.clearance.hands[i] = hand.y;
       this.clearance.tips[i] = tip.y;
     });
+    if (boardSeated) this.hangBoard(leadRig);
+  }
+
+  /**
+   * Riding a lift on a board: the skier sits in the normal seated body pose and the board
+   * hangs straight down off the strapped-in lead foot (the back foot is free). Placed under
+   * the lead boot and swung to dangle nose-down.
+   */
+  private hangBoard(leadRig: SkiRig): void {
+    leadRig.group.updateMatrix();
+    const foot = new Vector3(0, BOOT_SOLE, 0.02).applyMatrix4(leadRig.group.matrix);
+    const nose = this.boardRegular ? -1 : 1;
+    const length = this.boardSetup.length / 100;
+    const leadZ = nose * Math.min(0.3, length * 0.165); // the lead binding's place on the deck
+    // Dangle nose-down and a touch forward, swinging the deck's lead binding onto the foot
+    // (which is still strapped into it) so the board hangs off the front boot, not mid-deck.
+    const rot = new Quaternion().setFromAxisAngle(X_AXIS, -1.4);
+    this.board.quaternion.copy(rot);
+    this.board.position.copy(foot).sub(new Vector3(0, UNDERFOOT, leadZ).applyQuaternion(rot));
+  }
+
+  /**
+   * Snowboard pose. The hard part of a boarder is that three directions come apart which are
+   * one and the same on skis: the **board** points along travel (nose at -z, set by the root
+   * yaw), the **body** stands ~90° across it (opened toward the nose by the binding angles and
+   * leading into the turn), and the **gaze** looks back down the travel line. This method ties
+   * them together:
+   *
+   * - the deck and both boots roll onto the heel/toe edge by the balance line's cross-tilt
+   *   (`up`), so the board carves on an edge and the feet tip with it;
+   * - the torso faces across the board, rotated toward the nose by the mean binding splay and
+   *   further into the turn as the edge bites (anticipation / counter-rotation);
+   * - the head turns off the shoulders back toward the direction of travel, so the rider looks
+   *   where they're going, not out across the slope;
+   * - sitting back (`foreAft < 0`) loads and lifts the tail — the ollie press.
+   *
+   * No poles; the arms balance, the lead arm reaching over the nose.
+   */
+  private applyBoard(stance: Stance, up: Vector3): void {
+    const regular = this.boardRegular;
+    const d2r = Math.PI / 180;
+    const [fa, ba] = this.boardAngles;
+    const nose = regular ? -1 : 1; // z-sign of the nose
+    const toe = regular ? 1 : -1; // x-sign of the toe edge
+    const length = this.boardSetup.length / 100;
+    const half = Math.min(0.3, length * 0.165); // half the stance width along the deck (m)
+
+    // Cross-lean onto the heel/toe edge, from the balance line in the board's frame.
+    const edge = Math.max(-BOARD_MAX_EDGE, Math.min(BOARD_MAX_EDGE, Math.atan2(up.x, up.y)));
+    const boardHalfWidth = this.boardSetup.waist / 2000 + 0.03;
+    const lift = boardHalfWidth * Math.abs(Math.sin(edge)); // the low edge rests on the snow
+    // Load the tail for an ollie: sitting back tips the nose up.
+    const noseTilt = -nose * BOARD_OLLIE_TILT * Math.max(0, -stance.foreAft);
+
+    // Deck: roll onto the edge (about the long axis), then kick the nose.
+    this.board.quaternion
+      .setFromAxisAngle(Z_AXIS, edge)
+      .multiply(new Quaternion().setFromAxisAngle(X_AXIS, noseTilt));
+    this.board.position.set(0, lift, 0);
+
+    // Boots: at ±half along the board, splayed to the binding angles, tipped with the edge.
+    // The lead foot (front binding `fa`) is toward the nose; the back foot (`ba`) toward the tail.
+    const leadZ = nose * half;
+    const backZ = -nose * half;
+    const qEdge = new Quaternion().setFromAxisAngle(Z_AXIS, edge);
+    const bindings: { rig: SkiRig; z: number; splay: number }[] = regular
+      ? [
+          { rig: this.skis.left, z: leadZ, splay: fa },
+          { rig: this.skis.right, z: backZ, splay: ba },
+        ]
+      : [
+          { rig: this.skis.right, z: leadZ, splay: fa },
+          { rig: this.skis.left, z: backZ, splay: ba },
+        ];
+    for (const b of bindings) {
+      // Boots point across the board, angled toward the nose by their binding splay.
+      const yaw = -toe * (Math.PI / 2) + toe * b.splay * d2r;
+      b.rig.group.quaternion.copy(qEdge).multiply(new Quaternion().setFromAxisAngle(Y_AXIS, yaw));
+      b.rig.group.position.set(0, lift, b.z);
+      b.rig.group.updateMatrix();
+      b.rig.cuff.rotation.x = -0.22; // soft boots lean the shin well forward
+    }
+    const ankles = [this.skis.left, this.skis.right].map((rig) =>
+      new Vector3(0, ANKLE_HEIGHT, 0.03).applyMatrix4(rig.group.matrix),
+    );
+    const feet = ankles[0]!.clone().add(ankles[1]!).multiplyScalar(0.5);
+
+    const c = stance.crouch;
+    // The torso: sideways across the board, opened toward the nose by the mean binding splay,
+    // and leading further into the turn as the edge bites (counter-rotation).
+    const open = ((fa + ba) / 2) * d2r;
+    const anticip = BOARD_ANTICIP * edge;
+    const bodyYaw = -toe * (Math.PI / 2) + toe * open + anticip;
+    // Stand along the balance line, turn across the board, bend fore/aft.
+    const align = new Quaternion()
+      .setFromUnitVectors(Y_AXIS, up)
+      .multiply(new Quaternion().setFromAxisAngle(Y_AXIS, bodyYaw))
+      .multiply(new Quaternion().setFromAxisAngle(X_AXIS, -0.12 * stance.foreAft));
+    const hipHeight = (THIGH + SHIN) * (0.9 - 0.42 * c);
+    const pelvis = new Vector3(0, hipHeight, 0).applyQuaternion(align).add(feet);
+
+    this.chest.position.copy(pelvis);
+    this.chest.quaternion
+      .copy(align)
+      .multiply(new Quaternion().setFromEuler(new Euler(-(0.12 + 0.55 * c), 0, 0, 'YXZ')));
+    this.chest.updateMatrix();
+    // The gaze turns off the shoulders, back toward the direction of travel.
+    this.head.rotation.set(0.05, -bodyYaw * BOARD_GAZE, 0, 'YXZ');
+
+    this.limbs.forEach((limb, i) => {
+      const side = i === 0 ? -1 : 1;
+      // Hips spread nose-to-tail (the across-body x maps onto the deck's z through bodyYaw).
+      const hip = new Vector3(side * 0.1, -0.03, 0).applyQuaternion(align).add(pelvis);
+      const ankle = side < 0 ? ankles[0]! : ankles[1]!;
+      const kneeHint = new Vector3(toe, 0.35, 0).applyQuaternion(align);
+      const knee = solveJoint(hip, ankle, THIGH, SHIN, kneeHint);
+      stretch(limb.thigh, hip, knee);
+      stretch(limb.shin, knee, ankle);
+      limb.knee.position.copy(knee);
+
+      // Arms balance (no poles): the nose-side arm reaches forward over the nose, the other
+      // trails back; both drop a little as the edge angle grows (reaching for the snow).
+      const shoulder = new Vector3(side * 0.2, 0.44, 0).applyMatrix4(this.chest.matrix);
+      const lead = i === 0 ? 1 : -1; // the left arm leads for a regular rider
+      const reach = (regular ? lead : -lead) * (0.22 + 0.12 * c);
+      const handLocal = new Vector3(
+        side * (0.32 - 0.08 * c),
+        -0.02 - 0.12 * c - 0.12 * Math.abs(edge) + 0.14 * stance.armReach,
+        reach,
+      );
+      const hand = handLocal.applyMatrix4(this.chest.matrix);
+      const elbow = solveJoint(shoulder, hand, UPPER_ARM, FOREARM, new Vector3(side, -0.4, 0.3));
+      stretch(limb.upperArm, shoulder, elbow);
+      const wrist = elbow.clone().lerp(hand, 0.85);
+      stretch(limb.forearm, elbow, wrist);
+      stretch(limb.cuff, wrist, hand);
+      limb.elbow.position.copy(elbow);
+      this.clearance.hands[i] = hand.y;
+      this.clearance.tips[i] = 1;
+    });
   }
 }
 
@@ -740,6 +955,15 @@ const FOREARM = 0.28;
 const KNEE_HINT = new Vector3(0, 0.2, -1);
 const Y_AXIS = new Vector3(0, 1, 0);
 const X_AXIS = new Vector3(1, 0, 0);
+const Z_AXIS = new Vector3(0, 0, 1);
+/** Snowboard pose tuning. */
+const BOARD_MAX_EDGE = (58 * Math.PI) / 180;
+/** How far the torso leads into the turn per radian of edge (counter-rotation). */
+const BOARD_ANTICIP = 0.45;
+/** How much the head turns off the shoulders back toward travel (0 = sideways, 1 = straight). */
+const BOARD_GAZE = 0.7;
+/** Nose-up tilt (rad) at a full tail-load ollie press. */
+const BOARD_OLLIE_TILT = 0.3;
 
 /**
  * Two-bone IK: where the middle joint goes so bones of length a and b join `from` to

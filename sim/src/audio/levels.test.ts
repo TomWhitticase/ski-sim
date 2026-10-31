@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { SnowContact } from '../fx/intensity';
 import {
   AIRCRAFT_HEARD_WITHIN,
   aircraftFalloff,
@@ -9,7 +10,38 @@ import {
   droneSound,
   engineSound,
   railSound,
+  soundLevels,
 } from './levels';
+
+describe('soundLevels', () => {
+  const contact = (over: Partial<SnowContact> = {}): SnowContact => ({
+    speed: 15,
+    sideslip: 0,
+    edge: 0,
+    onSnow: true,
+    groomed: true,
+    ...over,
+  });
+
+  it('is just wind when airborne or off the snow', () => {
+    expect(soundLevels(30, null).glide).toBe(0);
+    expect(soundLevels(30, contact({ onSnow: false })).skid).toBe(0);
+    expect(soundLevels(30, null).wind).toBeGreaterThan(0);
+  });
+
+  it("a snowboard's glide is a broader, lower hiss than skis, and a touch louder", () => {
+    const c = contact();
+    const ski = soundLevels(10, c, 0, false);
+    const board = soundLevels(10, c, 0, true);
+    expect(board.glidePitch).toBeLessThan(ski.glidePitch);
+    expect(board.glide).toBeGreaterThan(ski.glide);
+  });
+
+  it('a snowboard scrapes louder when it skids (one long edge chattering)', () => {
+    const c = contact({ sideslip: 8 });
+    expect(soundLevels(10, c, 0, true).skid).toBeGreaterThan(soundLevels(10, c, 0, false).skid);
+  });
+});
 
 describe('engineSound', () => {
   it('is silent with the engine off', () => {

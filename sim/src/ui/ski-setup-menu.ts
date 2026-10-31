@@ -1,4 +1,13 @@
 import {
+  type BoardPresetId,
+  BOARD_PRESETS,
+  type BoardSetup,
+  boardHandling,
+  DEFAULT_BOARD_SETUP,
+  type Discipline,
+  matchBoardPreset,
+} from '../controls/discipline';
+import {
   DEFAULT_SETUP,
   matchPreset,
   SETUP_RANGES,
@@ -12,6 +21,14 @@ import {
   skiHandling,
 } from '../controls/ski-setup';
 import { fillRange, OptionsTab } from './options-hub';
+
+/** Optional snowboard side of the setup tab (discipline switch + board settings). */
+export interface BoardOptions {
+  discipline: Discipline;
+  setup: BoardSetup;
+  onDiscipline: (discipline: Discipline) => void;
+  onBoard: (setup: BoardSetup) => void;
+}
 
 type NumberField = keyof typeof SETUP_RANGES;
 type ChoiceField = 'profile' | 'wax' | 'tune';
@@ -119,17 +136,48 @@ export class SkiSetupMenu extends OptionsTab {
     { input: HTMLInputElement; value: HTMLElement }
   >();
   private readonly choices = new Map<ChoiceField, HTMLElement>();
+  // Snowboard side (only wired when board options are passed).
+  private readonly board?: BoardOptions;
+  private boardSetup: BoardSetup = DEFAULT_BOARD_SETUP;
+  private readonly skiBlock = document.createElement('div');
+  private readonly boardBlock = document.createElement('div');
+  private disciplineEl?: HTMLElement;
+  private stanceEl?: HTMLElement;
+  private boardPresetsEl?: HTMLElement;
+  private boardBarsEl?: HTMLElement;
 
   constructor(
     el: HTMLElement,
     initial: SkiSetup,
     private readonly onChange: (setup: SkiSetup) => void,
+    board?: BoardOptions,
   ) {
     super(el);
     this.setup = { ...initial };
+    this.board = board;
     const body = el.querySelector<HTMLElement>('.modal-body')!;
 
-    this.presetsEl = section(body, 'Presets', 'setup-presets');
+    // Discipline switch at the top (Ski / Snowboard), when snowboarding is wired in.
+    if (board) {
+      this.boardSetup = { ...board.setup };
+      const disc = section(body, 'Discipline', 'setup-options discipline-switch');
+      disc.setAttribute('role', 'radiogroup');
+      for (const [value, label] of [
+        ['ski', 'Ski'],
+        ['snowboard', 'Snowboard'],
+      ] as const) {
+        const b = button('setup-option', label);
+        b.dataset.discipline = value;
+        b.setAttribute('role', 'radio');
+        b.addEventListener('click', () => this.setDiscipline(value));
+        disc.append(b);
+      }
+      this.disciplineEl = disc;
+      body.append(this.skiBlock, this.boardBlock);
+    }
+    const skiHost = board ? this.skiBlock : body;
+
+    this.presetsEl = section(skiHost, 'Presets', 'setup-presets');
     for (const [id, preset] of Object.entries(SKI_PRESETS)) {
       const b = button('setup-preset', preset.name);
       b.dataset.preset = id;
@@ -139,7 +187,7 @@ export class SkiSetupMenu extends OptionsTab {
 
     const columns = document.createElement('div');
     columns.className = 'setup-columns';
-    body.append(columns);
+    skiHost.append(columns);
     const shape = section(columns, 'Ski', 'setup-fields');
     for (const s of SLIDERS) {
       const { min, max, step } = SETUP_RANGES[s.key];
@@ -182,9 +230,70 @@ export class SkiSetupMenu extends OptionsTab {
     }
     this.barsEl = section(right, 'Handling', 'setup-bars');
 
-    el.querySelector('.setup-reset')!.addEventListener('click', () =>
-      this.set({ ...DEFAULT_SETUP }),
-    );
+    // Board block: stance, board presets, handling bars.
+    if (board) {
+      const stance = section(this.boardBlock, 'Stance', 'setup-field');
+      const stanceOpts = document.createElement('div');
+      stanceOpts.className = 'setup-options';
+      stanceOpts.setAttribute('role', 'radiogroup');
+      for (const [value, label] of [
+        ['regular', 'Regular'],
+        ['goofy', 'Goofy'],
+      ] as const) {
+        const b = button('setup-option', label);
+        b.dataset.stance = value;
+        b.setAttribute('role', 'radio');
+        b.addEventListener('click', () => this.setBoard({ ...this.boardSetup, stance: value }));
+        stanceOpts.append(b);
+      }
+      stance.append(stanceOpts);
+      const hint = document.createElement('span');
+      hint.className = 'setup-hint';
+      hint.textContent = 'Regular rides left foot forward, goofy right foot forward.';
+      stance.append(hint);
+      this.stanceEl = stanceOpts;
+
+      const presets = section(this.boardBlock, 'Board', 'setup-presets');
+      for (const [id, preset] of Object.entries(BOARD_PRESETS)) {
+        const b = button('setup-preset', preset.name);
+        b.dataset.boardPreset = id;
+        b.addEventListener('click', () =>
+          this.setBoard({
+            ...BOARD_PRESETS[id as BoardPresetId].setup,
+            stance: this.boardSetup.stance,
+          }),
+        );
+        presets.append(b);
+      }
+      this.boardPresetsEl = presets;
+      this.boardBarsEl = section(this.boardBlock, 'Handling', 'setup-bars');
+    }
+
+    el.querySelector('.setup-reset')!.addEventListener('click', () => {
+      if (this.board && this.board.discipline === 'snowboard')
+        this.setBoard({ ...DEFAULT_BOARD_SETUP });
+      else this.set({ ...DEFAULT_SETUP });
+    });
+    this.render();
+  }
+
+  private setDiscipline(discipline: Discipline): void {
+    if (!this.board || this.board.discipline === discipline) return;
+    this.board.discipline = discipline;
+    this.board.onDiscipline(discipline);
+    this.render();
+  }
+
+  /** Reflect a discipline change made outside the tab (the Y quick toggle), without looping. */
+  syncDiscipline(discipline: Discipline): void {
+    if (!this.board || this.board.discipline === discipline) return;
+    this.board.discipline = discipline;
+    this.render();
+  }
+
+  private setBoard(setup: BoardSetup): void {
+    this.boardSetup = setup;
+    this.board?.onBoard(setup);
     this.render();
   }
 
@@ -199,6 +308,34 @@ export class SkiSetupMenu extends OptionsTab {
   }
 
   private render(): void {
+    if (this.board) {
+      const snow = this.board.discipline === 'snowboard';
+      this.skiBlock.hidden = snow;
+      this.boardBlock.hidden = !snow;
+      const head = this.el.querySelector('.hub-head');
+      const h2 = head?.querySelector('h2');
+      const p = head?.querySelector('p');
+      if (h2) h2.textContent = snow ? 'Snowboard setup' : 'Ski setup';
+      if (p)
+        p.textContent = snow
+          ? 'Real board properties; the physics follows them'
+          : 'Real ski properties; the physics follows them';
+      for (const b of this.disciplineEl!.querySelectorAll<HTMLElement>('.setup-option')) {
+        const on = b.dataset.discipline === this.board.discipline;
+        b.classList.toggle('selected', on);
+        b.setAttribute('aria-checked', String(on));
+      }
+      for (const b of this.stanceEl!.querySelectorAll<HTMLElement>('.setup-option')) {
+        const on = b.dataset.stance === this.boardSetup.stance;
+        b.classList.toggle('selected', on);
+        b.setAttribute('aria-checked', String(on));
+      }
+      const boardPreset = matchBoardPreset(this.boardSetup);
+      for (const b of this.boardPresetsEl!.querySelectorAll<HTMLElement>('.setup-preset')) {
+        b.classList.toggle('selected', b.dataset.boardPreset === boardPreset);
+      }
+      this.boardBarsEl!.replaceChildren(...bars(handlingScores(boardHandling(this.boardSetup))));
+    }
     const preset = matchPreset(this.setup);
     for (const b of this.presetsEl.querySelectorAll<HTMLElement>('.setup-preset')) {
       b.classList.toggle('selected', b.dataset.preset === preset);
@@ -216,18 +353,20 @@ export class SkiSetupMenu extends OptionsTab {
         b.setAttribute('aria-checked', String(on));
       }
     }
-    this.barsEl.replaceChildren(
-      ...handlingScores(skiHandling(this.setup)).map(({ label, value }) => {
-        const row = document.createElement('div');
-        row.className = 'setup-bar';
-        row.innerHTML = '<span></span><div class="setup-bar-track"><div></div></div>';
-        row.querySelector('span')!.textContent = label;
-        row.querySelector<HTMLElement>('.setup-bar-track div')!.style.width =
-          `${Math.round(value * 100)}%`;
-        return row;
-      }),
-    );
+    this.barsEl.replaceChildren(...bars(handlingScores(skiHandling(this.setup))));
   }
+}
+
+function bars(scores: { label: string; value: number }[]): HTMLElement[] {
+  return scores.map(({ label, value }) => {
+    const row = document.createElement('div');
+    row.className = 'setup-bar';
+    row.innerHTML = '<span></span><div class="setup-bar-track"><div></div></div>';
+    row.querySelector('span')!.textContent = label;
+    row.querySelector<HTMLElement>('.setup-bar-track div')!.style.width =
+      `${Math.round(value * 100)}%`;
+    return row;
+  });
 }
 
 function section(parent: HTMLElement, title: string, className: string): HTMLElement {
