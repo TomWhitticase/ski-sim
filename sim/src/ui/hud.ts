@@ -1,3 +1,5 @@
+import type { Entry } from './registry';
+
 export type HudMode =
   'fly' | 'ski' | 'glide' | 'ride' | 'sled' | 'plane' | 'heli' | 'skydive' | 'freefall' | 'canopy';
 
@@ -75,22 +77,6 @@ export function bearingDelta(from: number, to: number): number {
   return ((((to - from) % 360) + 540) % 360) - 180;
 }
 
-/**
- * The quick toggles: a key each in game, listed small down the right of the screen (lit
- * when on), and switches under Options → Display.
- */
-export const DISPLAY_TOGGLES = [
-  { name: 'hud', key: 'H', label: 'HUD', short: 'HUD' },
-  { name: 'view', key: 'V', label: 'First person', short: '1st person' },
-  { name: 'lift', key: '1', label: 'Lift names', short: 'Lifts' },
-  { name: 'peak', key: '2', label: 'Peak names', short: 'Peaks' },
-  { name: 'pistes', key: '3', label: 'Piste colours', short: 'Pistes' },
-  { name: 'restaurant', key: '4', label: 'Restaurant names', short: 'Restaurants' },
-  { name: 'sound', key: 'K', label: 'Sound', short: 'Sound' },
-] as const;
-
-export type DisplayToggle = (typeof DISPLAY_TOGGLES)[number]['name'];
-
 /** Compass tape: pixels per degree, and how far either side of the heading it reaches. */
 const COMPASS_PX = 3.5;
 const COMPASS_SPAN = 45;
@@ -117,6 +103,7 @@ export class Hud {
   private flyKey = '';
   private bumpTimer = 0;
   private readonly flashTimers = new Map<string, number>();
+  private toggleEntries: readonly Entry[] = [];
   private shownHeading = NaN;
   private markerBearing: number | null = null;
   private readonly flight: HTMLElement;
@@ -146,15 +133,6 @@ export class Hud {
       '<span class="compass-heading"></span>';
     this.compass.style.setProperty('--compass-px', `${COMPASS_PX}px`);
     this.compass.style.setProperty('--compass-width', `${COMPASS_SPAN * 2 * COMPASS_PX}px`);
-    this.toggles.innerHTML = DISPLAY_TOGGLES.map(
-      (t) => `<div data-toggle="${t.name}"><kbd>${t.key}</kbd><span>${t.short}</span></div>`,
-    ).join('');
-    // The ski / snowboard switch: a quick toggle in the desktop strip (Y), lit on a board.
-    // (The strip is hidden on touch; there the switch lives in Options → Ski setup.)
-    this.toggles.insertAdjacentHTML(
-      'beforeend',
-      '<div data-toggle="discipline"><kbd>Y</kbd><span>Snowboard</span></div>',
-    );
     this.tape = this.compass.querySelector('.compass-tape')!;
     this.heading = this.compass.querySelector('.compass-heading')!;
     this.marker = this.compass.querySelector('.compass-marker')!;
@@ -174,20 +152,39 @@ export class Hud {
   }
 
   /**
-   * Show a quick toggle's state in the list on screen; `announce` (its key was just
-   * pressed) briefly highlights the row.
+   * The quick toggles: a key each in game, listed small down the right of the screen (lit
+   * when on). Built from the registry's entries (`ui/toggles.ts`); `refreshToggles` shows
+   * their state, `flashToggle` briefly highlights one whose key was just pressed.
    */
-  setToggle(name: DisplayToggle, on: boolean, announce = false): void {
-    const row = this.toggles.querySelector<HTMLElement>(`[data-toggle="${name}"]`);
+  setToggles(entries: readonly Entry[]): void {
+    this.toggleEntries = entries;
+    this.toggles.innerHTML = '';
+    for (const e of entries) {
+      const row = document.createElement('div');
+      row.dataset.toggle = e.id;
+      row.innerHTML = '<kbd></kbd><span></span>';
+      row.querySelector('kbd')!.textContent = e.key?.glyph ?? '';
+      row.querySelector('span')!.textContent = e.short ?? e.label;
+      this.toggles.append(row);
+    }
+    this.refreshToggles();
+  }
+
+  refreshToggles(): void {
+    for (const e of this.toggleEntries) {
+      this.toggles
+        .querySelector<HTMLElement>(`[data-toggle="${e.id}"]`)
+        ?.classList.toggle('on', e.get?.() ?? false);
+    }
+  }
+
+  flashToggle(id: string): void {
+    const row = this.toggles.querySelector<HTMLElement>(`[data-toggle="${id}"]`);
     if (!row) return;
-    row.classList.toggle('on', on);
-    // H: nothing but the world (labels, markers and piste colours go too; see main.ts).
-    if (name === 'hud') document.body.classList.toggle('hud-off', !on);
-    if (!announce) return;
     row.classList.add('flash');
-    clearTimeout(this.flashTimers.get(name));
+    clearTimeout(this.flashTimers.get(id));
     this.flashTimers.set(
-      name,
+      id,
       window.setTimeout(() => row.classList.remove('flash'), FLASH_MS),
     );
   }
@@ -267,20 +264,10 @@ export class Hud {
                   : mode.toUpperCase();
   }
 
-  /** Ski or snowboard: re-labels the stat strip when riding on snow and lights the Y toggle. */
-  setDiscipline(discipline: 'ski' | 'snowboard', announce = false): void {
+  /** Ski or snowboard: re-labels the stat strip when riding on snow. */
+  setDiscipline(discipline: 'ski' | 'snowboard'): void {
     this.discipline = discipline;
     this.setMode(this.lastMode);
-    const row = this.toggles.querySelector<HTMLElement>('[data-toggle="discipline"]');
-    if (!row) return;
-    row.classList.toggle('on', discipline === 'snowboard');
-    if (!announce) return;
-    row.classList.add('flash');
-    clearTimeout(this.flashTimers.get('discipline'));
-    this.flashTimers.set(
-      'discipline',
-      window.setTimeout(() => row.classList.remove('flash'), FLASH_MS),
-    );
   }
 
   /**

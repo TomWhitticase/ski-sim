@@ -5,21 +5,17 @@ import {
   GLASS_STRENGTHS,
   UI_SCALE_RANGE,
 } from './display-settings';
-import { DISPLAY_TOGGLES, type DisplayToggle } from './hud';
 import { fillRange, OptionsTab } from './options-hub';
-
-/** The quick toggles (H, V, 1–4, K), each a switch here and a hotkey in game. */
-export type WorldToggle = DisplayToggle;
-
-const ROWS = DISPLAY_TOGGLES;
+import { keyLabel, type Registry } from './registry';
 
 /**
- * Display (Options): what's drawn in the world (the same switches as the H / V / 1–4 / K
- * keys) and how the interface looks (glass strength, size). World switches need a loaded
- * map (`data-needs-map`); the interface ones apply at once and are saved via `onChange`.
+ * Display (Options): what's drawn in the world (the registry's `display` entries: the
+ * same switches as the H / V / 1–4 / K keys) and how the interface looks (glass
+ * strength, size). World switches need a loaded map (`data-needs-map`); the interface
+ * ones apply at once and are saved via `onChange`.
  */
 export class DisplayMenu extends OptionsTab {
-  private readonly switches = new Map<WorldToggle, HTMLButtonElement>();
+  private readonly switches = new Map<string, HTMLButtonElement>();
   private readonly glassButtons: HTMLButtonElement[] = [];
   private readonly scale: HTMLInputElement;
   private readonly scaleValue: HTMLElement;
@@ -27,28 +23,29 @@ export class DisplayMenu extends OptionsTab {
 
   constructor(
     el: HTMLElement,
-    private readonly onToggle: (name: WorldToggle) => void,
+    private readonly registry: Registry,
     private readonly onChange: () => void,
   ) {
     super(el);
     const body = el.querySelector<HTMLElement>('.modal-body')!;
 
     const world = section(body, 'In the world');
-    for (const row of ROWS) {
+    for (const entry of registry.entries.filter((e) => e.display)) {
       const line = document.createElement('div');
       line.className = 'option-row';
       line.innerHTML =
         '<span class="option-label"></span><kbd></kbd><button class="switch" type="button" role="switch" data-needs-map disabled></button>';
-      line.querySelector('.option-label')!.textContent = row.label;
-      line.querySelector('kbd')!.textContent = row.key;
+      line.querySelector('.option-label')!.textContent = entry.label;
+      line.querySelector('kbd')!.textContent = entry.key ? keyLabel(entry.key) : '';
       const sw = line.querySelector<HTMLButtonElement>('.switch')!;
-      sw.dataset.toggle = row.name;
-      sw.setAttribute('aria-checked', 'false');
-      sw.setAttribute('aria-label', row.label);
-      sw.addEventListener('click', () => this.onToggle(row.name));
-      this.switches.set(row.name, sw);
+      sw.dataset.toggle = entry.id;
+      sw.setAttribute('aria-checked', String(registry.isOn(entry)));
+      sw.setAttribute('aria-label', entry.label);
+      sw.addEventListener('click', () => entry.run());
+      this.switches.set(entry.id, sw);
       world.append(line);
     }
+    registry.subscribe(() => this.refresh());
 
     const ui = section(body, 'Interface');
     const glass = document.createElement('div');
@@ -110,9 +107,13 @@ export class DisplayMenu extends OptionsTab {
     this.render();
   }
 
-  /** Show a world toggle's state. */
-  set(name: WorldToggle, on: boolean): void {
-    this.switches.get(name)?.setAttribute('aria-checked', String(on));
+  /** Show every switch's state (the world's, from the registry, and the interface's). */
+  refresh(): void {
+    for (const [id, sw] of this.switches) {
+      const entry = this.registry.get(id);
+      if (entry) sw.setAttribute('aria-checked', String(this.registry.isOn(entry)));
+    }
+    this.render();
   }
 
   private changed(): void {
