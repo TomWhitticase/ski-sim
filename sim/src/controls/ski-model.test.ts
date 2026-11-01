@@ -82,3 +82,50 @@ describe('SkierModel arms', () => {
     expect(l).toBeGreaterThan(0.6);
   });
 });
+
+describe('SkierModel snowboard hands', () => {
+  const gloves = (model: SkierModel) => {
+    const found: { visible: boolean; pos: Vector3 }[] = [];
+    model.root.updateMatrixWorld(true);
+    model.root.traverse((o) => {
+      if (o.name === 'board-glove')
+        found.push({ visible: o.visible, pos: o.getWorldPosition(new Vector3()) });
+    });
+    return found;
+  };
+
+  it('gives a boarder a glove on each bare hand, hidden for a skier', () => {
+    const model = new SkierModel();
+    // Skiing: the gloves ride on the pole grips, so the bare-hand gloves stay hidden.
+    model.apply(initialStance());
+    const skiing = gloves(model);
+    expect(skiing).toHaveLength(2);
+    expect(skiing.every((g) => !g.visible)).toBe(true);
+    // On a board: both hands get a visible glove.
+    model.setSnowboard(true);
+    model.apply(initialStance());
+    const riding = gloves(model);
+    expect(riding.filter((g) => g.visible)).toHaveLength(2);
+  });
+
+  it('keeps the boarder hands above the board in a deep carve (both edges)', () => {
+    for (const dir of [1, -1]) {
+      const model = new SkierModel();
+      model.setSnowboard(true);
+      const up = new Vector3(dir * Math.sin(0.9), Math.cos(0.9), 0);
+      model.apply({ ...initialStance(), crouch: 0.4 }, up);
+      // Hands never drop into the deck/snow, and each wears a visible glove near that hand.
+      for (const h of model.clearance.hands) expect(h).toBeGreaterThan(0.3);
+      const g = gloves(model).filter((x) => x.visible);
+      expect(g).toHaveLength(2);
+    }
+  });
+
+  it('hides the boarder gloves in first person (the upper body is gone)', () => {
+    const model = new SkierModel();
+    model.setSnowboard(true);
+    model.setFirstPerson(true);
+    model.apply(initialStance());
+    expect(gloves(model).some((g) => g.visible)).toBe(false);
+  });
+});

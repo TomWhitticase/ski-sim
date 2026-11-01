@@ -187,6 +187,10 @@ export class SkierModel {
   private boardGeometry!: BufferGeometry;
   /** The gloved fists on the pole grips (hidden while the hands hold the controller). */
   private readonly fists: Mesh[] = [];
+  /** Gloves on the boarder's bare hands (skiers wear theirs on the pole grips instead). */
+  private readonly boardGloves: Group[] = [];
+  /** Whether the upper body (arms, so also the board gloves) is shown (false in first person). */
+  private upperArmsVisible = true;
   private readonly controller = createDroneController();
   private flyingDrone = false;
   /** The stance and balance line last applied (what a remote copy needs to match it). */
@@ -398,6 +402,15 @@ export class SkierModel {
     this.head.name = 'head';
     this.root.add(this.figure);
 
+    // One set of shared glove geometry for every mitt (two pole fists + two board hands):
+    // a rounded palm, knuckle ridges, a thumb and a flared cuff.
+    const gloveGeo: GloveGeometry = {
+      palm: new SphereGeometry(1, 14, 10),
+      knuckle: new SphereGeometry(0.0125, 8, 6),
+      thumb: new CapsuleGeometry(0.013, 0.03, 4, 8),
+      cuff: new CylinderGeometry(0.04, 0.034, 0.08, 12),
+    };
+
     // Poles hang from the hands (gloves on the grips); their pivot is the grip.
     for (let i = 0; i < 2; i++) {
       const pole = new Group();
@@ -408,24 +421,22 @@ export class SkierModel {
       const strap = put(pole, new Mesh(new TorusGeometry(0.04, 0.006, 4, 16, Math.PI), poleGrip));
       strap.position.set(0, 0.07, 0.03);
       strap.rotation.set(0, Math.PI / 2, -Math.PI / 2);
-      // Gloved fist round the grip: palm and fingers, thumb over the top, cuff to the wrist.
-      const fist = put(pole, new Mesh(new SphereGeometry(1, 14, 10), glove), 0, 0.03, -0.006);
-      fist.scale.set(0.036, 0.052, 0.04);
-      for (let k = 0; k < 4; k++) {
-        // Knuckle ridges across the front of the fingers.
-        const knuckle = put(pole, new Mesh(new SphereGeometry(0.0125, 8, 6), glove));
-        knuckle.position.set(0, 0.06 - k * 0.02, -0.034);
-      }
-      const thumb = put(pole, new Mesh(new CapsuleGeometry(0.013, 0.03, 4, 8), glove));
-      thumb.position.set(0, 0.078, -0.012);
-      thumb.rotation.x = -1.1;
-      const gauntlet = put(pole, new Mesh(new CylinderGeometry(0.04, 0.034, 0.08, 12), glove));
-      gauntlet.position.set(0, 0.07, 0.05);
-      gauntlet.rotation.x = 0.95;
-      // The fist, knuckles, thumb and gauntlet (the glove), let go to fly the drone.
-      for (const m of pole.children) if ((m as Mesh).material === glove) this.fists.push(m as Mesh);
+      // Gloved fist round the grip: the glove's palm sits where the fist was (y = 0.03).
+      const fist = makeGlove(gloveGeo, glove, this.fists);
+      fist.position.set(0, 0.03, -0.006);
+      pole.add(fist);
       this.root.add(pole);
       this.poles.push(pole);
+    }
+
+    // Boarders ride with bare hands (no poles): give each hand its own glove, posed along the
+    // forearm in `applyBoard`. Hidden until the board discipline is on.
+    for (let i = 0; i < 2; i++) {
+      const g = makeGlove(gloveGeo, glove);
+      g.name = 'board-glove';
+      g.visible = false;
+      this.boardGloves.push(g);
+      this.figure.add(g);
     }
   }
 
@@ -535,10 +546,12 @@ export class SkierModel {
   setFirstPerson(firstPerson: boolean, legs = false): void {
     this.figure.visible = !firstPerson || legs;
     const upper = !firstPerson;
+    this.upperArmsVisible = upper;
     this.chest.visible = upper;
     for (const limb of this.limbs) {
       for (const m of [limb.upperArm, limb.forearm, limb.elbow, limb.cuff]) m.visible = upper;
     }
+    for (const g of this.boardGloves) g.visible = upper && this.snowboard;
   }
 
   private jacket!: MeshStandardNodeMaterial;
@@ -566,6 +579,9 @@ export class SkierModel {
     backRig.binding.visible = onBoard; // the back foot is out of its binding seated
     for (const p of this.skiParts) p.visible = !this.snowboard && !this.stowed;
     for (const p of this.poles) p.visible = !this.snowboard && !this.stowed;
+    // Board gloves show whenever the boarder has bare hands (riding or seated on a lift); skiers
+    // wear theirs on the pole grips. `applyBoard` and the seated arm loop below pose them.
+    for (const g of this.boardGloves) g.visible = this.snowboard && this.upperArmsVisible;
     if (onBoard) {
       this.applyBoard(stance, up);
       return;
@@ -674,6 +690,15 @@ export class SkierModel {
       stretch(limb.forearm, elbow, wrist);
       stretch(limb.cuff, wrist, hand);
       limb.elbow.position.copy(elbow);
+
+      // A boarder has bare hands here (seated on a lift): sit a glove on each hand. Skiers wear
+      // their gloves on the pole grips instead, so these stay hidden for them.
+      if (this.snowboard) {
+        const g = this.boardGloves[i]!;
+        const armAxis = hand.clone().sub(elbow).normalize();
+        g.position.copy(hand).addScaledVector(armAxis, 0.03);
+        g.quaternion.setFromUnitVectors(Y_AXIS, armAxis.negate());
+      }
 
       const pole = this.poles[i]!;
       if (drone) {
@@ -821,23 +846,48 @@ export class SkierModel {
       stretch(limb.shin, knee, ankle);
       limb.knee.position.copy(knee);
 
-      // Arms balance (no poles): the nose-side arm reaches forward over the nose, the other
-      // trails back; both drop a little as the edge angle grows (reaching for the snow).
+      // Arms (no poles): relaxed and bent, carried out over the board ends for balance. In the
+      // chest's frame +X runs toward the tail and −X toward the nose, −Z is chest-forward (the
+      // toe/downhill side) and +Y is up along the balance line. The lead (nose-side) arm is
+      // carried a touch higher, further out and forward along the line of travel; the trailing
+      // arm is quieter — tucked in, lower and a shade behind. Both keep a bent elbow (the hands
+      // stay well inside reach), rise together with `armReach` (planting / the ollie pop) and
+      // gather in as the rider tucks. Edge drifts the hands toward the engaged edge.
       const shoulder = new Vector3(side * 0.2, 0.44, 0).applyMatrix4(this.chest.matrix);
-      const lead = i === 0 ? 1 : -1; // the left arm leads for a regular rider
-      const reach = (regular ? lead : -lead) * (0.22 + 0.12 * c);
-      const handLocal = new Vector3(
-        side * (0.32 - 0.08 * c),
-        -0.02 - 0.12 * c - 0.12 * Math.abs(edge) + 0.14 * stance.armReach,
-        reach,
-      );
-      const hand = handLocal.applyMatrix4(this.chest.matrix);
-      const elbow = solveJoint(shoulder, hand, UPPER_ARM, FOREARM, new Vector3(side, -0.4, 0.3));
+      const isLead = regular === (i === 0); // the nose-side arm leads
+      const ae = Math.abs(edge);
+      const reach = Math.max(stance.armReach, 0);
+      const toeDrift = regular ? edge : -edge; // > 0 on the toe edge (hands drift forward)
+      let hx = side * (0.33 - 0.04 * c); // spread along the board (nose / tail)
+      let hy = 0.12 - 0.1 * c + 0.26 * reach; // waist height; up reaching / popping, down tucked
+      let hz = -0.13 - 0.05 * c - 0.1 * toeDrift; // a little forward; forward on the toe edge
+      if (isLead) {
+        hx += side * 0.06; // reach further toward the nose, down the line of travel
+        hy += 0.05 + 0.12 * ae; // carried higher, lifting into a carve
+        hz -= 0.05; // leading, a little more forward
+      } else {
+        hx -= side * 0.05; // tucked in toward the body
+        hy -= 0.03 + 0.05 * ae; // quieter and lower
+        hz += 0.05; // drifts a shade behind
+      }
+      const hand = new Vector3(hx, hy, hz).applyMatrix4(this.chest.matrix);
+      hand.y = Math.max(hand.y, feet.y + 0.14); // never let a glove drop into the board or snow
+      // Elbows bend down and back relative to the torso (never inside-out), rotating with it.
+      const hint = new Vector3(side * 0.3, -0.7, 0.6).applyQuaternion(this.chest.quaternion);
+      const elbow = solveJoint(shoulder, hand, UPPER_ARM, FOREARM, hint);
       stretch(limb.upperArm, shoulder, elbow);
       const wrist = elbow.clone().lerp(hand, 0.85);
       stretch(limb.forearm, elbow, wrist);
       stretch(limb.cuff, wrist, hand);
       limb.elbow.position.copy(elbow);
+
+      // The glove sits on the hand, its cuff running back up the forearm; the back of the hand
+      // faces forward off the knuckles.
+      const g = this.boardGloves[i]!;
+      g.visible = this.upperArmsVisible;
+      const armAxis = hand.clone().sub(elbow).normalize(); // fingertip direction
+      g.position.copy(hand).addScaledVector(armAxis, 0.03);
+      g.quaternion.setFromUnitVectors(Y_AXIS, armAxis.negate());
       this.clearance.hands[i] = hand.y;
       this.clearance.tips[i] = 1;
     });
@@ -934,6 +984,39 @@ function poleGripGeometry(): BufferGeometry {
     [0, 0.098],
   ].map(([r, y]) => new Vector2(r, y));
   return new LatheGeometry(profile, 14);
+}
+
+/** Shared geometry for a glove mitt (one set for every hand). */
+interface GloveGeometry {
+  palm: BufferGeometry;
+  knuckle: BufferGeometry;
+  thumb: BufferGeometry;
+  cuff: BufferGeometry;
+}
+
+/**
+ * A chunky low-poly snowboard mitt: a flared cuff, a rounded palm, knuckle ridges and a thumb.
+ * Local frame: the palm is centred at the origin, +Y runs up the wrist to the cuff and −Y to the
+ * fingertips, with the back of the hand (knuckles) facing −Z. Geometry and material are shared,
+ * so a mitt is a handful of cheap meshes in one group. Used both on the pole grips (skiers) and
+ * on the boarder's bare hands. Any meshes are pushed into `into` (the pole fists hide to fly).
+ */
+function makeGlove(geo: GloveGeometry, glove: MeshStandardNodeMaterial, into?: Mesh[]): Group {
+  const group = new Group();
+  const add = (geometry: BufferGeometry, x: number, y: number, z: number, rx = 0) => {
+    const m = new Mesh(geometry, glove);
+    m.position.set(x, y, z);
+    m.rotation.x = rx;
+    m.castShadow = true;
+    group.add(m);
+    into?.push(m);
+    return m;
+  };
+  add(geo.palm, 0, 0, 0).scale.set(0.036, 0.052, 0.04); // palm and fused fingers
+  for (let k = 0; k < 4; k++) add(geo.knuckle, 0, 0.03 - k * 0.02, -0.028); // knuckle ridges
+  add(geo.thumb, 0, 0.048, -0.006, -1.1); // thumb over the top
+  add(geo.cuff, 0, 0.04, 0.056, 0.95); // flared cuff to the wrist
+  return group;
 }
 
 /** Boot sole above the base of the ski. */
