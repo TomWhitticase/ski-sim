@@ -59,6 +59,8 @@ export interface ToggleDeps {
   goToMarker(): void;
   screenshot(): void;
   openTab(tab: TabName): void;
+  quickOpen(): boolean;
+  toggleQuick(): void;
 }
 
 const MAP_OPEN = 'Close the map first';
@@ -72,6 +74,8 @@ export const TOOL_ORDER = [
   'view',
   'labels',
   'pistes',
+  'sound',
+  'hud',
   'fullscreen',
 ];
 
@@ -80,6 +84,7 @@ export function touchTools(entries: readonly Entry[]): Entry[] {
   const at = (e: Entry) => TOOL_ORDER.indexOf(e.tool!.id);
   return entries.filter((e) => e.tool).sort((a, b) => at(a) - at(b));
 }
+
 const LABEL_KINDS = ['lift', 'peak', 'restaurant'] as const;
 
 /**
@@ -214,6 +219,7 @@ export function createEntries(d: ToggleDeps): Entry[] {
       icon: 'sound',
       synonyms: ['mute', 'audio', 'volume'],
       panel: true,
+      tool: { id: 'sound', label: 'Sound' },
       ...toggle(
         () => d.sound(),
         (on) => d.setSound(on),
@@ -244,6 +250,7 @@ export function createEntries(d: ToggleDeps): Entry[] {
       icon: 'hud',
       synonyms: ['interface', 'immersion', 'hide', 'overlay'],
       panel: true,
+      tool: { id: 'hud', label: 'HUD' },
       ...toggle(
         () => d.hud(),
         (on) => d.setHud(on),
@@ -409,6 +416,18 @@ export function createEntries(d: ToggleDeps): Entry[] {
       unavailable: () => (d.mapOpen() ? MAP_OPEN : d.hasMarker() ? null : 'No guide marker set'),
     },
     // ---- Menus: Options tabs and the rest ----
+    {
+      id: 'quick-settings',
+      label: 'Quick settings',
+      kind: 'action',
+      hint: 'Labels, piste colours, view and sound in one panel',
+      group: 'menus',
+      key: { code: 'Tab', glyph: 'Tab' },
+      icon: 'quick',
+      synonyms: ['layers', 'toggles', 'overlays', 'panel'],
+      get: () => d.quickOpen(),
+      run: () => d.toggleQuick(),
+    },
     {
       id: 'tab-camera',
       label: 'Camera options',

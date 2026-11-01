@@ -65,8 +65,23 @@
             Go to marker
           </button>
         </div>
-        <!-- Quick toggles: always on screen, small, lit when on. -->
+        <!-- Quick settings (ui/quick-settings.ts): Tab or this button opens the panel below
+             it; the compact strip under the button shows what's on (and flashes a key). -->
+        <button
+          id="quick-button"
+          class="glass"
+          type="button"
+          aria-expanded="false"
+          aria-controls="quick-settings"
+        ></button>
         <div id="toggles"></div>
+        <div
+          id="quick-settings"
+          class="glass"
+          role="dialog"
+          aria-label="Quick settings"
+          hidden
+        ></div>
       </div>
       <div class="hud-bottom">
         <div id="run" class="glass" hidden></div>

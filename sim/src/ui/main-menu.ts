@@ -319,7 +319,9 @@ export class MainMenu {
   }
 
   private get visible(): boolean {
-    return !['flying', 'map-open', 'entering'].some((c) => document.body.classList.contains(c));
+    return !['flying', 'map-open', 'entering', 'quick-open', 'palette-open'].some((c) =>
+      document.body.classList.contains(c),
+    );
   }
 
   /** "Where you left off" makes sense only when you aren't already skiing there. */

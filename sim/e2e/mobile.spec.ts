@@ -963,3 +963,77 @@ test('by touch: the cockpit view, jumping out, freefall and the canopy, upright 
   await noOverlap(page, TOUCH_UI);
   await fingers.lift(4);
 });
+
+test('touch: Quick settings from its button, each label kind on its own; HUD and sound tools', async ({
+  page,
+}) => {
+  await load(page, LAKE);
+  const fingers = await Fingers.on(page);
+  await tapToPlay(page, fingers);
+  const tap = async (selector: string) => {
+    const c = await centre(page, selector);
+    await fingers.tap(c.x, c.y);
+  };
+  const panel = page.locator('#quick-settings');
+  const row = (id: string) => page.locator(`#quick-settings .qs-row[data-id="${id}"]`);
+  // The single labels tool stays; HUD and sound are tools now too.
+  await expect(page.locator('[data-touch="labels"]')).toBeVisible();
+  await expect(page.locator('[data-touch="sound"]')).toHaveClass(/\bon\b/);
+  await expect(page.locator('[data-touch="hud"]')).toHaveClass(/\bon\b/);
+  await tap('[data-touch="sound"]');
+  await expect(page.locator('[data-touch="sound"]')).not.toHaveClass(/\bon\b/);
+  await tap('[data-touch="sound"]');
+  await tap('[data-touch="hud"]');
+  await expect(page.locator('body')).toHaveClass(/hud-off/);
+  // With the HUD off its tool is the way back.
+  await expect(page.locator('[data-touch="hud"]')).toBeVisible();
+  await tap('[data-touch="hud"]');
+  await expect(page.locator('body')).not.toHaveClass(/hud-off/);
+
+  // Landscape on a phone: a bottom sheet in two columns, still playing behind it.
+  await tap('#quick-button');
+  await expect(panel).toBeVisible();
+  await expect(page.locator('body')).toHaveClass(/flying/);
+  await page.waitForTimeout(400);
+  const sheet = (await panel.boundingBox())!;
+  expect(sheet.y + sheet.height).toBeGreaterThan(LANDSCAPE.height - 2);
+  expect(sheet.y).toBeGreaterThan(20);
+  expect(sheet.width).toBeGreaterThan(400);
+  await expect(panel.locator('kbd').first()).toBeHidden(); // no keys on touch
+  await shot(page, 'quick-sheet-landscape');
+  // Each label kind on its own (the labels tool turns them all together).
+  await tap('#quick-settings .qs-row[data-id="peak"] .switch');
+  await expect(row('peak').locator('.switch')).toHaveAttribute('aria-checked', 'false');
+  await expect(row('lift').locator('.switch')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('[data-touch="labels"]')).toHaveClass(/\bon\b/);
+  // A tap on the scene closes it.
+  await fingers.tap(40, 250);
+  await expect(panel).toBeHidden();
+
+  // Upright: under the minimap, the tools out of its way.
+  await page.setViewportSize(PORTRAIT);
+  await page.waitForTimeout(400);
+  await tap('#quick-button');
+  await expect(panel).toBeVisible();
+  await page.waitForTimeout(300);
+  const box = (await panel.boundingBox())!;
+  const map = (await page.locator('#minimap').boundingBox())!;
+  expect(box.y).toBeGreaterThan(map.y + map.height);
+  expect(box.y + box.height).toBeLessThanOrEqual(PORTRAIT.height);
+  await expect(page.locator('#touch-tools')).toBeHidden();
+  await shot(page, 'quick-portrait');
+  await tap('#quick-settings .qs-close');
+  await expect(panel).toBeHidden();
+  await shot(page, 'quick-closed-portrait');
+
+  // A tablet: the panel under the minimap, not a sheet.
+  await page.setViewportSize({ width: 1180, height: 820 });
+  await page.waitForTimeout(400);
+  await tap('#quick-button');
+  await page.waitForTimeout(300);
+  const tablet = (await panel.boundingBox())!;
+  const tabletMap = (await page.locator('#minimap').boundingBox())!;
+  expect(tablet.y).toBeGreaterThan(tabletMap.y + tabletMap.height);
+  expect(tablet.width).toBeLessThan(400);
+  await shot(page, 'quick-tablet');
+});

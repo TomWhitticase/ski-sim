@@ -124,6 +124,7 @@ import { BodyMarker } from './ui/body-marker';
 import { DisplayMenu } from './ui/display-menu';
 import { ICONS } from './ui/icons';
 import { OptionsTab } from './ui/options-hub';
+import { QuickSettings } from './ui/quick-settings';
 import { Registry } from './ui/registry';
 import { createEntries, type TabName, type ToggleDeps, touchTools } from './ui/toggles';
 import { RulesMenu } from './ui/rules-menu';
@@ -427,12 +428,43 @@ async function main(): Promise<void> {
     goToMarker: () => {},
     screenshot: () => {},
     openTab: () => {},
+    quickOpen: () => quick.isOpen,
+    toggleQuick: () => quick.toggle(),
   };
   const registry = new Registry(createEntries(toggleDeps), {
     rules: gameRules,
     message: (rule) => ruleOffMessage(rule, inGame()),
   });
   const displayMenu = new DisplayMenu($('#opt-display'), registry, displayChanged);
+  // Quick settings (Tab, or its button under the minimap): the registry's panel entries.
+  // Opening it on a desktop releases the mouse (the game carries on behind it); closing
+  // it with a key, its ✕ or a click away captures it again (`resumePlay`, set below).
+  let resumePlay = () => {};
+  const quick = new QuickSettings(
+    $<HTMLButtonElement>('#quick-button'),
+    $('#quick-settings'),
+    registry,
+    {
+      opening: () => {
+        if (!input.touch) input.unlock();
+      },
+      closed: (resume) => {
+        if (resume && !input.touch) resumePlay();
+      },
+      touch: () => input.touch,
+    },
+  );
+  // A click or tap away from it closes it.
+  document.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (!quick.isOpen || !(e.target instanceof Node)) return;
+      if ($('#quick-settings').contains(e.target) || $('#quick-button').contains(e.target)) return;
+      if ((e.target as Element).closest?.('dialog')) return;
+      quick.close(true);
+    },
+    true,
+  );
   touch.setTools(
     touchTools(registry.entries).map((e) => ({
       id: e.tool!.id,
@@ -1664,6 +1696,10 @@ async function main(): Promise<void> {
       tabs[tab].toggle();
     },
   } satisfies Partial<ToggleDeps>);
+  resumePlay = () => {
+    sound.start();
+    void input.lock();
+  };
   registry.changed(null);
   document.addEventListener('keydown', (e) => {
     // Typing in the map search box or a name field (a focused checkbox or slider isn't).
@@ -1676,6 +1712,15 @@ async function main(): Promise<void> {
       registry.forKey(e.code, false)?.run();
       return;
     }
+    if (e.code === 'Tab') {
+      // Tab opens Quick settings in game (or closes it); in the menus it moves the focus.
+      if (!input.locked && !quick.isOpen) return;
+      e.preventDefault();
+    }
+    if (e.code === 'Escape' && quick.isOpen) {
+      quick.close(false); // back to the pause menu (Esc can't capture the mouse again)
+      return;
+    }
     if (!e.repeat) act(e.code, e.shiftKey);
   });
   /**
@@ -1685,6 +1730,10 @@ async function main(): Promise<void> {
    */
   act = (code, shift = false) => {
     const entry = registry.forKey(code, shift);
+    // Doing something else (the map, a mode, a menu) closes Quick settings first.
+    if (quick.isOpen && entry?.kind === 'action' && entry.id !== 'quick-settings') {
+      quick.close(false);
+    }
     // G / T / C / O / N open their Options tab (or close the hub if it's already on it).
     if (entry?.overDialogs) {
       if (!entry.unavailable?.()) entry.run();

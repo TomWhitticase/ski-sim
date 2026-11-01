@@ -1,0 +1,401 @@
+/*
+ * Quick settings, the command palette and context hints (ui/quick-settings.ts,
+ * ui/command-palette.ts, ui/hints.ts). Dark glass: they're in the world, over the snow.
+ */
+
+/* ---------- The Quick settings button: in the right rail, under the minimap ---------- */
+
+#quick-button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 6px 5px 9px;
+  border: none;
+  color: var(--fg);
+  font: 600 12px var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+#quick-button svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  opacity: 0.85;
+}
+
+#quick-button .qs-name {
+  flex: 1;
+}
+
+#quick-button .qs-count {
+  font: 500 10.5px var(--font-mono);
+  color: var(--muted);
+}
+
+#quick-button kbd {
+  margin: 0;
+  height: 18px;
+  font-size: 10px;
+}
+
+#quick-button[aria-expanded='true'] {
+  background: var(--glass-solid);
+}
+
+/* A key just switched something: the button says what, for a moment. */
+#quick-button .qs-flash {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+#quick-button .qs-flash > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#quick-button .qs-flash b {
+  margin-left: auto;
+  padding: 1px 5px;
+  border-radius: var(--r-chip);
+  background: var(--sub-2);
+  font: 600 10px var(--font-mono);
+  text-transform: uppercase;
+}
+
+#quick-button .qs-flash b.on {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+#quick-button.flashing .qs-name,
+#quick-button.flashing .qs-count,
+#quick-button.flashing kbd {
+  display: none;
+}
+
+/* The compact strip (the old quick-toggle column, reduced): one row of small keys under
+   the button, lit when on, the one just pressed highlighted for a moment. The names are
+   in the panel (and the button says what a key just switched). */
+#toggles {
+  display: flex;
+  justify-content: flex-end;
+  gap: 3px;
+}
+
+#toggles > div {
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: var(--r-chip);
+  background: rgba(16, 21, 31, 0.3);
+  -webkit-backdrop-filter: blur(8px) saturate(1.6);
+  backdrop-filter: blur(8px) saturate(1.6);
+  transition: background 0.2s var(--ease);
+}
+
+:root[data-glass='tint'] #toggles > div {
+  background: rgba(16, 21, 31, 0.62);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+#toggles kbd {
+  min-width: 17px;
+  height: 17px;
+  margin: 0;
+  padding: 0 4px;
+  font-size: 9.5px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+#toggles span {
+  display: none;
+}
+
+#toggles > div.on kbd {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+#toggles > div.flash {
+  background: rgba(16, 21, 31, 0.78);
+}
+
+/* The drone has no first or third person, so V isn't listed. */
+body:not(.skiing) #toggles [data-toggle='view'] {
+  display: none;
+}
+
+body.quick-open #toggles {
+  visibility: hidden;
+}
+
+/* ---------- The panel ---------- */
+
+#quick-settings {
+  display: flex;
+  flex-direction: column;
+  align-self: flex-end;
+  width: 300px;
+  /* Its max-height is set from where it sits (ui/quick-settings.ts), to end above the
+     bottom of the screen. */
+  min-height: 160px;
+  padding: 4px;
+  overflow: hidden;
+  pointer-events: auto;
+  background: var(--glass-solid);
+  animation: rise 0.16s var(--ease);
+}
+
+#quick-settings[hidden] {
+  display: none;
+}
+
+.qs-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 6px 5px 9px;
+}
+
+.qs-head b {
+  font: 600 13.5px var(--font-ui);
+}
+
+.qs-head .qs-on {
+  flex: 1;
+  font: 500 10.5px var(--font-mono);
+  color: var(--muted);
+}
+
+.qs-close {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--r-chip);
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.qs-close:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.qs-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+  padding: 0 2px 4px;
+}
+
+.qs-group {
+  margin: 4px 0 6px;
+}
+
+.qs-group h4 {
+  margin: 6px 8px 2px;
+  font: 600 10px var(--font-mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.qs-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  padding: 4px 7px;
+  border-radius: var(--r-control);
+  cursor: pointer;
+}
+
+.qs-row:hover:not(.disabled) {
+  background: var(--sub);
+}
+
+.qs-row > svg,
+.qs-action > svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  opacity: 0.85;
+}
+
+.qs-label {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  font: 500 12.5px var(--font-ui);
+  text-align: left;
+}
+
+.qs-label small {
+  margin-top: 1px;
+  font-size: 10.5px;
+  line-height: 1.25;
+  color: var(--muted);
+}
+
+.qs-row kbd {
+  margin: 0;
+  height: 18px;
+  font-size: 10px;
+}
+
+.qs-row.disabled {
+  cursor: default;
+}
+
+.qs-row.disabled > svg,
+.qs-row.disabled .qs-label > span,
+.qs-row.disabled kbd,
+.qs-row.disabled .qs-action > svg {
+  opacity: 0.4;
+}
+
+/* The reason it's off, in place of the hint. */
+.qs-row.disabled small {
+  color: #ffc58a;
+}
+
+.qs-row.qs-action {
+  padding: 0;
+}
+
+.qs-action {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 38px;
+  padding: 4px 7px;
+  border: none;
+  border-radius: var(--r-control);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.qs-action:disabled {
+  cursor: default;
+}
+
+/* An action whose mode you're in (flying the drone, on the sled): a lit dot. */
+.qs-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.qs-row.active .qs-dot {
+  background: var(--accent);
+}
+
+/* Desktop: the HUD rail stays visible while the panel's open (the game goes on behind
+   it, mouse released); nothing else from the menus shows. */
+html body.quick-open #hud {
+  opacity: 1;
+}
+
+body.quick-open #overlay,
+body.palette-open #overlay {
+  display: none;
+}
+
+/* ---------- Touch ---------- */
+
+body.touch #quick-button {
+  min-height: 34px;
+  padding: 4px 7px;
+  white-space: nowrap;
+}
+
+body.touch #quick-button .qs-count,
+body.quick-open #rotate-hint {
+  display: none !important;
+}
+
+body.touch #quick-button kbd,
+body.touch #quick-settings kbd {
+  display: none;
+}
+
+body.touch #quick-settings {
+  width: min(300px, calc(100vw / var(--ui-scale) - 28px));
+}
+
+body.touch .qs-row,
+body.touch .qs-action {
+  min-height: 44px;
+}
+
+/* Short landscape phones: a bottom sheet across the screen, not a cramped box under the
+   minimap. */
+@media (orientation: landscape) and (max-height: 500px) {
+  body.touch #quick-settings {
+    position: fixed;
+    left: 50%;
+    right: auto;
+    bottom: 0;
+    translate: -50% 0;
+    width: min(640px, calc(100vw / var(--ui-scale) - 2 * 14px));
+    max-height: calc(100vh / var(--ui-scale) - 56px) !important;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: sheet 0.2s var(--ease);
+    z-index: 3;
+  }
+
+  body.touch #quick-settings .qs-body {
+    columns: 2;
+    column-gap: 10px;
+  }
+
+  body.touch #quick-settings .qs-group {
+    break-inside: avoid;
+  }
+
+  body.touch.quick-open #touch-tools,
+  body.touch.quick-open #touch-buttons {
+    visibility: hidden;
+  }
+}
+
+@keyframes sheet {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+/* H on a touchscreen: the HUD tool stays, dimmed, as the way back. */
+body.hud-off #touch [data-touch='hud'] {
+  visibility: visible;
+  opacity: 0.6;
+}
+
+body.touch.quick-open #touch-tools {
+  visibility: hidden;
+}
+
+#quick-settings:focus {
+  outline: none;
+}

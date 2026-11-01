@@ -59,6 +59,8 @@ function fakeGame() {
     goToMarker: () => calls.push('go-to-marker'),
     screenshot: () => calls.push('screenshot'),
     openTab: (tab: TabName) => calls.push(`tab:${tab}`),
+    quickOpen: () => false,
+    toggleQuick: () => calls.push('quick'),
   };
   const rules: GameRules = { ...EVERYTHING_ON };
   const registry = new Registry(createEntries(deps), {
@@ -110,6 +112,7 @@ describe('the registry', () => {
     expect(at('KeyN')).toBe('tab-multiplayer');
     expect(at('F2')).toBe('screenshot');
     expect(at('F3')).toBe('debug');
+    expect(at('Tab')).toBe('quick-settings');
     // Not the registry's: they mean different things by context (main.ts act()).
     expect(at('KeyE')).toBeUndefined();
     expect(at('KeyU')).toBeUndefined();
@@ -178,7 +181,7 @@ describe('the registry', () => {
     expect(registry.status(registry.get('go-to-marker')!).reason).toBe('teleport is off');
   });
 
-  it('touch tools: the eight on the row today, labels as one button', () => {
+  it('touch tools: the row in order, labels as one button, HUD and sound added', () => {
     const { registry } = fakeGame();
     expect(touchTools(registry.entries).map((e) => e.tool!.id)).toEqual([
       'map',
@@ -188,6 +191,8 @@ describe('the registry', () => {
       'view',
       'labels',
       'pistes',
+      'sound',
+      'hud',
       'fullscreen',
     ]);
   });
