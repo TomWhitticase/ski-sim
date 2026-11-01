@@ -573,9 +573,9 @@ def test_an_adopted_station_building_is_never_replaced_by_the_terminal():
     )
 
     for kind, specs, footprint in (
-        # A 10 x 14 m chalet over the middle of a detachable chair's hood: under half the
+        # A 12 x 12 m chalet round the middle of a detachable chair's hood: half the
         # hall's area, so it used to be too small to be a shell.
-        ("chair_lift", {"duration": 200}, [[-5, -4], [5, -4], [5, 10], [-5, 10]]),
+        ("chair_lift", {"duration": 200}, [[-6, -4], [6, -4], [6, 8], [-6, 8]]),
         # A gondola station building the hall grows into.
         ("gondola", {}, [[-8, -6], [8, -6], [8, 18], [-8, 18]]),
     ):
@@ -650,3 +650,57 @@ def test_drag_lifts_adopt_no_building():
     assert "use" not in hut
     out, stats = cut_buildings([hut], cut_volumes([lift("t-bar")], terms), station_halls(terms))
     assert out == [] and stats["removedAsStation"] == 1
+
+
+def test_a_station_building_barely_wider_than_the_hood_leaves_no_slats():
+    """A station building barely wider than the hood, off to one side (Doron's top): as a
+    shell all that was left of its walls on the near side was a slat standing full height
+    beside the hood. Slats go; the storey over the hood stays, sitting on it, and the
+    building is still the station's (never replaced)."""
+    from ski_sim_pipeline.terminals import (
+        ROOF_GAP,
+        SHELL_MIN_WALL,
+        _rail,
+        adopt_station_buildings,
+        choose_entrances,
+        conflicts,
+        cut_volumes,
+        station_halls,
+        station_top,
+    )
+
+    grid, heights, ground = _grid_and_ground()
+    line = lift(duration=200)
+    terms = plan([line])
+    flatten(terms, heights, grid, ground)
+    bottom = terms[0]
+    for sup in (line["supports"][0], line["supports"][-1]):
+        sup["top"] = sup["ground"] + _rail("chair")
+    # The hood cut reaches 4.7 m either side; the building's east wall stands at 5.8 m.
+    station = {
+        "id": 9,
+        "type": "yes",
+        "footprint": [[-12, -4], [5.8, -4], [5.8, 12], [-12, 12]],
+        "base": 1999,
+        "top": round(bottom["pad"] + 7.0, 2),
+        "heightSource": "lidar",
+        "roof": None,
+    }
+    adopt_station_buildings(terms, [station], heights, grid, ground)
+    assert station["use"] == "station" and station["shell"] is True
+    choose_entrances(terms, [station])
+    cuts = cut_volumes([line], terms)
+    out, stats = cut_buildings([station], cuts, station_halls(terms))
+    assert stats["removedAsStation"] == 0 and not stats.get("removedAsSliver")
+    walls = [Polygon(b["footprint"]) for b in out if not b.get("raised")]
+    assert walls and all(b["use"] == "station" and b["shell"] for b in out)
+    for w in walls:  # no slat: every wall left is a real wing
+        assert w.buffer(-SHELL_MIN_WALL / 2 + 0.05, join_style=2).area > 0
+    assert not any(w.bounds[0] > 0 for w in walls)  # the east slat went
+    # The storey over the hood sits on it.
+    over = [b for b in out if b.get("raised")]
+    assert over
+    assert min(b["base"] for b in over) == pytest.approx(
+        bottom["pad"] + station_top(bottom) + ROOF_GAP, abs=0.01
+    )
+    assert conflicts(out, cuts) == []

@@ -87,6 +87,10 @@ STATION_HEIGHT = 8.0
 #: A chair station's shell is cut only round the hood itself: this far either side of
 #: the tracks (the hood's half-width is the gauge's plus 1.7 m).
 HOOD_CLEARANCE = 2.2
+#: A shell's ground-level pieces narrower than this go: where a building over the hood
+#: is barely wider than it, all that's left of its walls is a slat standing full height
+#: beside the hood (Doron's top). Its storeys over the hood stay, sitting on the hood.
+SHELL_MIN_WALL = 2.0
 #: Stations that have a building of their own to adopt (a drag lift's post and hut don't).
 ADOPTING_KINDS = ("chair", "gondola", "cabin")
 
@@ -1112,16 +1116,13 @@ def cut_buildings(
             # keeps every wall: they're the station's.
             kept = []
             for p in pieces:
-                if p.get("inner") or shell:
+                if shell and not p["raised"]:
+                    kept += _opened(p, SHELL_MIN_WALL, 1.0)
+                elif p.get("inner") or shell:
                     if p["polygon"].area >= (1.0 if shell else 4):
                         kept.append(p)
-                    continue
-                half = MIN_PIECE_WIDTH / 2
-                opened = p["polygon"].buffer(-half, join_style=2).buffer(half, join_style=2)
-                opened = opened.intersection(p["polygon"])
-                for q in _polygons(opened):
-                    if q.area >= 4:
-                        kept.append({**p, "polygon": q, "roof": _clip_roof(p["roof"], q)})
+                else:
+                    kept += _opened(p, MIN_PIECE_WIDTH, 4.0)
             # Storeys over a walkway or ramp stay only as an arcade, a shell's too.
             kept = _arcades_only(kept)
             kept = _merge_pieces(kept, b.get("roof"))
@@ -1130,7 +1131,10 @@ def cut_buildings(
                 stats["stubs"] += len(stubs)
                 kept = [p for p in kept if not any(p is q for q in stubs)]
 
-            left = unary_union([p["polygon"] for p in kept]).area if kept else 0.0
+            if not kept:
+                stats["removedAsSliver"] = stats.get("removedAsSliver", 0) + 1
+                continue
+            left = unary_union([p["polygon"] for p in kept]).area
             if not adopted and left < MIN_KEPT * polygon.area:
                 stats["removedAsSliver"] = stats.get("removedAsSliver", 0) + 1
                 continue
@@ -1156,6 +1160,19 @@ def cut_buildings(
                     }
                 )
     return out, stats
+
+
+def _opened(p: dict, width: float, min_area: float) -> list[dict]:
+    """A piece without its parts narrower than `width` (shrunk by half that and grown
+    back), so no slice or thin arm of it survives; bits under `min_area` m² go too."""
+    half = width / 2
+    opened = p["polygon"].buffer(-half, join_style=2).buffer(half, join_style=2)
+    opened = opened.intersection(p["polygon"])
+    return [
+        {**p, "polygon": q, "roof": _clip_roof(p["roof"], q)}
+        for q in _polygons(opened)
+        if q.area >= min_area
+    ]
 
 
 def _is_stub(p: dict, hall_tree, halls: list[Polygon]) -> bool:
