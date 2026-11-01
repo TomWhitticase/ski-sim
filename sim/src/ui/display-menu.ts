@@ -20,11 +20,14 @@ export class DisplayMenu extends OptionsTab {
   private readonly scale: HTMLInputElement;
   private readonly scaleValue: HTMLElement;
   private readonly signSwitch: HTMLButtonElement;
+  private readonly tipsSwitch: HTMLButtonElement;
 
   constructor(
     el: HTMLElement,
     private readonly registry: Registry,
     private readonly onChange: () => void,
+    /** "Show tips again": forget which hints have been seen. */
+    onResetTips: () => void = () => {},
   ) {
     super(el);
     const body = el.querySelector<HTMLElement>('.modal-body')!;
@@ -95,6 +98,23 @@ export class DisplayMenu extends OptionsTab {
     });
     ui.append(sign);
 
+    const tips = document.createElement('div');
+    tips.className = 'option-row';
+    tips.innerHTML =
+      '<span class="option-label">Tips<small>A one-line hint the first time something is useful, once each</small></span>' +
+      '<button class="btn tips-again" type="button">Show again</button>' +
+      '<button class="switch" type="button" role="switch" aria-label="Tips"></button>';
+    this.tipsSwitch = tips.querySelector<HTMLButtonElement>('.switch')!;
+    this.tipsSwitch.addEventListener('click', () => {
+      displaySettings.tips = !displaySettings.tips;
+      this.changed();
+    });
+    tips.querySelector('.tips-again')!.addEventListener('click', (e) => {
+      onResetTips();
+      (e.currentTarget as HTMLButtonElement).textContent = 'Reset';
+    });
+    ui.append(tips);
+
     const reset = document.createElement('button');
     reset.type = 'button';
     reset.className = 'btn';
@@ -130,6 +150,7 @@ export class DisplayMenu extends OptionsTab {
     fillRange(this.scale);
     this.scaleValue.textContent = `×${displaySettings.uiScale.toFixed(2)}`;
     this.signSwitch.setAttribute('aria-checked', String(displaySettings.signReadout));
+    this.tipsSwitch.setAttribute('aria-checked', String(displaySettings.tips));
   }
 }
 

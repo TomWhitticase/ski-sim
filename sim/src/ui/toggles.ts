@@ -1,4 +1,5 @@
 import type { LabelKind } from './labels';
+import { PRESETS, type Preset } from './presets';
 import type { Entry } from './registry';
 
 /** The game's mode, as far as the registry cares (main.ts's `Mode`). */
@@ -61,6 +62,8 @@ export interface ToggleDeps {
   openTab(tab: TabName): void;
   quickOpen(): boolean;
   toggleQuick(): void;
+  applyPreset(id: Preset['id']): void;
+  presetActive(id: Preset['id']): boolean;
 }
 
 const MAP_OPEN = 'Close the map first';
@@ -505,6 +508,18 @@ export function createEntries(d: ToggleDeps): Entry[] {
       synonyms: ['licences', 'sources', 'attribution', 'about'],
       ...tab('credits'),
     },
+    // Presets (also chips across the top of Quick settings).
+    ...PRESETS.map((p): Entry => ({
+      id: `preset-${p.id}`,
+      label: `${p.label} preset`,
+      kind: 'action',
+      hint: p.hint,
+      group: 'presets',
+      icon: 'quick',
+      synonyms: ['preset', 'view mode', p.id === 'realistic' ? 'clean' : 'labels'],
+      get: () => d.presetActive(p.id),
+      run: () => d.applyPreset(p.id),
+    })),
     {
       id: 'screenshot',
       label: 'Screenshot',

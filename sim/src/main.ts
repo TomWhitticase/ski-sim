@@ -127,6 +127,7 @@ import { OptionsTab } from './ui/options-hub';
 import { CommandPalette } from './ui/command-palette';
 import { HintToast } from './ui/hint-toast';
 import { HINT_TIMING, HintScheduler, HINTS } from './ui/hints';
+import { activePreset, applyPreset, PRESETS } from './ui/presets';
 import { QuickSettings } from './ui/quick-settings';
 import { Registry } from './ui/registry';
 import { createEntries, type TabName, type ToggleDeps, touchTools } from './ui/toggles';
@@ -383,6 +384,7 @@ async function main(): Promise<void> {
   let signposts: Signposts | null = null;
   const displayChanged = () => {
     saveDisplay(localStorage);
+    if (!displaySettings.tips) hints?.off();
     signposts?.setHintEnabled(displaySettings.signReadout);
     registry.changed('sign-readout');
   };
@@ -433,12 +435,20 @@ async function main(): Promise<void> {
     openTab: () => {},
     quickOpen: () => quick.isOpen,
     toggleQuick: () => quick.toggle(),
+    applyPreset: (id) =>
+      applyPreset(
+        registry,
+        PRESETS.find((p) => p.id === id)!,
+      ),
+    presetActive: (id) => activePreset(registry)?.id === id,
   };
   const registry = new Registry(createEntries(toggleDeps), {
     rules: gameRules,
     message: (rule) => ruleOffMessage(rule, inGame()),
   });
-  const displayMenu = new DisplayMenu($('#opt-display'), registry, displayChanged);
+  const displayMenu = new DisplayMenu($('#opt-display'), registry, displayChanged, () =>
+    hints?.reset(),
+  );
   // Quick settings (Tab, or its button under the minimap): the registry's panel entries.
   // Opening it on a desktop releases the mouse (the game carries on behind it); closing
   // it with a key, its ✕ or a click away captures it again (`resumePlay`, set below).
@@ -460,6 +470,30 @@ async function main(): Promise<void> {
       search: () => palette.open(),
     },
   );
+  // Presets across its top: one choice sets the labels and overlays together.
+  const presetRow = document.createElement('div');
+  presetRow.className = 'qs-presets';
+  presetRow.setAttribute('role', 'group');
+  presetRow.setAttribute('aria-label', 'Presets');
+  for (const preset of PRESETS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'qs-preset';
+    b.dataset.preset = preset.id;
+    b.textContent = preset.label;
+    b.title = preset.hint;
+    b.addEventListener('click', () => applyPreset(registry, preset));
+    presetRow.append(b);
+  }
+  quick.top.append(presetRow);
+  const showPreset = () => {
+    const active = activePreset(registry)?.id;
+    for (const b of presetRow.querySelectorAll<HTMLElement>('.qs-preset')) {
+      b.setAttribute('aria-pressed', String(b.dataset.preset === active));
+    }
+  };
+  registry.subscribe(showPreset);
+  showPreset();
   // The command palette (Ctrl/⌘ + K): every entry, searched. On a touchscreen it leaves
   // out what needs a keyboard (F2, F3).
   const palette = new CommandPalette(
@@ -1755,9 +1789,19 @@ async function main(): Promise<void> {
       !document.querySelector('dialog[open]');
     if (!quiet) return;
     playing += 1;
-    if (hintToast.shown) return;
-    const relevant = new Set<string>();
+    if (!displaySettings.tips || hintToast.shown) return;
+    const relevant = new Set<string>(['quick']);
     if (usedQuick || playing > 150) relevant.add('palette');
+    if (playing > 90) relevant.add('map');
+    if (!labels.isVisible('lift') && labels.anyInView('lift', camera, 1500)) relevant.add('lift');
+    if (!labels.isVisible('peak') && labels.anyInView('peak', camera, 12_000)) relevant.add('peak');
+    if (!labels.isVisible('restaurant') && labels.anyInView('restaurant', camera, 1200)) {
+      relevant.add('restaurant');
+    }
+    if (!pisteColours && mode === 'ski') {
+      const { east, north } = currentPose();
+      if (pisteLookup.at(east, north)) relevant.add('pistes');
+    }
     const hint = scheduler.tick(relevant, playing, input.touch);
     if (hint) {
       const entry = hint.entry ? registry.get(hint.entry) : undefined;

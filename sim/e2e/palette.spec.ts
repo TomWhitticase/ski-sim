@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 
-// The command palette (Ctrl/⌘ + K) on a desktop, and the hint that introduces it.
+// The command palette (Ctrl/⌘ + K), the context hints (once each, the first time they're
+// relevant) and the view presets, on a desktop.
 
 const shot = (page: Page, name: string) =>
   page.screenshot({ path: `test-results/quick-settings/${name}.png` });
@@ -122,20 +123,88 @@ test('the palette greys what the rules switch off, with the reason, and opens me
   await expect(page.locator('#opt-time')).toBeVisible();
 });
 
-test('the palette is introduced once, by a hint', async ({ page }) => {
+test('Quick settings: presets set the labels and overlays together', async ({ page }) => {
+  await enter(page);
+  await page.keyboard.press('Tab');
+  const preset = (id: string) => page.locator(`#quick-settings .qs-preset[data-preset="${id}"]`);
+  const on = (id: string) =>
+    page.locator(`#quick-settings .qs-row[data-id="${id}"] .switch`).getAttribute('aria-checked');
+  await expect(preset('realistic')).toHaveText('Realistic');
+  await preset('realistic').click();
+  await expect(preset('realistic')).toHaveAttribute('aria-pressed', 'true');
+  for (const id of ['lift', 'peak', 'restaurant', 'pistes']) expect(await on(id)).toBe('false');
+  await expect(page.locator('#labels .label:not([hidden])')).toHaveCount(0);
+  await expect(page.locator('#debug')).toBeHidden();
+  await shot(page, 'preset-realistic');
+  await preset('navigator').click();
+  for (const id of ['lift', 'peak', 'restaurant', 'pistes']) expect(await on(id)).toBe('true');
+  await expect(page.locator('#debug')).toBeHidden();
+  await preset('explorer').click();
+  await expect(page.locator('#debug')).toBeVisible(); // F3's debug info too
+  await expect(preset('explorer')).toHaveAttribute('aria-pressed', 'true');
+  await shot(page, 'preset-explorer');
+  // Your own mix: no preset lit. And presets are in the palette.
+  await page.locator('#quick-settings .qs-row[data-id="peak"] .switch').click();
+  await expect(page.locator('#quick-settings .qs-preset[aria-pressed="true"]')).toHaveCount(0);
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Control+KeyK');
+  await page.keyboard.type('realistic');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#debug')).toBeHidden();
+  await expect(page.locator('#labels .label:not([hidden])')).toHaveCount(0);
+});
+
+test('a context hint shows once, the first time it is relevant, and never again', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  // Labels off, every hint seen but peak names'.
+  await enter(page, () => {
+    localStorage.setItem(
+      'ski-sim.labels',
+      JSON.stringify({ lift: false, peak: false, restaurant: false, pistes: false }),
+    );
+    localStorage.setItem(
+      'ski-sim.hints-seen',
+      JSON.stringify(['quick', 'lift', 'pistes', 'restaurant', 'map', 'palette']),
+    );
+  });
+  const hint = page.locator('#hint');
+  await expect(hint).toBeVisible({ timeout: 20_000 });
+  await expect(hint).toHaveAttribute('data-hint', 'peak');
+  await expect(hint).toContainText('Press 2 for peak names');
+  await shot(page, 'hint-peak');
+  await expect(hint).toBeHidden({ timeout: 15_000 });
+  expect(await page.evaluate(() => localStorage.getItem('ski-sim.hints-seen'))).toContain('peak');
+  // Back again: still relevant, but it's been seen.
+  await page.reload();
+  await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10, null, { timeout: 90_000 });
+  await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
+  await page.waitForTimeout(12_000);
+  await expect(hint).toBeHidden();
+});
+
+test('the palette is introduced once; tips can be switched off in Options', async ({ page }) => {
   test.setTimeout(180_000);
   await enter(page, () => {
     localStorage.setItem('ski-sim.hints-seen', JSON.stringify(['quick']));
   });
   const hint = page.locator('#hint');
-  // Using Quick settings tells you about the palette next.
+  // Using Quick settings tells you about the palette next time it's closed.
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
   await expect(hint).toHaveAttribute('data-hint', 'palette', { timeout: 15_000 });
   await expect(hint.locator('kbd')).toHaveText([/Ctrl|⌘/, 'K']);
   await shot(page, 'hint-palette');
-  await expect(hint).toBeHidden({ timeout: 15_000 });
-  expect(await page.evaluate(() => localStorage.getItem('ski-sim.hints-seen'))).toContain(
-    'palette',
+  // Options → Display: Tips off, then no more hints.
+  await page.keyboard.press('KeyO');
+  await page.locator('#options [data-tab="opt-display"]').click();
+  const tips = page.locator('#opt-display .switch[aria-label="Tips"]');
+  await expect(tips).toHaveAttribute('aria-checked', 'true');
+  await tips.click();
+  await expect(tips).toHaveAttribute('aria-checked', 'false');
+  await expect(hint).toBeHidden();
+  expect(await page.evaluate(() => localStorage.getItem('ski-sim.display'))).toContain(
+    '"tips":false',
   );
 });

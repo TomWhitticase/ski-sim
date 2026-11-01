@@ -12,12 +12,15 @@ export interface DisplaySettings {
   uiScale: number;
   /** Show the readout of the signpost ahead under the compass. */
   signReadout: boolean;
+  /** Context hints ("Press 2 for peak names"), each once (`ui/hints.ts`). */
+  tips: boolean;
 }
 
 export const DEFAULT_DISPLAY: Readonly<DisplaySettings> = {
   glass: 'full',
   uiScale: 1,
   signReadout: true,
+  tips: true,
 };
 
 export const UI_SCALE_RANGE = { min: 0.8, max: 1.5, step: 0.05 };
@@ -44,7 +47,8 @@ export function sanitizeDisplay(raw: unknown): DisplaySettings {
       : DEFAULT_DISPLAY.uiScale;
   const signReadout =
     typeof r.signReadout === 'boolean' ? r.signReadout : DEFAULT_DISPLAY.signReadout;
-  return { glass, uiScale: scale, signReadout };
+  const tips = typeof r.tips === 'boolean' ? r.tips : DEFAULT_DISPLAY.tips;
+  return { glass, uiScale: scale, signReadout, tips };
 }
 
 /**

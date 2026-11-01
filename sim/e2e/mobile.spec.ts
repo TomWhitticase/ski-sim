@@ -1037,3 +1037,45 @@ test('touch: Quick settings from its button, each label kind on its own; HUD and
   expect(tablet.width).toBeLessThan(400);
   await shot(page, 'quick-tablet');
 });
+
+test('touch: a hint offers what it is about with a button; the palette from Quick settings', async ({
+  page,
+}) => {
+  // Every hint seen but Quick settings'.
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem(
+      'ski-sim.hints-seen',
+      JSON.stringify(['lift', 'pistes', 'peak', 'restaurant', 'map', 'palette']),
+    );
+  });
+  await load(page, LAKE);
+  const fingers = await Fingers.on(page);
+  await tapToPlay(page, fingers);
+  const hint = page.locator('#hint');
+  await expect(hint).toBeVisible({ timeout: 20_000 });
+  await expect(hint).toHaveAttribute('data-hint', 'quick');
+  await expect(hint.locator('kbd')).toHaveCount(0); // no keys on touch
+  await expect(hint.locator('.hint-do')).toHaveText('Open');
+  await shot(page, 'hint-landscape');
+  const open = await centre(page, '#hint .hint-do');
+  await fingers.tap(open.x, open.y);
+  await expect(hint).toBeHidden();
+  await expect(page.locator('#quick-settings')).toBeVisible();
+  // Search from the panel: the palette, without the keyboard-only entries.
+  await page.waitForTimeout(400); // the sheet slides up
+  const search = await centre(page, '#quick-settings .qs-search');
+  await fingers.tap(search.x, search.y);
+  await expect(page.locator('#palette')).toBeVisible();
+  await expect(page.locator('#quick-settings')).toBeHidden();
+  await expect(page.locator('#palette .palette-item[data-id="debug"]')).toHaveCount(0);
+  await page.locator('#palette input').fill('snowmo');
+  await page.setViewportSize(PORTRAIT);
+  await page.waitForTimeout(400);
+  await shot(page, 'palette-portrait');
+  const sled = await centre(page, '#palette .palette-item[data-id="snowmobile"]');
+  await fingers.tap(sled.x, sled.y);
+  await expect(page.locator('#palette')).toBeHidden();
+  await expect.poll(() => mode(page)).toBe('SNOWMOBILE');
+});

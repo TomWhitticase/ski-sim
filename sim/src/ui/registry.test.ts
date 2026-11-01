@@ -61,6 +61,8 @@ function fakeGame() {
     openTab: (tab: TabName) => calls.push(`tab:${tab}`),
     quickOpen: () => false,
     toggleQuick: () => calls.push('quick'),
+    applyPreset: (id) => calls.push(`preset:${id}`),
+    presetActive: () => false,
   };
   const rules: GameRules = { ...EVERYTHING_ON };
   const registry = new Registry(createEntries(deps), {

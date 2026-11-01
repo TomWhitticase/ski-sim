@@ -18,6 +18,7 @@ export const GROUPS = [
   { id: 'view', label: 'View & sound' },
   { id: 'interface', label: 'Interface' },
   { id: 'go', label: 'Go' },
+  { id: 'presets', label: 'Presets' },
   { id: 'menus', label: 'Menus' },
 ] as const;
 

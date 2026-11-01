@@ -202,6 +202,33 @@ body.quick-open #toggles {
   padding: 0 2px 4px;
 }
 
+/* Presets: three chips across the top. */
+.qs-presets {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 2px 4px 6px;
+}
+
+.qs-preset {
+  padding: 5px 4px;
+  border: none;
+  border-radius: var(--r-control);
+  background: var(--sub);
+  color: var(--fg);
+  font: 600 11.5px var(--font-ui);
+  cursor: pointer;
+}
+
+.qs-preset:hover {
+  background: var(--hover);
+}
+
+.qs-preset[aria-pressed='true'] {
+  background: var(--sel-bg);
+  color: var(--sel-fg);
+}
+
 .qs-group {
   margin: 4px 0 6px;
 }
