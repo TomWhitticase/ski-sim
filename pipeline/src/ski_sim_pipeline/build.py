@@ -26,6 +26,7 @@ from . import (
     pistes,
     restaurants,
     roads,
+    signposts,
     terminals,
     territory,
 )
@@ -658,6 +659,21 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         out_dir / "roads.png", optimize=True
     )
 
+    # On-mountain signposts from the piste graph, lifts and places (the post avoids runs,
+    # buildings and terminal pads). Before land cover, so a clearing is cut round each post.
+    log.info("Placing signposts (piste graph, lifts, places)")
+    signpost_data = signposts.place(
+        piste_records,
+        feature_data["lifts"],
+        feature_data["places"],
+        ground_now,
+        [*signposts.building_obstacles(feature_data["buildings"]), *terminal_pads],
+    )
+    (out_dir / "signposts.json").write_text(
+        json.dumps(signpost_data, ensure_ascii=False, separators=(",", ":"))
+    )
+    log.info("Signposts: %s", signpost_data["stats"])
+
     feature_data["borders"] = borders.build(
         osm.fetch_borders(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root),
         frame,
@@ -678,7 +694,11 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         feature_data,
         # Skiable off-piste routes (not walking ones) get a glade through any forest.
         {r["index"] for r in piste_runs if not r["groomed"] and r["type"] != "hike"},
-        [*airfields.clearing_shapes(fields), *roads.clearing_shapes(road_list)],
+        [
+            *airfields.clearing_shapes(fields),
+            *roads.clearing_shapes(road_list),
+            *signposts.clearing_shapes(signpost_data),
+        ],
     )
 
     log.info("Writing outputs to %s", out_dir)
@@ -765,6 +785,8 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
             },
         },
         "roads": roads.manifest_entry(feature_data["roads"], road_grading, pistes_meta),
+        # Optional (like roads): the sim shows no signs when it's absent. No version bump.
+        "signposts": signposts.manifest_entry(signpost_data),
         "landCover": land_cover,
         "validation": {
             "landmarks": validation,

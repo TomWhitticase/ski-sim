@@ -10,6 +10,7 @@ describe('display settings', () => {
 
   it('keeps valid values and clamps the scale', () => {
     expect(sanitizeDisplay({ glass: 'tint', uiScale: 1.2 })).toEqual({
+      signReadout: true,
       glass: 'tint',
       uiScale: 1.2,
     });
