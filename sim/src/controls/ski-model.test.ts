@@ -1,4 +1,4 @@
-import { Vector3 } from 'three/webgpu';
+import { Quaternion, Vector3 } from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
 
 import { createSkiGeometry, SkierModel, skiProfile } from './ski-model';
@@ -127,5 +127,55 @@ describe('SkierModel snowboard hands', () => {
     model.setFirstPerson(true);
     model.apply(initialStance());
     expect(gloves(model).some((g) => g.visible)).toBe(false);
+  });
+});
+
+describe('SkierModel snowboard boot cuffs', () => {
+  // The cuff's natural centreline at rest (leans forward by CUFF_LEAN = 0.18 rad), in boot-local.
+  const CUFF_AXIS = new Vector3(0, Math.cos(0.18), -Math.sin(0.18));
+  // How well each boot cuff points up its shin: dot of the cuff centreline (world) with the
+  // ankle→knee direction, 1 = perfectly in line.
+  const cuffAlignment = (model: SkierModel) => {
+    model.root.updateMatrixWorld(true);
+    const dots: number[] = [];
+    for (const sideName of ['left', 'right'] as const) {
+      const cuff = model.root.getObjectByName(`boot-cuff-${sideName}`)!;
+      const shin = model.root.getObjectByName(`shin-${sideName}`)!;
+      // The shin cylinder's local +Y runs knee→ankle; the cuff should run the other way (up).
+      const shinDown = new Vector3(0, 1, 0).applyQuaternion(
+        shin.getWorldQuaternion(new Quaternion()),
+      );
+      const cuffUp = CUFF_AXIS.clone().applyQuaternion(cuff.getWorldQuaternion(new Quaternion()));
+      dots.push(cuffUp.dot(shinDown.negate()));
+    }
+    return dots;
+  };
+
+  it.each([
+    ['standing', 0.1, 2],
+    ['heelside carve', 0.5, -48],
+    ['toeside carve', 0.5, 48],
+    ['deep crouch', 0.85, 4],
+  ])('locks each boot cuff to the shin (%s)', (_name, crouch, leanDeg) => {
+    const model = new SkierModel();
+    model.setSnowboard(true);
+    const a = (leanDeg * Math.PI) / 180;
+    model.apply({ ...initialStance(), crouch }, new Vector3(Math.sin(a), Math.cos(a), 0));
+    // Both cuffs run up their shin to within ~18° (cos 18° ≈ 0.95).
+    for (const d of cuffAlignment(model)) expect(d).toBeGreaterThan(0.95);
+  });
+
+  it('leaves no residual cuff twist after switching from board back to skis', () => {
+    const model = new SkierModel();
+    model.setSnowboard(true);
+    model.apply({ ...initialStance(), crouch: 0.5 }, new Vector3(Math.sin(0.8), Math.cos(0.8), 0));
+    // Back to skis: the cuff hinges fore/aft only, so no sideways (y/z) rotation should remain.
+    model.setSnowboard(false);
+    model.apply(initialStance());
+    for (const sideName of ['left', 'right'] as const) {
+      const cuff = model.root.getObjectByName(`boot-cuff-${sideName}`)!;
+      expect(Math.abs(cuff.rotation.y)).toBeLessThan(1e-6);
+      expect(Math.abs(cuff.rotation.z)).toBeLessThan(1e-6);
+    }
   });
 });
