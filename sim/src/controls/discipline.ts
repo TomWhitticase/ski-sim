@@ -163,6 +163,38 @@ export function boardHandling(s: BoardSetup): SkiHandling {
 
 export const DEFAULT_BOARD_HANDLING: SkiHandling = boardHandling(DEFAULT_BOARD_SETUP);
 
+// --- edging -----------------------------------------------------------------------------
+
+/**
+ * The signed deck roll (edge angle, rad) of a snowboard from the balance line `up` expressed
+ * in the board's own frame (x = board right, y = board up, nose along −z). This is the single
+ * source of truth for which edge the board tilts onto, and it MUST match the balance edge the
+ * physics and the rider's body use: `ski-controls` computes `balanceEdge = atan2(-up.x, up.y)`
+ * and the torso aligns `Y → up` (the same −α rotation about the long axis). Using the same
+ * formula here guarantees the deck, the feet, the body lean and the edge-catch physics all
+ * agree, so the edge that digs in is always the one the rider is actually weighting.
+ *
+ * A positive angle rolls the board's +x (right) edge up, so it rides on its −x edge.
+ */
+export function boardEdgeAngle(upX: number, upY: number): number {
+  return Math.atan2(-upX, upY);
+}
+
+/** Below this |edge| (rad) the board is riding flat (~0.3°): no committed edge. */
+export const EDGE_FLAT = 0.005;
+
+/**
+ * Which edge of the board is weighted (down) for a signed deck roll and stance. The toe edge
+ * sits at board +x for a regular rider and −x for goofy. A positive roll lifts +x, so the
+ * board rides its −x edge.
+ */
+export function engagedEdge(edgeAngle: number, regular: boolean): 'toe' | 'heel' | 'flat' {
+  if (Math.abs(edgeAngle) < EDGE_FLAT) return 'flat';
+  const downAtPlusX = edgeAngle < 0; // positive roll lifts +x → rides −x; negative → rides +x
+  const toeAtPlusX = regular;
+  return downAtPlusX === toeAtPlusX ? 'toe' : 'heel';
+}
+
 // --- catching an edge -------------------------------------------------------------------
 
 /**

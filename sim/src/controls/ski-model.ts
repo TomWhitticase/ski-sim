@@ -23,7 +23,7 @@ import {
 
 import { createDroneController } from './drone-model';
 import { boardDimensions, createBinding, createBoardGeometry } from './board-model';
-import { DEFAULT_BOARD_SETUP, type BoardSetup } from './discipline';
+import { DEFAULT_BOARD_SETUP, boardEdgeAngle, type BoardSetup } from './discipline';
 import { headGeometries } from './skier-head';
 import { DEFAULT_SETUP, type SkiDimensions, type SkiSetup, skiDimensions } from './ski-setup';
 import type { SkiPose, Stance } from './ski-stance';
@@ -746,8 +746,10 @@ export class SkierModel {
     const length = this.boardSetup.length / 100;
     const half = Math.min(0.3, length * 0.165); // half the stance width along the deck (m)
 
-    // Cross-lean onto the heel/toe edge, from the balance line in the board's frame.
-    const edge = Math.max(-BOARD_MAX_EDGE, Math.min(BOARD_MAX_EDGE, Math.atan2(up.x, up.y)));
+    // Cross-lean onto the heel/toe edge, from the balance line in the board's frame. Uses the
+    // same balance-edge formula as the physics and the torso (`boardEdgeAngle`), so the deck
+    // tilts onto the very edge the rider is weighting — not the opposite one (the old bug).
+    const edge = Math.max(-BOARD_MAX_EDGE, Math.min(BOARD_MAX_EDGE, boardEdgeAngle(up.x, up.y)));
     const boardHalfWidth = this.boardSetup.waist / 2000 + 0.03;
     const lift = boardHalfWidth * Math.abs(Math.sin(edge)); // the low edge rests on the snow
     // Load the tail for an ollie: sitting back tips the nose up.

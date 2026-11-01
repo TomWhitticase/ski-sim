@@ -4,11 +4,14 @@ import { DEFAULT_HANDLING } from './ski-setup';
 import {
   BOARD_PRESETS,
   BOARD_RANGES,
+  boardEdgeAngle,
   boardHandling,
   catchesEdge,
   DEFAULT_BOARD_SETUP,
   DISCIPLINE_KEY,
   EDGE_CATCH,
+  EDGE_FLAT,
+  engagedEdge,
   loadBoardSetup,
   loadDiscipline,
   matchBoardPreset,
@@ -108,6 +111,73 @@ describe('riding switch', () => {
     expect(sw.chatter).toBeGreaterThan(board.chatter);
     expect(sw.maxSpeed).toBe(board.maxSpeed); // cap unchanged
     expect(sw.carveRate).toBeGreaterThan(0.5);
+  });
+});
+
+describe('edging — the deck tilts onto the edge the rider weights', () => {
+  // `up` is the balance line in the board's slope-aligned frame (x = board right, y = board
+  // up). The physics uses `balanceEdge = atan2(-up.x, up.y)` and the torso aligns Y → up, so
+  // the rider leans toward the +x side when up.x > 0. The deck must roll onto the SAME side.
+
+  // The side of the board the low (weighted) edge is on, from the signed deck roll: a positive
+  // roll lifts +x, so the low edge is at −x; a negative roll rides +x.
+  const lowEdgeX = (edge: number) => (edge > 0 ? -1 : 1);
+  // The side the torso leans toward (aligning Y → up): the +x side when up.x > 0.
+  const leanX = (upX: number) => Math.sign(upX);
+  // The OLD, buggy formula the deck used before the fix.
+  const buggyEdge = (upX: number, upY: number) => Math.atan2(upX, upY);
+
+  it('matches the physics / body balance-edge formula exactly (single source of truth)', () => {
+    for (const upX of [-0.5, -0.2, 0, 0.2, 0.5]) {
+      expect(boardEdgeAngle(upX, 1)).toBeCloseTo(Math.atan2(-upX, 1), 12);
+    }
+  });
+
+  it('rolls the deck onto the SAME side the body leans (reproduces the old inversion)', () => {
+    for (const upX of [-0.5, -0.2, 0.2, 0.5]) {
+      const edge = boardEdgeAngle(upX, 1);
+      // Fixed: low edge is on the side the body leans toward.
+      expect(lowEdgeX(edge)).toBe(leanX(upX));
+      // The old formula put the low edge on the opposite side — the bug the user saw.
+      expect(lowEdgeX(buggyEdge(upX, 1))).toBe(-leanX(upX));
+    }
+  });
+
+  it('on a traverse weights the uphill edge, in both directions', () => {
+    // Traversing with the hill up to the board's LEFT (−x): the vertical balance line tilts
+    // uphill, i.e. toward −x in the slope frame, so up.x < 0.
+    const upLeftHill = boardEdgeAngle(-0.3, 1);
+    expect(lowEdgeX(upLeftHill)).toBe(-1); // weighted edge on the uphill (−x / left) side
+    // Hill up to the RIGHT (+x): up.x > 0, weighted edge on the +x / right (uphill) side.
+    const upRightHill = boardEdgeAngle(0.3, 1);
+    expect(lowEdgeX(upRightHill)).toBe(1);
+  });
+
+  it('labels toe vs heel from the edge sign and the stance (regular and goofy)', () => {
+    // Toe edge at +x for regular, −x for goofy. Positive roll rides the −x edge.
+    expect(engagedEdge(0.3, true)).toBe('heel'); // regular, rides −x = heel
+    expect(engagedEdge(-0.3, true)).toBe('toe'); // regular, rides +x = toe
+    expect(engagedEdge(0.3, false)).toBe('toe'); // goofy, rides −x = toe
+    expect(engagedEdge(-0.3, false)).toBe('heel'); // goofy, rides +x = heel
+    // Nearly flat base: not committed to an edge (no flicker between edges across the fall line).
+    expect(engagedEdge(EDGE_FLAT / 2, true)).toBe('flat');
+    expect(engagedEdge(-EDGE_FLAT / 2, false)).toBe('flat');
+  });
+
+  it('regular and goofy weight the same uphill side but name opposite edges', () => {
+    // Same balance line (hill to the left, up.x < 0): both ride the −x edge, which is the
+    // uphill (left) side for both — but that is heelside regular, toeside goofy.
+    const edge = boardEdgeAngle(-0.3, 1);
+    expect(lowEdgeX(edge)).toBe(-1);
+    expect(engagedEdge(edge, true)).toBe('heel');
+    expect(engagedEdge(edge, false)).toBe('toe');
+  });
+
+  it('edge angle grows with how far the balance line tips (speed / tighter radius)', () => {
+    // A harder, faster carve tips the balance line further off vertical → a bigger edge angle.
+    const gentle = Math.abs(boardEdgeAngle(0.1, 1));
+    const hard = Math.abs(boardEdgeAngle(0.6, 1));
+    expect(hard).toBeGreaterThan(gentle);
   });
 });
 
