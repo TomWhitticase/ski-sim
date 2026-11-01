@@ -321,9 +321,11 @@ def separate(lifts: list[dict], ground) -> dict:
                     break  # measured after the last change
                 pu, pl = _profile(upper), _profile(lower)
 
-                def up_limit(sup, target, p=pu):
+                def up_limit(sup, target, p=pu, k=kind_u):
+                    # A new tower is at least the shortest buildable, never a stub.
                     high = sup["ground"] + p.tower_height * MAX_TOWER_FACTOR
-                    return max(sup["top"], min(target, high))
+                    low = sup["ground"] + MIN_TOWER[k] if sup["kind"] == "synthetic-tower" else 0
+                    return max(sup["top"], low, min(target, high))
 
                 # The first attempt sets both towers either side to an even share; later
                 # ones let one tower make up what the other, held short, couldn't.
