@@ -462,7 +462,7 @@ test('the H125 lifts off, hovers and lands on the next pad', async ({ page }) =>
   expect(errors).toEqual([]);
 });
 
-test('no summoning: U and Y away from an airfield do nothing; E boards a parked one', async ({
+test('no summoning: U away from an airfield does nothing; E boards a parked one', async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -471,7 +471,8 @@ test('no summoning: U and Y away from an airfield do nothing; E boards a parked 
   // The frozen lake above Val Thorens: flat, open, no airfield.
   await start(page, 'at=45.28856,6.5752,2418&heading=90&pitch=-5');
   await page.keyboard.press('KeyF');
-  for (const key of ['KeyU', 'KeyY', 'KeyE']) {
+  // (Y is the ski / snowboard switch since the snowboard landed.)
+  for (const key of ['KeyU', 'KeyE']) {
     await page.keyboard.press(key);
     await page.waitForTimeout(200);
     expect(await mode(page)).toBe('SKI');
