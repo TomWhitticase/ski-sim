@@ -229,7 +229,7 @@ const terminals = features.lifts.flatMap((lift) =>
     terminal: t,
     name: liftName(lift),
     id: `${slug(liftName(lift))}-${lift.id}-${t.end}`,
-    problems: staticChecks(lift, t).map((p) => `static: ${p}`),
+    problems: staticChecks(lift, t, { ground }).map((p) => `static: ${p}`),
   })),
 );
 
