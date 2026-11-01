@@ -52,6 +52,62 @@ export const TERRAIN = {
   buildBudgetMs: 6,
 };
 
+/**
+ * Close-up terrain detail (`terrain/terrain-material.ts`). The 4 m DEM is a flat white blob
+ * underfoot, so near the camera we add purely procedural, zero-download shading: 3-D
+ * world-space detail normals (crisp rock + a fine snow grain — sampled in 3-D, so they don't
+ * smear at grazing angles the way the legacy 2-D tiling map does), micro-relief on off-piste
+ * snow (fBm lumps + ridged sastrugi), a snow pack (sun sparkle, blue-tinted shade, groomed
+ * corduroy) and a cheap curvature ambient occlusion. It is **visual only** — ski physics and
+ * FX still sample the smooth 4 m grid, so there is no surface mismatch — and every effect
+ * fades out before it could tile or cost frames at range.
+ *
+ * Strengths are the spike's recommended **combo**, eased so the effects add up rather than
+ * fight (`strength` ≈ ¾, a touch subtler than each effect shown solo in the report). The
+ * render quality tier (`render/quality.ts` `terrainDetail`) scales this per device: phones
+ * get fewer fBm octaves, a shorter fade and less strength.
+ *
+ * Fades are `[near, far]` metres: full at `near`, gone past `far` (× the tier's `fadeScale`).
+ */
+export const TERRAIN_DETAIL = {
+  /** Master ease on the detail-normal perturbations (rock, snow grain, relief, corduroy). */
+  strength: 0.72,
+  /** 3-D detail normals: a craggy breakup on rock faces plus a fine grain on snow. */
+  rock: { coarse: 0.9, fine: 0.3, freq: [0.7, 3.1] as const, fade: [10, 600] as [number, number] },
+  snowGrain: { strength: 0.12, freq: 4.3, fade: [4, 90] as [number, number] },
+  /** Micro-relief on off-piste snow: two octaves of fBm lumps plus a ridged sastrugi term. */
+  relief: {
+    lump: 0.5,
+    grain: 0.22,
+    sastrugi: 0.3,
+    freq: [0.55, 1.9, 0.9] as const,
+    /** Off-piste gets the full amount; groomed pistes keep a flat 0.15 of it. */
+    offPiste: 0.85,
+    fade: [6, 220] as [number, number],
+  },
+  /** Groomed corduroy: shallow ridges across the fall line (~0.9 m spacing). */
+  corduroy: { strength: 0.12, spacing: 7.0, fade: [10, 260] as [number, number] },
+  /** Sun sparkle: sparse roughness dips → sharp specular glints; fades so it never aliases. */
+  sparkle: { strength: 0.75, threshold: 0.82, freq: 9.0, fade: [4, 70] as [number, number] },
+  /** Broad roughness variation so the snow glistens unevenly instead of reading as matte. */
+  roughnessVary: { strength: 0.1, freq: 0.35 },
+  /** Blue-tinted shade in the hollows (the subsurface / sky-fill look). */
+  blueShade: {
+    strength: 0.22,
+    colour: [0.74, 0.82, 0.98] as const,
+    fade: [20, 500] as [number, number],
+  },
+  /** Curvature ambient occlusion (Phase 2): darkens hollows near the camera, 1 = no AO. */
+  ao: { darken: 0.4, freq: 0.08, fade: [10, 700] as [number, number] },
+  /** Near-range aerial perspective (Phase 2): a faint sky tint over the mid-range so flat
+   *  near snow lifts off a dead, depthless white. Kept subtle; set `strength` to 0 to drop. */
+  aerial: {
+    strength: 0.05,
+    colour: [0.82, 0.88, 0.96] as const,
+    fade: [60, 1200] as [number, number],
+  },
+};
+
 /** Roads (`features/roads.ts`): asphalt meshes within `range` m (the terrain shades them
  *  beyond), snowbanks and snow poles within `detailRange`; both × the device's terrain LOD. */
 export const ROADS = { range: 3000, detailRange: 1200 };

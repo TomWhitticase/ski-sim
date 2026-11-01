@@ -126,6 +126,12 @@ export class Environment {
   private readonly fog = new FogExp2(0xb9d0ea, FOG_CLEAR_DENSITY);
   /** 0..1: how strongly floodlit runs and their masts glow (shader uniform). */
   readonly floodlights = uniform(0);
+  /**
+   * 0..1 luminous boost for the piste overlay (shader uniform): how dark or foggy it is,
+   * so the coloured edges self-light at dusk, at night, in deep shade and in fog. Darkness
+   * dominates; overcast and whiteout add a smaller amount (the lines need contrast then too).
+   */
+  readonly pisteGlow = uniform(0);
   /** The grey cloud dome inside the sky: an overcast or a fog, merging with the haze. */
   private readonly dome: Mesh;
   private readonly domeHorizon = uniform(new Color());
@@ -244,6 +250,9 @@ export class Environment {
       .lerp(night, look.grey);
     this.fog.density = look.fogDensity;
     this.floodlights.value = light.floodlights;
+    // Luminous piste lines: mostly how dark it is, with a smaller boost from fog/overcast so
+    // they keep contrast in flat light and whiteouts.
+    this.pisteGlow.value = Math.min(1, Math.max(light.dark, look.grey * 0.6, look.white * 0.5));
     this.sky.cloudCoverage.value = look.cloudCoverage;
     this.sky.showSunDisc.value = look.dome > 0.85 ? 0 : 1;
     // The dome: the haze colour at the horizon, a darker cloud base overhead (less so in fog).

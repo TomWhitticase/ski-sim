@@ -1,0 +1,12 @@
+{
+  "b1-blue-green-close": "at=45.00968,6.14121,2175&heading=110&pitch=-19",
+  "b1-blue-green-mid": "at=45.00994,6.14019,2199&heading=110&pitch=-17",
+  "b2-blue-red-close": "at=44.99884,6.16824,2528&heading=172&pitch=-19",
+  "b2-blue-red-mid": "at=44.99960,6.16810,2551&heading=172&pitch=-17",
+  "b3-blue-red-close": "at=45.01458,6.11832,1820&heading=220&pitch=-19",
+  "b3-blue-red-mid": "at=45.01517,6.11901,1844&heading=220&pitch=-17",
+  "b4-blue-green-close": "at=44.99672,6.20589,3164&heading=284&pitch=-19",
+  "b4-blue-green-mid": "at=44.99653,6.20693,3188&heading=284&pitch=-17",
+  "b5-blue-green-close": "at=45.01265,6.13018,1760&heading=79&pitch=-19",
+  "b5-blue-green-mid": "at=45.01250,6.12912,1784&heading=79&pitch=-17"
+}

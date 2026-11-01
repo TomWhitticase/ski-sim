@@ -597,6 +597,7 @@ async function main(): Promise<void> {
     near,
     createTerrainMaterial(near, createNormalTexture(near), undefined, {
       snowDetail: true,
+      detail: quality.terrainDetail,
       roads: roadPixels
         ? { texture: overlayTexture(roadPixels), fade: [roadRange * 0.85, roadRange] }
         : undefined,
@@ -604,6 +605,7 @@ async function main(): Promise<void> {
         overlay: pisteOverlayTexture,
         ungroomed: ungroomedTexture,
         tint: pisteTint,
+        glow: environment.pisteGlow,
         floodlit:
           litMeta && litPixels
             ? {
