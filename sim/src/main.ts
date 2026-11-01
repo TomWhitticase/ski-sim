@@ -598,6 +598,7 @@ async function main(): Promise<void> {
         overlay: pisteOverlayTexture,
         ungroomed: ungroomedTexture,
         tint: pisteTint,
+        glow: environment.pisteGlow,
         floodlit:
           litMeta && litPixels
             ? {
