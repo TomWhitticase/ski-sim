@@ -124,6 +124,9 @@ import { BodyMarker } from './ui/body-marker';
 import { DisplayMenu } from './ui/display-menu';
 import { ICONS } from './ui/icons';
 import { OptionsTab } from './ui/options-hub';
+import { CommandPalette } from './ui/command-palette';
+import { HintToast } from './ui/hint-toast';
+import { HINT_TIMING, HintScheduler, HINTS } from './ui/hints';
 import { QuickSettings } from './ui/quick-settings';
 import { Registry } from './ui/registry';
 import { createEntries, type TabName, type ToggleDeps, touchTools } from './ui/toggles';
@@ -440,6 +443,8 @@ async function main(): Promise<void> {
   // Opening it on a desktop releases the mouse (the game carries on behind it); closing
   // it with a key, its ✕ or a click away captures it again (`resumePlay`, set below).
   let resumePlay = () => {};
+  /** The context hints, once a world is loaded (below). */
+  let hints: { seen(id: string): void; reset(): void; off(): void } | null = null;
   const quick = new QuickSettings(
     $<HTMLButtonElement>('#quick-button'),
     $('#quick-settings'),
@@ -452,7 +457,25 @@ async function main(): Promise<void> {
         if (resume && !input.touch) resumePlay();
       },
       touch: () => input.touch,
+      search: () => palette.open(),
     },
+  );
+  // The command palette (Ctrl/⌘ + K): every entry, searched. On a touchscreen it leaves
+  // out what needs a keyboard (F2, F3).
+  const palette = new CommandPalette(
+    $('#palette'),
+    registry,
+    {
+      opening: () => {
+        quick.close(false);
+        hints?.seen('palette');
+        if (!input.touch) input.unlock();
+      },
+      closed: (resume) => {
+        if (resume && !input.touch) resumePlay();
+      },
+    },
+    (e) => !input.touch || e.touch !== false,
   );
   // A click or tap away from it closes it.
   document.addEventListener(
@@ -1701,11 +1724,58 @@ async function main(): Promise<void> {
     void input.lock();
   };
   registry.changed(null);
+  // Context hints: once each, the first time they're relevant, one at a time.
+  const hintToast = new HintToast($('#hint'));
+  const scheduler = new HintScheduler(localStorage);
+  let playing = 0;
+  let usedQuick = false;
+  hints = {
+    seen: (id) => scheduler.markSeen(id),
+    reset: () => scheduler.reset(),
+    off: () => hintToast.hide(),
+  };
+  // Found it yourself: no need to be told.
+  registry.subscribe((id, announce) => {
+    if (!id || !announce) return;
+    for (const h of HINTS) if (h.entry === id) scheduler.markSeen(h.id);
+  });
+  quick.onOpen = () => {
+    scheduler.markSeen('quick');
+    if (hintToast.shown?.id === 'quick') hintToast.hide();
+    usedQuick = true;
+  };
+  window.setInterval(() => {
+    const quiet =
+      input.locked &&
+      hudShown &&
+      !quick.isOpen &&
+      !palette.isOpen &&
+      !worldMap.isOpen &&
+      !sky.active &&
+      !document.querySelector('dialog[open]');
+    if (!quiet) return;
+    playing += 1;
+    if (hintToast.shown) return;
+    const relevant = new Set<string>();
+    if (usedQuick || playing > 150) relevant.add('palette');
+    const hint = scheduler.tick(relevant, playing, input.touch);
+    if (hint) {
+      const entry = hint.entry ? registry.get(hint.entry) : undefined;
+      hintToast.show(hint, entry, input.touch, HINT_TIMING.show);
+    }
+  }, 1000);
   document.addEventListener('keydown', (e) => {
     // Typing in the map search box or a name field (a focused checkbox or slider isn't).
     // Esc still closes the map from its search box.
     const typing = e.target instanceof HTMLInputElement && !NON_TEXT_INPUTS.has(e.target.type);
     if (typing && !(e.code === 'Escape' && worldMap.isOpen)) return;
+    // Ctrl/⌘ + K: the command palette, in game (or from Quick settings).
+    if (e.code === 'KeyK' && (e.ctrlKey || e.metaKey) && !e.altKey) {
+      if (!input.locked && !quick.isOpen) return;
+      e.preventDefault();
+      palette.toggle();
+      return;
+    }
     // F2 (screenshot) and F3 (debug info) work anywhere, and aren't the browser's.
     if (e.code === 'F2' || e.code === 'F3') {
       e.preventDefault();

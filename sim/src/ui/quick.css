@@ -386,6 +386,247 @@ body.touch .qs-action {
   }
 }
 
+/* ---------- The command palette ---------- */
+
+#palette {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12vh 16px 16px;
+  background: rgba(4, 8, 14, 0.45);
+}
+
+#palette[hidden] {
+  display: none;
+}
+
+.palette-card {
+  display: flex;
+  flex-direction: column;
+  width: min(580px, 100%);
+  max-height: 72vh;
+  overflow: hidden;
+  /* Near solid: it's read over a busy scene (and labels), and is never open for long. */
+  background: rgba(16, 21, 31, 0.9);
+  zoom: var(--ui-scale);
+  animation: rise 0.16s var(--ease);
+}
+
+.palette-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.palette-search svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--muted);
+}
+
+.palette-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 15px 0;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font: 500 16px var(--font-ui);
+  outline: none;
+}
+
+.palette-search input::placeholder {
+  color: var(--muted);
+}
+
+.palette-results {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+}
+
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 10px;
+  border-radius: var(--r-control);
+  cursor: pointer;
+}
+
+.palette-item > svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  opacity: 0.85;
+}
+
+.palette-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.palette-label {
+  font: 500 14px var(--font-ui);
+}
+
+.palette-text small {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.palette-group {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.palette-state {
+  min-width: 30px;
+  padding: 2px 5px;
+  border-radius: var(--r-chip);
+  background: var(--sub-2);
+  font: 600 10px var(--font-mono);
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.palette-state.on {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.palette-item kbd {
+  margin: 0;
+}
+
+.palette-item[aria-selected='true'] {
+  background: var(--sel-bg);
+  color: var(--sel-fg);
+}
+
+.palette-item[aria-selected='true'] small,
+.palette-item[aria-selected='true'] .palette-group {
+  color: rgba(13, 23, 38, 0.62);
+}
+
+.palette-item[aria-selected='true'] kbd {
+  background: rgba(13, 23, 38, 0.12);
+}
+
+.palette-item[aria-disabled='true'] {
+  cursor: default;
+}
+
+.palette-item[aria-disabled='true'] > svg,
+.palette-item[aria-disabled='true'] .palette-label {
+  opacity: 0.45;
+}
+
+.palette-empty {
+  padding: 14px 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.palette-foot {
+  display: flex;
+  gap: 16px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--hair);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.palette-foot kbd {
+  margin: 0 3px 0 0;
+  height: 17px;
+  font-size: 10px;
+}
+
+body.touch .palette-group,
+body.touch .palette-item kbd {
+  display: none;
+}
+
+body.touch .palette-item {
+  min-height: 44px;
+}
+
+/* ---------- A context hint: one line, once ---------- */
+
+#hint {
+  position: absolute;
+  left: 50%;
+  bottom: 148px;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(560px, 80vw);
+  padding: 7px 8px 7px 12px;
+  font: 500 13.5px var(--font-ui);
+  pointer-events: auto;
+  animation: rise 0.22s var(--ease);
+}
+
+#hint[hidden] {
+  display: none;
+}
+
+#hint > svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  opacity: 0.9;
+}
+
+#hint kbd {
+  margin: 0 3px;
+  background: var(--key-bg);
+  color: var(--key-fg);
+}
+
+#hint .hint-do {
+  padding: 5px 10px;
+  border: none;
+  border-radius: var(--r-chip);
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 600 12.5px var(--font-ui);
+  cursor: pointer;
+}
+
+#hint .hint-close {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--r-chip);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+body.touch #hint {
+  bottom: auto;
+  top: calc((70px + env(safe-area-inset-top)) / var(--ui-scale));
+}
+
 /* H on a touchscreen: the HUD tool stays, dimmed, as the way back. */
 body.hud-off #touch [data-touch='hud'] {
   visibility: visible;
@@ -398,4 +639,26 @@ body.touch.quick-open #touch-tools {
 
 #quick-settings:focus {
   outline: none;
+}
+
+.qs-search {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--r-chip);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.qs-search svg {
+  width: 15px;
+  height: 15px;
+}
+
+.qs-search:hover {
+  background: var(--hover);
+  color: var(--fg);
 }

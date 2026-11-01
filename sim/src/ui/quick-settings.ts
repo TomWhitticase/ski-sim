@@ -14,6 +14,8 @@ export interface QuickSettingsHooks {
   closed(resume: boolean): void;
   /** On a touchscreen (no keys to show). */
   touch(): boolean;
+  /** The header's search button: the command palette. */
+  search?(): void;
 }
 
 /**
@@ -51,11 +53,13 @@ export class QuickSettings {
 
     panel.innerHTML =
       '<header class="qs-head"><b>Quick settings</b><span class="qs-on"></span>' +
+      `<button class="qs-search" type="button" aria-label="Search all settings" title="Search all settings">${ICONS.search}</button>` +
       '<button class="qs-close" type="button" aria-label="Close">✕</button></header>' +
       '<div class="qs-top"></div><div class="qs-body"></div>';
     this.headCount = panel.querySelector('.qs-on')!;
     this.top = panel.querySelector('.qs-top')!;
     panel.querySelector('.qs-close')!.addEventListener('click', () => this.close(true));
+    panel.querySelector('.qs-search')!.addEventListener('click', () => hooks.search?.());
     panel.tabIndex = -1;
     window.addEventListener('resize', () => this.fit());
     const body = panel.querySelector<HTMLElement>('.qs-body')!;
