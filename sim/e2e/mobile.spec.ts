@@ -494,9 +494,11 @@ test('touch: the piste colours tool turns them on and off; labels still toggle',
   await tap('[data-touch="labels"]');
   await expect(labels).not.toHaveClass(/\bon\b/);
   await expect(page.locator('#toggles [data-toggle="lift"]')).not.toHaveClass(/\bon\b/);
+  await expect(page.locator('#toggles [data-toggle="airfield"]')).not.toHaveClass(/\bon\b/);
   await expect(pistes).toHaveClass(/\bon\b/); // names only
   await tap('[data-touch="labels"]');
   await expect(labels).toHaveClass(/\bon\b/);
+  await expect(page.locator('#toggles [data-toggle="airfield"]')).toHaveClass(/\bon\b/);
   await shot(page, 'tools-landscape');
   await page.setViewportSize(PORTRAIT);
   await page.waitForTimeout(400);
@@ -700,6 +702,24 @@ test('the helicopter and the plane by touch: buttons for collective, power and f
   expect(parseFloat((await flight('power')) ?? '0')).toBeGreaterThan(40);
   await expect.poll(() => hud(page, 'speed'), { timeout: 8000 }).toBeGreaterThan(5);
   await shot(page, 'plane-landscape');
+
+  // Flying ~7.5 km south of the Courchevel and Méribel altiports: airfield names show, with
+  // the range to each (on a phone's screen the nearer of two close together wins).
+  await page.evaluate(() => {
+    type V = { x: number; y: number; z: number };
+    const c = (
+      window.__sim as unknown as {
+        plane: { position: V; mount(at: V, v: V, yaw: number, running: boolean): void };
+      }
+    ).plane;
+    const Vec = c.position.constructor as new (x: number, y: number, z: number) => V;
+    c.mount(new Vec(1400, 3800, -1000), new Vec(0, 0, -50), 0, true);
+  });
+  const airfield = (name: string) =>
+    page.locator('#labels .label-airfield:not([hidden])').filter({ hasText: name });
+  await expect(airfield('Altiport de Courchevel')).toContainText(/km/, { timeout: 8000 });
+  await shot(page, 'plane-airfields');
+  expect(await airfield('km').count()).toBeGreaterThanOrEqual(2);
 });
 
 for (const [name, size] of [

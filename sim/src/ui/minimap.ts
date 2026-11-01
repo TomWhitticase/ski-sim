@@ -1,7 +1,7 @@
 import { MINIMAP } from '../config';
 import type { Border } from '../features/types';
 import type { Extent } from '../resort/manifest';
-import { drawBorders, drawRestaurantIcon } from './map-icons';
+import { drawAirfieldIcon, drawBorders, drawRestaurantIcon, minimapBadge } from './map-icons';
 
 /**
  * North-up map centred on the player, drawn from the pipeline's minimap image.
@@ -16,6 +16,10 @@ export class Minimap {
   borders: Border[] = [];
   /** Mountain restaurants (east, north), drawn as knife-and-fork badges. */
   restaurants: { east: number; north: number }[] = [];
+  /** Airfields and heliports, drawn as plane and H badges. */
+  airfields: { east: number; north: number; kind: 'airfield' | 'heliport' }[] = [];
+  /** Flying: airfields off the map are pinned to its rim, pointing the way to them. */
+  pinAirfields = false;
   /** The map's guide marker (orange dot; on the edge when out of range). */
   waypoint: { east: number; north: number } | null = null;
   /** Other players in a multiplayer game, as coloured dots. */
@@ -50,7 +54,7 @@ export class Minimap {
     const w = this.waypoint;
     const marker = w ? `${w.east},${w.north}` : '';
     const others = this.players.map((p) => `${px(p.east)},${px(p.north)}`).join(';');
-    const key = `${marker}:${px(east)},${px(north)},${Math.round(heading)},${span},${size},${others}`;
+    const key = `${marker}:${this.pinAirfields}:${px(east)},${px(north)},${Math.round(heading)},${span},${size},${others}`;
     if (key === this.lastKey) return;
     this.lastKey = key;
     if (canvas.width !== size || canvas.height !== size) {
@@ -90,6 +94,19 @@ export class Minimap {
       const y = c - (r.north - north) * scale;
       if (x < -10 || y < -10 || x > size + 10 || y > size + 10) continue;
       drawRestaurantIcon(ctx, x, y, 6.5 * dpr);
+    }
+    for (const a of this.airfields) {
+      const badge = minimapBadge(
+        (a.east - east) * scale,
+        -(a.north - north) * scale,
+        c + 10 * dpr,
+        c - 10 * dpr,
+        this.pinAirfields,
+      );
+      if (!badge) continue;
+      ctx.globalAlpha = badge.pinned ? 0.85 : 1;
+      drawAirfieldIcon(ctx, c + badge.x, c + badge.y, (badge.pinned ? 6 : 7.5) * dpr, a.kind);
+      ctx.globalAlpha = 1;
     }
     if (w) {
       // The guide marker, pinned to the edge when it's off the map.

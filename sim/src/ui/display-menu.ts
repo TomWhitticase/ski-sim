@@ -8,13 +8,13 @@ import {
 import { DISPLAY_TOGGLES, type DisplayToggle } from './hud';
 import { fillRange, OptionsTab } from './options-hub';
 
-/** The quick toggles (H, V, 1–4, K), each a switch here and a hotkey in game. */
+/** The quick toggles (H, V, 1–5, K), each a switch here and a hotkey in game. */
 export type WorldToggle = DisplayToggle;
 
 const ROWS = DISPLAY_TOGGLES;
 
 /**
- * Display (Options): what's drawn in the world (the same switches as the H / V / 1–4 / K
+ * Display (Options): what's drawn in the world (the same switches as the H / V / 1–5 / K
  * keys) and how the interface looks (glass strength, size). World switches need a loaded
  * map (`data-needs-map`); the interface ones apply at once and are saved via `onChange`.
  */

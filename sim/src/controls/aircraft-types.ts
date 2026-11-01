@@ -60,11 +60,11 @@ export interface PlaneType {
     threePoint: number;
     /** Track of the main gear (m). */
     track: number;
-    /** Rolling resistance: wheels on a cleared runway, skis on groomed snow, skis in powder. */
+    /** Rolling resistance: on a cleared runway, on packed (groomed) snow, sinking into powder. */
     rollingPaved: number;
     rollingGroomed: number;
     rollingPowder: number;
-    /** Wheel brakes on tarmac; the skis' drag brakes on snow (fraction of load). */
+    /** Wheel brakes on tarmac, and on snow, where the tyres hardly bite (fraction of load). */
     brakePaved: number;
     brakeSnow: number;
     /** Hardest touchdown the gear takes (m/s down). */
@@ -127,7 +127,7 @@ export type AircraftType = PlaneType | HeliType;
 const KT = 0.514444;
 
 /**
- * Pilatus PC-6/B2-H4 Turbo Porter on wheel-skis, the altiport and glacier STOL plane:
+ * Pilatus PC-6/B2-H4 Turbo Porter on wheels, the altiport and glacier STOL plane:
  * 15.87 m span, 10.90 m long, 3.20 m high, 30.15 m² of wing, 2,800 kg MTOW, a PT6A-27
  * flat-rated to 550 shp (410 kW, 680 shp thermodynamic) on a 2.67 m three-blade
  * reversible propeller. Stalls at 58 KEAS clean and 52 with full flap at MTOW; take-off

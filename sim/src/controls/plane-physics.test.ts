@@ -145,7 +145,7 @@ describe('PC-6 take-off and landing', () => {
     expect(takeoff(downhill).roll).toBeLessThan(0.8 * high);
   });
 
-  it('takes a longer run on snow skis than on wheels, and much longer in powder', () => {
+  it('takes a longer run on snow than on tarmac, and much longer in powder', () => {
     const paved = takeoff(runway(2000)).roll;
     const groomed = takeoff(runway(2000, 0, 'groomed')).roll;
     const powder = takeoff(runway(2000, 0, 'powder')).roll;

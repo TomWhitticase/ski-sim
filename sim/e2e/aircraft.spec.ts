@@ -121,6 +121,21 @@ test('a Porter waits at the top of Courchevel altiport: walk up and climb in', a
   await droneLook(page, spot.east, spot.north, spot.ground, spot.heading + 90, 19, 3);
   await page.waitForTimeout(1500);
   await page.screenshot({ path: 'test-results/views/aircraft-plane-scale.png' });
+  // Close in on the main gear from the other side: plain wheels in their fairings.
+  await page.evaluate(({ east, north, ground, heading }) => {
+    const sim = window.__sim as unknown as { fly: { place(p: object): void } };
+    const b = ((heading - 70) * Math.PI) / 180;
+    const pitch = -12;
+    sim.fly.place({
+      east: east - Math.sin(b) * 6,
+      north: north - Math.cos(b) * 6,
+      altitude: ground + 1.6,
+      heading: heading - 70,
+      pitch,
+    });
+  }, spot);
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: 'test-results/views/aircraft-plane-gear.png' });
   await page.keyboard.press('KeyF'); // back into the skier
   await standBy(page, 'pc6', 'Courchevel', 9, 1);
   await page.waitForTimeout(800);
@@ -870,5 +885,111 @@ test('U during the take-off roll: out onto your skis at its speed; it brakes and
   expect(parked.onGround).toBe(true);
   expect(Math.hypot(parked.x - rolling.x, parked.z - rolling.z)).toBeGreaterThan(5);
   await expect(page.locator('#notices')).not.toContainText('Crashed');
+  expect(errors).toEqual([]);
+});
+
+/** Put your aircraft in flight at (east, altitude, north), heading north at `speed` m/s. */
+async function putInFlight(page: Page, which: 'plane' | 'heli', at: number[], speed: number) {
+  await page.evaluate(
+    ({ which, at, speed }) => {
+      type V = { x: number; y: number; z: number };
+      const c = (
+        window.__sim as unknown as Record<
+          string,
+          { position: V; mount(at: V, v: V, yaw: number, running: boolean): void }
+        >
+      )[which]!;
+      const Vec = c.position.constructor as new (x: number, y: number, z: number) => V;
+      c.mount(new Vec(at[0]!, at[1]!, -at[2]!), new Vec(0, 0, -speed), 0, true);
+    },
+    { which, at, speed },
+  );
+}
+
+test('airfield names (5): their own toggle, and from far off in a plane, with their range', async ({
+  page,
+}) => {
+  test.setTimeout(150_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  await start(page, COURCHEVEL_TOP);
+  const airfields = page.locator('#labels .label-airfield:not([hidden])');
+  const toggle = page.locator('#opt-display [data-toggle="airfield"]');
+  const quick = page.locator('#toggles [data-toggle="airfield"]');
+  await page.waitForTimeout(800);
+  // On at the altiport (the tests start with every label on), apart from the lift names.
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
+  await expect(quick).toHaveClass(/\bon\b/);
+  await expect(airfields.filter({ hasText: 'Courchevel' }).first()).toBeVisible();
+  await page.keyboard.press('Digit5');
+  await page.waitForTimeout(200);
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
+  await expect(quick).not.toHaveClass(/\bon\b/);
+  expect(await airfields.count()).toBe(0);
+  await page.keyboard.press('Digit1'); // the lift names don't bring them back
+  await page.keyboard.press('Digit1');
+  await page.waitForTimeout(200);
+  expect(await airfields.count()).toBe(0);
+  await page.reload();
+  await page.waitForFunction(() => (window.__sim?.frames ?? 0) > 10, null, { timeout: 90_000 });
+  await page.evaluate(() => document.dispatchEvent(new Event('pointerlockchange')));
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
+  await page.keyboard.press('Digit5');
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
+
+  // In the Porter, ~7.5 km south of both altiports at 3,800 m, heading north between them.
+  await page.keyboard.press('KeyF');
+  await page.keyboard.press('KeyV'); // chase
+  await standBy(page, 'pc6', 'Courchevel', 6, 0);
+  await page.keyboard.press('KeyE');
+  await expect.poll(() => mode(page)).toBe('PLANE');
+  await putInFlight(page, 'plane', [1400, 3800, 1000], 50);
+  await page.waitForTimeout(2500);
+  const courchevel = airfields.filter({ hasText: 'Altiport de Courchevel' });
+  const meribel = airfields.filter({ hasText: 'Altiport de Méribel' });
+  await expect(courchevel).toBeVisible();
+  await expect(meribel).toBeVisible();
+  await expect(courchevel).toContainText(/\d+(\.\d)? km/);
+  await expect(meribel).toContainText(/\d+(\.\d)? km/);
+  await page.screenshot({ path: 'test-results/views/aircraft-airfield-labels.png' });
+  // The minimap shows the way to them: badges pinned to its rim (drawn on the canvas).
+  await page.keyboard.press('KeyV'); // cockpit: still there
+  await page.waitForTimeout(800);
+  await expect(courchevel).toBeVisible();
+  await page.screenshot({ path: 'test-results/views/aircraft-airfield-labels-cockpit.png' });
+  expect(errors).toEqual([]);
+});
+
+test('aircraft sounds: touchdowns, rolling, warnings, crash and door play without errors', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  await start(page, COURCHEVEL_TOP);
+  await page.mouse.click(800, 450); // the gesture audio needs
+  const state = await page.evaluate(async () => {
+    const s = (window.__sim as unknown as { sound: Record<string, (...a: unknown[]) => void> })
+      .sound;
+    s.start!();
+    s.touchdown!({ thump: 0.5, chirp: 0.3, crunch: 0.3 });
+    s.setAircraftExtras!(
+      { rumble: 0.2, rumbleCutoff: 300, crunch: 0.15, crunchPitch: 1200, squeal: 0.1 },
+      0.11,
+      0.07,
+    );
+    s.crash!(1);
+    s.door!(true);
+    s.door!(false);
+    await new Promise((r) => setTimeout(r, 1500));
+    s.setAircraftExtras!(
+      { rumble: 0, rumbleCutoff: 120, crunch: 0, crunchPitch: 1200, squeal: 0 },
+      0,
+      0,
+    );
+    return (s as unknown as { ctx: AudioContext | null }).ctx?.state ?? 'none';
+  });
+  expect(state).not.toBe('none');
   expect(errors).toEqual([]);
 });
