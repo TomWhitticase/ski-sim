@@ -85,10 +85,10 @@ HALL_GROW = {"back": 12.0, "length": 36.0, "half": 8.0}
 #: Station buildings are low whatever their footprint area: this much above the pad.
 STATION_HEIGHT = 8.0
 #: A chair station's shell is cut only round the hood itself: this far either side of
-#: the tracks (the hood's half-width is the gauge's plus 1.7 m). A building smaller than
-#: this share of the hall can't hold the hood: it's replaced by the terminal instead.
+#: the tracks (the hood's half-width is the gauge's plus 1.7 m).
 HOOD_CLEARANCE = 2.2
-SHELL_MIN_AREA = 0.6
+#: Stations that have a building of their own to adopt (a drag lift's post and hut don't).
+ADOPTING_KINDS = ("chair", "gondola", "cabin")
 
 
 def detachable(lift: dict) -> bool:
@@ -562,14 +562,20 @@ def adopt_station_buildings(
     height well above the station's roof: then the station is set into it as before).
     - It's station-height (STATION_HEIGHT above the pad, or clear of the hood) when its
       height was estimated: from the footprint area a 1,400 m² gondola station came out
-      five storeys tall.
+      five storeys tall. A measured (lidar or OSM) height is kept, but raised to clear
+      the hall or hood with a storey to spare, so the building still stands over it.
     - A gondola or cable car hall grows to fill the building (`HALL_GROW`): the glazed
       hall then is the building, and whatever footprint is left beyond it is cut as
       usual. The pad grows with it, and buildings round it are re-seated.
     - A chair station keeps the building as its shell (`shell` on the building): the hood
       stands inside, the walls stay (only the hood's own volume, the rope portal and the
-      entrance are cut), and the sim doesn't collide with it. A building too small to
-      hold the hood (SHELL_MIN_AREA) is replaced by the terminal, as before.
+      entrance are cut), and the sim doesn't collide with it, however small it is (a
+      chalet over the middle of the hood, the hood's ends showing).
+    An adopted building (`use: "station"`) is never replaced by the generic terminal nor
+    dropped as a sliver (`cut_buildings`): it *is* the station. With lidar heights most
+    station buildings are low, and the replace test ("mostly inside the hall and not
+    much taller than its roof") took 53 of them in Les 3 Vallées. Drag lifts adopt
+    nothing (ADOPTING_KINDS).
     Returns counts.
     """
     from shapely.strtree import STRtree
@@ -578,6 +584,8 @@ def adopt_station_buildings(
     tree = STRtree(footprints)
     stats = {"stationHeight": 0, "grown": 0, "shells": 0}
     for t in terminals:
+        if t["kind"] not in ADOPTING_KINDS:
+            continue
         hall = hall_polygon(t, 0.0)
         best = None
         for i in tree.query(hall):
@@ -608,14 +616,14 @@ def adopt_station_buildings(
         if t["kind"] in ("gondola", "cabin"):
             if _grow_hall(t, fp, heights, grid, ground, buildings, tree):
                 stats["grown"] += 1
-        elif t["kind"] == "chair" and fp.area >= SHELL_MIN_AREA * hall.area:
+        elif t["kind"] == "chair":
             b["shell"] = True
             stats["shells"] += 1
         clear = station_top(t) + ROOF_GAP + MIN_SLAB + 0.5
         if b["heightSource"] == "estimate":
             b["top"] = round(t["pad"] + max(STATION_HEIGHT, clear), 2)
             stats["stationHeight"] += 1
-        elif b.get("shell"):
+        else:
             b["top"] = max(b["top"], round(t["pad"] + clear, 2))
     return stats
 
@@ -1014,7 +1022,9 @@ def cut_buildings(
     """Apply volumetric `cuts` to buildings. Returns (buildings, stats).
 
     A building mostly inside a station hall (`halls`) and not much taller than it *is*
-    the station: it's replaced by the generated terminal. Otherwise each building is
+    the station: it's replaced by the generated terminal, unless it has been adopted as
+    the station's own (`use: "station"`, `adopt_station_buildings`): those are never
+    replaced, nor dropped as slivers. Otherwise each building is
     split: what's outside a cut stays as it was; inside it, anything below the cut's
     floor stays (flat-topped, or sloping with the rope under a cable cut that has a floor
     plane) and anything above its ceiling stays as a raised piece (keeping its original
@@ -1034,7 +1044,8 @@ def cut_buildings(
         polygon = Polygon(b["footprint"]).buffer(0)
         top = _full_top(b)
         shell = bool(b.get("shell"))
-        for hall, roof in () if shell else halls:
+        adopted = b.get("use") == "station"
+        for hall, roof in () if adopted else halls:
             if polygon.intersection(hall).area > 0.5 * polygon.area and top <= roof + 3:
                 stats["removedAsStation"] += 1
                 break
@@ -1120,7 +1131,7 @@ def cut_buildings(
                 kept = [p for p in kept if not any(p is q for q in stubs)]
 
             left = unary_union([p["polygon"] for p in kept]).area if kept else 0.0
-            if not shell and left < MIN_KEPT * polygon.area:
+            if not adopted and left < MIN_KEPT * polygon.area:
                 stats["removedAsSliver"] = stats.get("removedAsSliver", 0) + 1
                 continue
             for k, p in enumerate(kept):

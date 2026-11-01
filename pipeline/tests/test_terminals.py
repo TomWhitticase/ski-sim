@@ -552,3 +552,101 @@ def test_a_hall_under_storeys_is_roofed_by_them():
     out, _ = cut_buildings([block], cuts, station_halls(terms))
     assert mark_roofed(terms, out) == 1
     assert terms[0].get("roofed") is True and "roofed" not in terms[1]
+
+
+def test_an_adopted_station_building_is_never_replaced_by_the_terminal():
+    """With lidar heights most station buildings are low: mostly inside the hall and not
+    much taller than its roof, they read as "the station itself" and the generic
+    terminal replaced them (71 in Les 3 Vallées, from 20). Once adopted, a building *is*
+    the station: a small chair chalet stays as its shell, and a low gondola building
+    stays over its grown hall as the hall's roof."""
+    from ski_sim_pipeline.terminals import (
+        ROOF_GAP,
+        _rail,
+        adopt_station_buildings,
+        choose_entrances,
+        conflicts,
+        cut_volumes,
+        mark_roofed,
+        station_halls,
+        station_top,
+    )
+
+    for kind, specs, footprint in (
+        # A 10 x 14 m chalet over the middle of a detachable chair's hood: under half the
+        # hall's area, so it used to be too small to be a shell.
+        ("chair_lift", {"duration": 200}, [[-5, -4], [5, -4], [5, 10], [-5, 10]]),
+        # A gondola station building the hall grows into.
+        ("gondola", {}, [[-8, -6], [8, -6], [8, 18], [-8, 18]]),
+    ):
+        grid, heights, ground = _grid_and_ground()
+        line = lift(kind, **specs)
+        terms = plan([line])
+        flatten(terms, heights, grid, ground)
+        bottom = terms[0]
+        # The rope runs through the station at rail height, as the approach walk sets it.
+        for sup in (line["supports"][0], line["supports"][-1]):
+            sup["top"] = sup["ground"] + _rail(bottom["kind"])
+        station = {
+            "id": 9,
+            "type": "yes",
+            "footprint": footprint,
+            "base": 1999,
+            # Measured by lidar: barely above the hall's roof.
+            "top": round(bottom["pad"] + bottom["roofTop"] + 1.0, 2),
+            "heightSource": "lidar",
+            "roof": None,
+        }
+        buildings = [station]
+        adopt_station_buildings(terms, buildings, heights, grid, ground)
+        assert station["use"] == "station"
+        assert station.get("shell") is (True if kind == "chair_lift" else None)
+        # Raised to stand clear over the hall or hood with a storey to spare.
+        assert station["top"] >= bottom["pad"] + station_top(bottom) + ROOF_GAP + 2
+        choose_entrances(terms, buildings)
+        cuts = cut_volumes([line], terms)
+        out, stats = cut_buildings(buildings, cuts, station_halls(terms))
+        assert stats["removedAsStation"] == 0 and not stats.get("removedAsSliver")
+        pieces = [b for b in out if b["id"] // 100 == 9 or b["id"] == 9]
+        hall = hall_polygon(bottom, 0.0)
+        over = [b for b in pieces if b.get("raised")]
+        assert over, kind
+        # The storey over the hall or hood covers the whole building there.
+        inside = Polygon(footprint).intersection(hall).area
+        if kind == "chair_lift":
+            r = bottom["gauge"] / 2 + 2.2
+            inside = (
+                Polygon(footprint)
+                .intersection(
+                    Polygon([(-r, -bottom["back"]), (r, -bottom["back"]), (r, 99), (-r, 99)])
+                )
+                .area
+            )
+        covered = sum(Polygon(b["footprint"]).intersection(hall).area for b in over)
+        assert covered > 0.9 * inside, kind
+        assert conflicts(out, cuts) == []
+        if kind == "gondola":
+            assert mark_roofed(terms, out) == 1 and bottom["roofed"] is True
+
+
+def test_drag_lifts_adopt_no_building():
+    """A drag lift's terminal is a post and a hut: a hut mostly inside it is replaced."""
+    from ski_sim_pipeline.terminals import adopt_station_buildings, cut_volumes, station_halls
+
+    grid, heights, ground = _grid_and_ground()
+    terms = plan([lift("t-bar")])
+    flatten(terms, heights, grid, ground)
+    bottom = terms[0]
+    hut = {
+        "id": 3,
+        "type": "yes",
+        "footprint": [[-4, 0], [-1, 0], [-1, 3], [-4, 3]],
+        "base": 1999,
+        "top": bottom["pad"] + 2.5,
+        "heightSource": "lidar",
+        "roof": None,
+    }
+    assert adopt_station_buildings(terms, [hut], heights, grid, ground)["shells"] == 0
+    assert "use" not in hut
+    out, stats = cut_buildings([hut], cut_volumes([lift("t-bar")], terms), station_halls(terms))
+    assert out == [] and stats["removedAsStation"] == 1
