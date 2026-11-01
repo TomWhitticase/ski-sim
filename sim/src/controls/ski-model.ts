@@ -252,6 +252,7 @@ export class SkierModel {
       add(lower, shell, 0, bootBase, 0);
       // The cuff (with its strap and buckles) pivots on the ankle rivets, like a real boot.
       const cuffGroup = new Group();
+      cuffGroup.name = side === -1 ? 'boot-cuff-left' : 'boot-cuff-right';
       cuffGroup.position.copy(CUFF_PIVOT);
       group.add(cuffGroup);
       add(upperCuff, cuff, 0, bootBase, 0, cuffGroup);
@@ -387,9 +388,11 @@ export class SkierModel {
       return m;
     };
     for (let i = 0; i < 2; i++) {
+      const shin = limb(0.074, 0.078, pants); // flares over the boot
+      shin.name = i === 0 ? 'shin-left' : 'shin-right';
       this.limbs.push({
         thigh: limb(0.088, 0.074, pants),
-        shin: limb(0.074, 0.078, pants), // flares over the boot
+        shin,
         knee: joint(0.078, pants),
         upperArm: limb(0.062, 0.055, jacket),
         forearm: limb(0.055, 0.05, jacket),
@@ -657,7 +660,8 @@ export class SkierModel {
         .applyMatrix4(inverse.copy(rig.group.matrix).invert())
         .sub(CUFF_PIVOT);
       const lean = Math.atan2(-shin.z, shin.y);
-      rig.cuff.rotation.x = -Math.min(Math.max(lean - CUFF_LEAN, -0.25), 0.55);
+      // Set all three so no twist survives from the board path's quaternion (y/z stay 0 here).
+      rig.cuff.rotation.set(-Math.min(Math.max(lean - CUFF_LEAN, -0.25), 0.55), 0, 0);
       limb.knee.position.copy(knee);
 
       // Arms: shoulder to hand, elbows out and back. Hands come in front in a tuck.
@@ -806,7 +810,7 @@ export class SkierModel {
       b.rig.group.quaternion.copy(qEdge).multiply(new Quaternion().setFromAxisAngle(Y_AXIS, yaw));
       b.rig.group.position.set(0, lift, b.z);
       b.rig.group.updateMatrix();
-      b.rig.cuff.rotation.x = -0.22; // soft boots lean the shin well forward
+      // The cuff is aligned to the shin below, once the leg IK has run (see the limb loop).
     }
     const ankles = [this.skis.left, this.skis.right].map((rig) =>
       new Vector3(0, ANKLE_HEIGHT, 0.03).applyMatrix4(rig.group.matrix),
@@ -845,6 +849,20 @@ export class SkierModel {
       stretch(limb.thigh, hip, knee);
       stretch(limb.shin, knee, ankle);
       limb.knee.position.copy(knee);
+
+      // Lock the boot cuff (the orange shaft) to the shin. The foot/sole stays planted in the
+      // binding; the cuff hinges at the ankle to run up the shin, so the shaft never diverges
+      // from the leg. Unlike the ski cuff (fore/aft hinge only), a soft snowboard boot follows
+      // the shin in both planes, so the cuff's natural axis is pointed straight along the shin
+      // (minimal rotation, no twist), clamped so an out-of-reach IK pose can't break it.
+      const rig = i === 0 ? this.skis.left : this.skis.right;
+      const shinDir = knee
+        .clone()
+        .applyMatrix4(inverse.copy(rig.group.matrix).invert())
+        .sub(CUFF_PIVOT)
+        .normalize();
+      scratchQ.setFromUnitVectors(CUFF_AXIS, shinDir);
+      rig.cuff.quaternion.identity().rotateTowards(scratchQ, BOARD_CUFF_FLEX);
 
       // Arms (no poles): relaxed and bent, carried out over the board ends for balance. In the
       // chest's frame +X runs toward the tail and −X toward the nose, −Z is chest-forward (the
@@ -1031,8 +1049,13 @@ const POLE_TIP = 1.15;
 /** The cuff's hinge (the ankle rivets), in the ski's frame; the cuff's built-in lean. */
 const CUFF_PIVOT = new Vector3(0, ANKLE_HEIGHT, 0.03);
 const CUFF_LEAN = 0.18;
+/** The cuff's natural centreline at rest (leaning forward by `CUFF_LEAN`); aligned to the shin. */
+const CUFF_AXIS = new Vector3(0, Math.cos(CUFF_LEAN), -Math.sin(CUFF_LEAN));
+/** How far a snowboard boot cuff may bend from the shin before the ankle clamps it (rad). */
+const BOARD_CUFF_FLEX = 1.1;
 const ORIGIN = new Vector3();
 const inverse = new Matrix4();
+const scratchQ = new Quaternion();
 const THIGH = 0.43;
 const SHIN = 0.42;
 const UPPER_ARM = 0.3;
