@@ -106,6 +106,18 @@ const VIEWS = [
     name: 'chamonix-italian-edge',
     query: 'resort=chamonix&at=45.8600,6.9100,3700&heading=150&pitch=-12',
   },
+  // Close-up terrain detail (terrain-material.ts, config.TERRAIN_DETAIL): eye height on an
+  // off-piste roll looking down at the near snow — the procedural 3-D detail normals, snow
+  // grain, micro-relief and snow pack should give it texture instead of a flat white blob.
+  // The mid-view checks the detail has faded out cleanly (no tiling or shimmer) at range.
+  {
+    name: 'terrain-closeup',
+    query: 'resort=chamonix&at=45.9490,6.8620,2014.6&heading=150&pitch=-28',
+  },
+  {
+    name: 'terrain-midview',
+    query: 'resort=chamonix&at=45.9380,6.8550,1961.2&heading=90&pitch=-14',
+  },
   // Tignes – Val d'Isère: the spawn, Tignes le Lac and its lake, the Grande Motte glacier,
   // and Val d'Isère village under Bellevarde.
   { name: 'tignes-spawn', query: 'resort=tignes-val-disere' },

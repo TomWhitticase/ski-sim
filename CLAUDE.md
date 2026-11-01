@@ -224,6 +224,7 @@ There are two layers. **Near** is lidar at 4 m covering the ski area. **Far** is
 - Far terrain discards fragments inside the near extent, and dips its vertices along that boundary so the near layer's skirts cover the join.
 - The pipeline overwrites far samples inside the near extent with near data so the two surfaces agree.
 - Each layer is split into chunks whose LOD is chosen by camera distance. Lighting comes from a full-resolution normal texture, so coarse LODs still shade with 4 m detail.
+- **Close-up detail** (`terrain/terrain-material.ts`, tunables in `config.TERRAIN_DETAIL`): under the camera the 4 m data is a flat white blob, so the near material adds purely procedural, zero-download shading — 3-D world-space detail normals (crisp rock + a fine snow grain, sampled in 3-D so they don't smear at grazing angles like the legacy 2-D tiling map), fBm micro-relief + sastrugi on off-piste snow, a snow pack (sun sparkle, blue-tinted shade, groomed corduroy derived from slope) and a cheap curvature AO, plus a touch of near-range aerial perspective. It's **visual only** (physics still samples the smooth 4 m grid), eased to ~¾ of the spike's solo strengths, and every effect fades out near the camera so it never tiles or costs frames at range. The legacy `snow-detail.ts` tiling map stays as the mid-range fallback, suppressed under the camera where the 3-D grain takes over. Gated by the `terrainDetail` tier in `render/quality.ts`: phones get fewer fBm octaves, a shorter fade and less strength; the far layer gets none. Real sub-4 m *geometry* still needs streamed finer tiles.
 
 ### Touch / mobile
 
@@ -558,7 +559,7 @@ Measure with `pnpm perf` before and after any rendering change. In dev builds, `
 - The terrain is GPU-bound. Shadows cost ~20%, and the far terrain about a quarter of the frame. CPU submission is ~1 ms.
 
 Known limits:
-- 4 m data looks soft at ground level, though a tiling procedural snow-detail normal map (`terrain/snow-detail.ts`) adds texture within ~400 m. Skiing will need finer tiles streamed near the camera.
+- 4 m data has no real sub-metre *geometry*; close up it's shaded, not sculpted. Procedural detail (`config.TERRAIN_DETAIL`, see Terrain rendering) gives it a believable near surface — detail normals, micro-relief, a snow pack, curvature AO — but visual only. Skiing on the finer surface will still need geometry: finer tiles streamed near the camera, with physics sampling them.
 - There's no texture/imagery drape yet. Snow vs rock is decided by slope, adjusted by land cover.
 - Where the near terrain is Copernicus (outside France), the DSM includes the canopy, so trees stand ~20 m high under forest.
 - Pistes use default widths, so edges are approximate where OSM has no area polygon.
