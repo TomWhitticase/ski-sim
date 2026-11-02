@@ -1,3 +1,5 @@
+import { type BoardGeometry, boardFeet, PUSH_HZ } from './board-stance';
+
 /**
  * How the skier's skis and body are posed, derived from what they're doing. Pure and
  * frame-rate independent so it can be unit-tested; the model just applies the result.
@@ -86,6 +88,11 @@ export interface StanceInput {
   crashed?: boolean;
   /** How quickly the skis roll edge to edge, 1 = reference (narrow skis are quicker). */
   edgeRate?: number;
+  /**
+   * Riding a snowboard: the feet go on its bindings (`board-stance.ts`), and `skate` is the
+   * one-foot push (the back foot out on the snow) instead of a V-skate.
+   */
+  board?: BoardGeometry;
 }
 
 const G = 9.81;
@@ -128,12 +135,46 @@ export function carveEdgeAngle(speed: number, turnRate: number): number {
   return Math.sign(lateral) * Math.min(angle, MAX_EDGE);
 }
 
+const BOARD_MAX_EDGE = (58 * Math.PI) / 180;
+
+/**
+ * A snowboarder's target: feet on the bindings (or the back one pushing), and how low they
+ * ride. `crouch` 0 is the board's ready stance (already knees-bent, see `applyBoard`), rising
+ * with the edge (a hard carve or an edged stop is ridden low), 1 a full tuck.
+ */
+function boardTarget(
+  input: StanceInput,
+  board: BoardGeometry,
+  phase: number,
+): Omit<Stance, 'skatePhase' | 'polePhase'> {
+  const raw = input.balanceEdge ?? carveEdgeAngle(input.speed, input.turnRate);
+  const edge = input.airborne ? 0 : Math.max(-BOARD_MAX_EDGE, Math.min(BOARD_MAX_EDGE, raw));
+  const push = input.skate && !input.airborne && !input.crashed;
+  const { left, right } = boardFeet(board, edge, push, phase);
+  const foreAft = Math.max(-1, Math.min(1, input.foreAft ?? 0));
+  let crouch = input.tuck ? 1 : 0.1 + 0.5 * Math.min(1, Math.abs(edge) / 0.7);
+  if (push) crouch = 0.05 + 0.08 * Math.max(0, Math.sin(phase));
+  if (input.airborne) crouch = Math.max(crouch, 0.45 + 0.35 * Math.abs(foreAft));
+  if (input.crashed) crouch = 0.7;
+  return {
+    left,
+    right,
+    crouch,
+    lean: edge * 0.85,
+    foreAft,
+    twist: input.twist ?? 0,
+    poleSweep: 0.35,
+    armReach: input.crashed ? 1 : 0,
+  };
+}
+
 /** The pose to aim for this instant. */
 export function targetStance(
   input: StanceInput,
   skatePhase: number,
   polePhase = 0,
 ): Omit<Stance, 'skatePhase' | 'polePhase'> {
+  if (input.board) return boardTarget(input, input.board, skatePhase);
   // Skidding sideways, the skis bite on the edge facing the slide (a hockey stop).
   const skid = Math.max(-0.75, Math.min(0.75, -(input.sideslip ?? 0) * 0.12));
   const raw = input.balanceEdge ?? carveEdgeAngle(input.speed, input.turnRate) + skid;
@@ -222,14 +263,24 @@ export function targetStance(
 /** Move `stance` toward the target for this input over `dt` seconds. */
 export function updateStance(stance: Stance, input: StanceInput, dt: number): StanceEvents {
   const events: StanceEvents = { step: false, plant: false };
-  if (input.skate && !input.airborne) {
+  if (input.board) {
+    // One push per cycle: a step each time the back foot plants beside the front binding.
+    if (input.skate && !input.airborne && !input.crashed) {
+      const before = stance.skatePhase;
+      const hz = input.climb ? CLIMB_HZ : PUSH_HZ;
+      stance.skatePhase = (stance.skatePhase + dt * hz * 2 * Math.PI) % (2 * Math.PI);
+      events.step = stance.skatePhase < before;
+    } else {
+      stance.skatePhase = 0;
+    }
+  } else if (input.skate && !input.airborne) {
     const hz = input.climb ? CLIMB_HZ : STRIDE_HZ;
     const before = stance.skatePhase;
     stance.skatePhase = (stance.skatePhase + dt * hz * 2 * Math.PI) % (2 * Math.PI);
     // One step per half cycle (left foot, then right).
     events.step = Math.floor(stance.skatePhase / Math.PI) !== Math.floor(before / Math.PI);
   }
-  if (input.pole && !input.airborne && !input.plough && !input.tuck) {
+  if (input.pole && !input.board && !input.airborne && !input.plough && !input.tuck) {
     const before = stance.polePhase;
     stance.polePhase = (stance.polePhase + dt * POLE_HZ * 2 * Math.PI) % (2 * Math.PI);
     events.plant = stance.polePhase < before; // wrapped: start of a new push
