@@ -181,6 +181,107 @@ describe('PC-6 take-off and landing', () => {
   });
 });
 
+describe('PC-6 on the ground', () => {
+  /** A smooth plane rising `gx` toward +x and `gz` toward +z. */
+  const tilted = (gx: number, gz: number): AirTerrain => ({
+    height: (x, z) => 2000 + gx * x + gz * z,
+    surface: () => 'paved',
+  });
+
+  it('sits pointing exactly where it was put, whatever the slope under it', () => {
+    for (const [gx, gz] of [
+      [0.05, 0],
+      [0.03, 0.186],
+      [-0.1, 0.1],
+    ] as const) {
+      const n = new Vector3(-gx, 1, -gz).normalize();
+      for (const yaw of [0, 0.8, -2.4]) {
+        const s = createPlaneState(PC6);
+        groundOrientation(yaw, n, PC6.ground.threePoint, s.orientation);
+        expect(planeYawFlat(s, n)).toBeCloseTo(yaw, 6);
+      }
+    }
+  });
+
+  it('rolls straight hands off on a cross-slope: no yaw from the ground under it', () => {
+    // Before, the heading was re-read from the pitched nose every step, and a 2 %
+    // cross-slope (1.1°) turned it 42° in 2 s.
+    for (const [gx, gz] of [
+      [0.02, 0],
+      [0.02, 0.186],
+      [0.05, -0.12],
+    ] as const) {
+      const t = tilted(gx, gz);
+      const s = createPlaneState(PC6);
+      s.rpm = 1;
+      s.flaps = 1;
+      s.position.set(0, t.height(0, 0), 0);
+      const n = new Vector3(-gx, 1, -gz).normalize();
+      groundOrientation(0, n, PC6.ground.threePoint, s.orientation);
+      for (let i = 0; i < 60 * 15 && s.onGround; i++) {
+        stepPlane(
+          s,
+          { pitch: 0, roll: 0, yaw: 0, throttle: 1, brake: false, flaps: 1 },
+          DT,
+          PC6,
+          t,
+        );
+        expect(s.crash).toBe(0);
+      }
+      expect(Math.abs(planeYawFlat(s, n))).toBeLessThan(0.005);
+      // The side slope's pull is held by the tyres: it stays on the centreline.
+      expect(Math.abs(s.position.x)).toBeLessThan(0.5);
+      expect(-s.position.z).toBeGreaterThan(150);
+    }
+  });
+
+  /**
+   * Touch down at `sink` m/s (square to the ground) at 28 m/s along it, the nose `pitch`°
+   * above the ground, full flap, then roll out hands off on reverse and brakes. Null when
+   * it lands and stops, else why it crashed.
+   */
+  function touchdown(grade: number, pitch: number, sink: number): string | null {
+    const t = runway(2000, grade);
+    const slope = Math.atan(grade);
+    const s = createPlaneState(PC6);
+    s.onGround = false;
+    s.rpm = 0.8;
+    s.flaps = 2;
+    s.mass = 2400;
+    const along = new Vector3(0, Math.sin(slope), -Math.cos(slope));
+    const up = new Vector3(0, Math.cos(slope), Math.sin(slope));
+    s.position.set(0, t.height(0, -1) + 0.05, -1);
+    s.velocity.copy(along).multiplyScalar(28).addScaledVector(up, -sink);
+    s.orientation.setFromAxisAngle(new Vector3(1, 0, 0), slope + (pitch * Math.PI) / 180);
+    for (let i = 0; i < 60 * 20; i++) {
+      const input = { pitch: 0, roll: 0, yaw: 0, flaps: 2 };
+      stepPlane(s, { ...input, throttle: s.onGround ? -1 : 0, brake: s.onGround }, DT, PC6, t);
+      if (s.crash) return s.crashed;
+      if (s.onGround && s.velocity.length() < 0.3) return null;
+    }
+    return 'never stopped';
+  }
+
+  it('takes firm touchdowns (2–3 m/s) three-point, tail-low or on the mains, flat or uphill', () => {
+    for (const grade of [0, 0.066, 0.186])
+      for (const pitch of [-4, 0, 5, 10])
+        for (const sink of [1, 2, 3]) expect(touchdown(grade, pitch, sink)).toBeNull();
+  });
+
+  it('crashes a really hard touchdown, and a nose-first one that puts the prop in', () => {
+    expect(touchdown(0, 5, 5.5)).toBe('Hard landing');
+    expect(touchdown(0.186, 10, 6)).toBe('Hard landing');
+    expect(touchdown(0, -9, 1.5)).toBe('Prop strike');
+  });
+});
+
+/** Heading of the nose laid flat on ground with normal `n` (Look convention). */
+function planeYawFlat(s: PlaneState, n: Vector3): number {
+  const f = new Vector3(0, 0, -1).applyQuaternion(s.orientation);
+  f.addScaledVector(n, -f.dot(n));
+  return Math.atan2(-f.x, -f.z);
+}
+
 describe('PC-6 in the air', () => {
   /** Level at `speed` m/s, 1,000 m over flat ground at 2,000 m. */
   function flying(speed: number, flaps = 0): PlaneState {

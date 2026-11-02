@@ -1,3 +1,4 @@
+import { touchdownRating } from '../controls/approach-guide';
 import type { Entry } from './registry';
 
 export type HudMode =
@@ -28,10 +29,21 @@ export interface FlightState {
   flaps: number;
   stall: boolean;
   onGround: boolean;
-  /** Skydiving: height above the ground (m), and a warning to show ("PULL", "LOW"). */
+  /**
+   * Height above the ground (m). Skydiving it's always shown; in an aircraft it's the
+   * radio altitude, shown below `RADIO_ALT_MAX`.
+   */
   agl?: number;
+  /** Skydiving: a warning to show ("PULL", "LOW"). */
   warning?: string | null;
+  /** Just landed: the touchdown's sink rate (m/s), shown for a few seconds. */
+  touchdown?: number | null;
+  /** On final for a runway: its designator and the PAPI lights showing white (0–4). */
+  approach?: { runway: string; white: number } | null;
 }
+
+/** Radio altitude shows below this height above the ground (m). */
+export const RADIO_ALT_MAX = 300;
 
 const FLAPS = ['UP', 'T/O', 'LDG'];
 
@@ -40,6 +52,12 @@ export function formatVertical(metresPerSecond: number): string {
   const v = Math.round(metresPerSecond * 10) / 10;
   if (v === 0) return '0.0';
   return `${v > 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}`;
+}
+
+/** Radio altitude: whole metres, tenths below 10 m (the flare). */
+export function formatRadioAlt(metres: number): string {
+  const m = Math.max(0, metres);
+  return m < 10 ? m.toFixed(1) : String(Math.round(m));
 }
 
 /** Power as a percentage, `REV` in reverse. */
@@ -284,7 +302,13 @@ export class Hud {
     if (this.flightKind !== state.kind) {
       this.flightKind = state.kind;
       const tile = (label: string, field: string, unit = '') =>
-        `<div><span class="lab">${label}</span><b><span data-flight="${field}"></span>${unit ? `<span class="unit">${unit}</span>` : ''}</b></div>`;
+        `<div data-tile="${field}"><span class="lab">${label}</span><b><span data-flight="${field}"></span>${unit ? `<span class="unit">${unit}</span>` : ''}</b></div>`;
+      // Near the ground: the radio altitude; on final, the glide path's four lights; just
+      // landed, the touchdown rate.
+      const landing =
+        tile('Radio alt', 'radio', 'm') +
+        '<div data-tile="papi" hidden><span class="lab" data-flight="papi-runway">Path</span><b class="papi"><i></i><i></i><i></i><i></i></b></div>' +
+        '<span class="touchdown" hidden></span>';
       el.innerHTML =
         state.kind === 'skydive'
           ? tile('Airspeed', 'airspeed', 'km/h') +
@@ -294,9 +318,9 @@ export class Hud {
           : tile('Airspeed', 'airspeed', 'km/h') +
             tile('V/S', 'vertical', 'm/s') +
             tile(state.kind === 'plane' ? 'Power' : 'Torque', 'power', '%') +
-            (state.kind === 'plane'
-              ? tile('Flaps', 'flaps') + '<span class="stall" hidden>STALL</span>'
-              : '');
+            (state.kind === 'plane' ? tile('Flaps', 'flaps') : '') +
+            landing +
+            (state.kind === 'plane' ? '<span class="stall" hidden>STALL</span>' : '');
       el.hidden = false;
     }
     const put = (field: string, text: string) => {
@@ -309,6 +333,36 @@ export class Hud {
     put('flaps', FLAPS[Math.round(state.flaps)] ?? 'UP');
     if (state.agl !== undefined) {
       put('agl', Math.max(0, Math.round(state.agl)).toLocaleString('en-GB'));
+    }
+    if (state.kind !== 'skydive') {
+      const show = (name: string, on: boolean) => {
+        const t = el.querySelector<HTMLElement>(`[data-tile="${name}"]`);
+        if (t && t.hidden === on) t.hidden = !on;
+        return t;
+      };
+      const agl = state.agl;
+      const radio = agl !== undefined && !state.onGround && agl < RADIO_ALT_MAX;
+      show('radio', radio);
+      // Metres to the nearest one, tenths in the last ten (the flare).
+      if (radio) put('radio', formatRadioAlt(agl!));
+      const papi = show('papi', !!state.approach);
+      if (papi && state.approach) {
+        put('papi-runway', `Path ${state.approach.runway}`);
+        papi.querySelectorAll('i').forEach((light, i) => {
+          const white = i < state.approach!.white;
+          if (light.classList.contains('white') !== white) light.classList.toggle('white', white);
+        });
+      }
+      const touch = el.querySelector<HTMLElement>('.touchdown');
+      if (touch) {
+        const sink = state.touchdown ?? null;
+        if (touch.hidden !== (sink === null)) touch.hidden = sink === null;
+        if (sink !== null) {
+          const rating = touchdownRating(sink);
+          set(touch, `${rating.toUpperCase()} · ${sink.toFixed(1)} m/s`);
+          if (touch.dataset.rating !== rating) touch.dataset.rating = rating;
+        }
+      }
     }
     const warning =
       state.kind === 'skydive' ? (state.warning ?? null) : state.stall ? 'STALL' : null;

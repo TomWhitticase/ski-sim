@@ -449,6 +449,50 @@ body.hud-off #crosshair {
   box-shadow: inset 0 0 0 1.5px var(--behind);
 }
 
+#flight > div[hidden] {
+  display: none;
+}
+
+/* The glide path's four lights (PAPI): white high, red low, two of each on the path. */
+#flight .papi {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  height: 1.2em;
+}
+
+#flight .papi i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e5484d;
+  box-shadow: 0 0 6px rgb(229 72 77 / 0.7);
+}
+
+#flight .papi i.white {
+  background: #fff;
+  box-shadow: 0 0 6px rgb(255 255 255 / 0.7);
+}
+
+/* Just landed: how firm it was, for a few seconds. */
+#flight .touchdown {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  font: 600 13px var(--font-mono);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+#flight .touchdown[hidden] {
+  display: none;
+}
+
+#flight .touchdown[data-rating='hard'] {
+  color: var(--behind);
+}
+
 #prompt {
   position: absolute;
   left: 50%;
@@ -2800,7 +2844,8 @@ body.touch #debug {
 
   /* A warning (STALL, LOW, PULL) takes the climb's place, so the strip never grows into
      the minimap. */
-  body.touch #flight:has(.stall:not([hidden])) > div:nth-child(2) {
+  body.touch #flight:has(.stall:not([hidden])) > div:nth-child(2),
+  body.touch #flight:has(.touchdown:not([hidden])) > div:nth-child(2) {
     display: none;
   }
 

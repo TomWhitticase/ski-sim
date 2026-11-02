@@ -7,6 +7,7 @@ import {
   formatLatitude,
   formatLongitude,
   formatPower,
+  formatRadioAlt,
   formatSpeed,
   formatVertical,
 } from './hud';
@@ -19,6 +20,12 @@ describe('HUD formatting', () => {
     expect(formatPower({ kind: 'plane', power: 0.755 })).toBe('76');
     expect(formatPower({ kind: 'plane', power: -0.5 })).toBe('REV');
     expect(formatPower({ kind: 'heli', power: 1.04 })).toBe('104');
+  });
+
+  it('formats the radio altitude in metres, tenths in the flare', () => {
+    expect(formatRadioAlt(212.4)).toBe('212');
+    expect(formatRadioAlt(6.27)).toBe('6.3');
+    expect(formatRadioAlt(-0.4)).toBe('0.0');
   });
 
   it('formats altitude in whole metres with separators', () => {
