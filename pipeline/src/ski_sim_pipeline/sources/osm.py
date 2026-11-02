@@ -9,19 +9,55 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import random
+import re
+import time
 import urllib.parse
 from pathlib import Path
 
-from .http import download
+from . import http
 
 log = logging.getLogger(__name__)
 
-# Public instances are often overloaded; try each in turn.
-OVERPASS_URLS = (
+#: Public Overpass instances, tried in order and cycled through across retry rounds. The
+#: main instance goes first (the most capacity for big queries); overpass.osm.ch is a
+#: reliable fallback when overpass-api.de is throwing 502s. Override with the OVERPASS_URLS
+#: env var (comma- or space-separated) to pin or extend the list.
+DEFAULT_OVERPASS_URLS = (
     "https://overpass-api.de/api/interpreter",
+    "https://overpass.osm.ch/api/interpreter",
     "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
 )
+
+#: Total time to keep retrying across all mirrors before giving up, seconds. Overridable
+#: with OVERPASS_BUDGET_S (env) or `ski-sim build --overpass-budget`.
+DEFAULT_OVERPASS_BUDGET_S = 600.0
+
+#: One request's timeout. Long enough for a real multi-minute resort query, short enough
+#: that a hung mirror fails and we move on instead of eating the whole budget.
+OVERPASS_TIMEOUT_S = 120.0
+
+_BASE_BACKOFF_S = 5.0
+_MAX_BACKOFF_S = 120.0
+
+
+def _overpass_urls() -> tuple[str, ...]:
+    override = os.environ.get("OVERPASS_URLS", "")
+    urls = tuple(u.strip() for u in re.split(r"[,\s]+", override) if u.strip())
+    return urls or DEFAULT_OVERPASS_URLS
+
+
+def _overpass_budget() -> float:
+    raw = os.environ.get("OVERPASS_BUDGET_S")
+    if raw:
+        try:
+            return max(1.0, float(raw))
+        except ValueError:
+            log.warning("Ignoring invalid OVERPASS_BUDGET_S=%r", raw)
+    return DEFAULT_OVERPASS_BUDGET_S
+
 
 PROVENANCE = {
     "name": "OpenStreetMap",
@@ -190,22 +226,100 @@ def find_ski_area(name: str, cache_dir: Path) -> tuple[float, float, float, floa
     )
 
 
+def _is_vertex(point: object) -> bool:
+    return isinstance(point, dict) and "lat" in point and "lon" in point
+
+
+def strip_null_vertices(elements: list[dict]) -> list[dict]:
+    """Drop null (and otherwise malformed) entries from every `out geom` geometry array.
+
+    Some mirrors (overpass.osm.ch) put `null` in the `geometry` list for points clipped by
+    the bbox; the territory and geometry parsers choke on them. Sanitising centrally here
+    means every `fetch_*` gets clean {lat, lon} vertices, from a fresh fetch or an old cache.
+    """
+    for element in elements:
+        geometry = element.get("geometry")
+        if isinstance(geometry, list):
+            element["geometry"] = [p for p in geometry if _is_vertex(p)]
+        for member in element.get("members") or []:
+            member_geometry = member.get("geometry")
+            if isinstance(member_geometry, list):
+                member["geometry"] = [p for p in member_geometry if _is_vertex(p)]
+    return elements
+
+
+def _fetch_overpass(
+    query: str,
+    *,
+    urls: tuple[str, ...],
+    budget: float,
+    sleep=time.sleep,
+    clock=time.monotonic,
+    jitter=random.random,
+) -> bytes:
+    """Fetch one Overpass query, cycling through `urls` over as many rounds as `budget`
+    (seconds) allows, with exponential backoff + jitter between rounds and honouring any
+    Retry-After. Returns the raw response body; raises RuntimeError once the budget runs out."""
+    body = urllib.parse.urlencode({"data": query}).encode()
+    deadline = clock() + budget
+    last_error: Exception | None = None
+    round_no = 0
+    while True:
+        round_no += 1
+        retry_after = 0.0
+        for url in urls:
+            try:
+                return http.fetch(
+                    url,
+                    data=body,
+                    expect_content_type="application/json",
+                    timeout=OVERPASS_TIMEOUT_S,
+                )
+            except http.RateLimited as e:
+                last_error = e
+                if e.retry_after:
+                    retry_after = max(retry_after, e.retry_after)
+                log.warning(
+                    "Overpass %s rate-limited%s",
+                    url,
+                    f" (Retry-After {e.retry_after:.0f}s)" if e.retry_after else "",
+                )
+            except Exception as e:  # noqa: BLE001 - fall through to the next mirror
+                last_error = e
+                log.warning("Overpass %s failed: %s", url, e)
+        # Every mirror failed this round. Back off (honouring Retry-After) and go again,
+        # unless the wait would run past the budget.
+        backoff = min(_MAX_BACKOFF_S, _BASE_BACKOFF_S * 2 ** (round_no - 1))
+        wait = max(retry_after, backoff) * (0.5 + jitter())
+        if clock() + wait >= deadline:
+            raise RuntimeError(
+                f"All Overpass mirrors failed within the {budget:.0f}s budget"
+            ) from last_error
+        log.warning("Overpass round %d failed on every mirror; retrying in %.0fs", round_no, wait)
+        sleep(wait)
+
+
 def _query(query: str, cache_dir: Path, description: str) -> list[dict]:
     key = hashlib.sha256(query.encode()).hexdigest()[:16]
     dest = cache_dir / "osm" / f"overpass-{key}.json"
-    if not dest.exists():
-        log.info("Fetching OSM %s from Overpass", description)
-    body = urllib.parse.urlencode({"data": query}).encode()
+    if dest.exists():
+        # An old cache may hold a mirror's null vertices, so sanitise on read too.
+        return strip_null_vertices(json.loads(dest.read_text()).get("elements", []))
 
-    last_error: Exception | None = None
-    for url in OVERPASS_URLS:
-        try:
-            download(url, dest, expect_content_type="application/json", retries=2, data=body)
-            break
-        except Exception as e:  # noqa: BLE001 - fall through to the next mirror
-            log.warning("Overpass %s failed: %s", url, e)
-            last_error = e
-    else:
-        raise RuntimeError("All Overpass mirrors failed") from last_error
+    log.info("Fetching OSM %s from Overpass", description)
+    raw = _fetch_overpass(query, urls=_overpass_urls(), budget=_overpass_budget())
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"Overpass sent invalid JSON for {description}") from e
+    if "elements" not in data:
+        raise RuntimeError(f"Overpass response for {description} had no elements")
+    strip_null_vertices(data["elements"])
 
-    return json.loads(dest.read_text())["elements"]
+    # Only cache a validated, sanitised response, written atomically: a failed or partial
+    # fetch leaves no file, so a re-run resumes from the queries that did succeed.
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".json.part")
+    tmp.write_text(json.dumps(data))
+    tmp.replace(dest)
+    return data["elements"]
