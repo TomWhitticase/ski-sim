@@ -1,4 +1,5 @@
 import { type Input } from './input';
+import { ICONS } from '../ui/icons';
 import {
   type InputKind,
   nextKind,
@@ -20,10 +21,6 @@ export interface TouchState {
   tucked: boolean;
   /** Riding a lift that may be fast-forwarded (not in a multiplayer game). */
   fastForward: boolean;
-  /** Any of the lift, peak, restaurant and airfield names are showing. */
-  names: boolean;
-  /** Piste colours are on the snow. */
-  pistes: boolean;
   /** In a plane or helicopter off the ground (you can jump out). */
   flying?: boolean;
   /** Skydiving under an open canopy. */
@@ -33,8 +30,16 @@ export interface TouchState {
 export interface TouchActions {
   /** Do what a key does in game (`main.ts`): KeyM map, KeyF drone, KeyE ride... */
   key: (code: string) => void;
-  /** Lift, peak, restaurant and airfield names on or off together. */
-  labels: () => void;
+}
+
+/** A tool button (from the registry): what it's called, does, and when it shows and is lit. */
+export interface TouchTool {
+  id: string;
+  label: string;
+  icon: string;
+  press(): void;
+  shown(): boolean;
+  on(): boolean;
 }
 
 interface ButtonSpec {
@@ -53,57 +58,13 @@ interface ButtonSpec {
   on?: (s: TouchState) => boolean;
 }
 
-/** Line icons (24 px, stroked), in the style of the world labels' icons. */
-const svg = (d: string) =>
-  `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
-const ICONS = {
-  pause: svg('<path d="M9 5v14M15 5v14"/>'),
-  map: svg('<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>'),
-  // A quadcopter from above: four props on an X.
-  fly: svg(
-    '<path d="M8.5 8.5l7 7M15.5 8.5l-7 7"/><rect x="10" y="10" width="4" height="4" rx="1"/>' +
-      '<circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/>' +
-      '<circle cx="6" cy="18" r="3"/><circle cx="18" cy="18" r="3"/>',
-  ),
-  glider: svg('<path d="M3 9c3-4 15-4 18 0"/><path d="M4 9l8 10 8-10M12 9v10"/>'),
-  sled: svg('<path d="M3 17h13l3-3"/><path d="M5 17l2-5h7l3 2"/><path d="M10 12l1-3h3"/>'),
-  view: svg(
-    '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
-  ),
-  labels: svg('<path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="8" r="1.5"/>'),
-  // Piste colours: mountains with a run winding down them.
-  pistes: svg(
-    '<path d="M2 20l7-13 4 6 2-3 7 10z"/><path d="M9 7.5c-1.5 2.5 2 3.5.5 6.5S9 18 10 20"/>',
-  ),
-  fullscreen: svg('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
-  jump: svg('<path d="M12 20V5"/><path d="M5 12l7-7 7 7"/>'),
-  tuck: svg('<path d="M6 7l6 6 6-6"/><path d="M6 13l6 6 6-6"/>'),
-  stop: svg('<path d="M5 19L19 5"/><path d="M4 12h6M14 12h6" opacity="0.5"/>'),
-  flipFwd: svg('<path d="M20 12a8 8 0 1 1-3-6.2"/><path d="M17 2v4h-4"/>'),
-  flipBack: svg('<path d="M4 12a8 8 0 1 0 3-6.2"/><path d="M7 2v4h4"/>'),
-  up: svg('<path d="M6 15l6-6 6 6"/>'),
-  down: svg('<path d="M6 9l6 6 6-6"/>'),
-  plus: svg('<path d="M12 5v14M5 12h14"/>'),
-  minus: svg('<path d="M5 12h14"/>'),
-  skip: svg('<path d="M5 5l9 7-9 7z"/><path d="M18 5v14"/>'),
-  fast: svg('<path d="M3 5l8 7-8 7z"/><path d="M12 5l8 7-8 7z"/>'),
-  off: svg('<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4M6 12h10"/>'),
-  lean: svg('<circle cx="14" cy="5" r="2"/><path d="M13 8l-4 6 5 2-2 5"/><path d="M4 21h16"/>'),
-  flaps: svg('<path d="M3 10h12l6 2"/><path d="M15 10l5 6"/>'),
-  turnLeft: svg('<path d="M9 7H15a5 5 0 0 1 0 10h-4"/><path d="M12 4L9 7l3 3"/>'),
-  turnRight: svg('<path d="M15 7H9a5 5 0 0 0 0 10h4"/><path d="M12 4l3 3-3 3"/>'),
-  bail: svg('<circle cx="12" cy="5" r="2"/><path d="M5 10l7 2 7-2M12 12v4l-4 5M12 16l4 5"/>'),
-  canopy: svg('<path d="M3 10c3-5 15-5 18 0"/><path d="M3 10l9 9 9-9M8 9l4 10 4-10"/>'),
-  brake: svg('<circle cx="12" cy="12" r="8"/><path d="M8 12h8"/>'),
-};
-
 /** How often a held +/- steps the fly speed (ms). */
 const REPEAT_MS = 140;
 
 /**
  * Touch play: a virtual thumbstick where the left thumb lands (and stays there), look-drag on the right half,
  * and context buttons for the current mode (dark glass, bottom right), plus pause and a row
- * of tools (map, drone, paraglider, snowmobile, view, labels, piste colours, fullscreen).
+ * of tools from the registry (`setTools`).
  * Everything goes through `Input`, as the keyboard does, so the physics is the same.
  *
  * It also decides which controls are in use: touch on a phone or tablet (`body.touch`), and
@@ -168,7 +129,9 @@ export class TouchControls {
 
   /** The mode and what's happening in it; shows the buttons that matter. Every frame. */
   update(state: TouchState): void {
-    const key = `${state.mode}|${state.airborne}|${state.tucked}|${state.fastForward}|${state.names}|${state.pistes}|${state.flying}|${state.canopy}`;
+    let tools = '';
+    for (const t of this.tools) tools += `${t.shown() ? 1 : 0}${t.on() ? 1 : 0}`;
+    const key = `${state.mode}|${state.airborne}|${state.tucked}|${state.fastForward}|${tools}|${state.flying}|${state.canopy}`;
     if (key !== this.stateKey) {
       this.stateKey = key;
       for (const { spec, el } of this.buttons) {
@@ -391,71 +354,6 @@ export class TouchControls {
         when: (st) => st.mode === 'ride',
       },
     ];
-    const tools: ButtonSpec[] = [
-      {
-        id: 'map',
-        label: 'Map',
-        icon: ICONS.map,
-        press: () => this.actions.key('KeyM'),
-        when: () => true,
-      },
-      {
-        id: 'fly',
-        label: 'Drone',
-        icon: ICONS.fly,
-        press: () => this.actions.key('KeyF'),
-        when: (st) => st.mode !== 'ride' && st.mode !== 'skydive',
-        on: (st) => st.mode === 'fly',
-      },
-      {
-        id: 'glider',
-        label: 'Paraglider',
-        icon: ICONS.glider,
-        press: () => this.actions.key('KeyP'),
-        when: (st) => st.mode !== 'plane' && st.mode !== 'heli',
-        on: (st) => st.mode === 'glide',
-      },
-      {
-        id: 'sled',
-        label: 'Snowmobile',
-        icon: ICONS.sled,
-        press: () => this.actions.key('KeyB'),
-        when: (st) =>
-          st.mode !== 'ride' && st.mode !== 'plane' && st.mode !== 'heli' && st.mode !== 'skydive',
-        on: (st) => st.mode === 'sled',
-      },
-      {
-        id: 'view',
-        label: 'View',
-        icon: ICONS.view,
-        press: () => this.actions.key('KeyV'),
-        when: (st) => st.mode !== 'fly',
-      },
-      {
-        id: 'labels',
-        label: 'Labels',
-        icon: ICONS.labels,
-        press: () => this.actions.labels(),
-        when: () => true,
-        on: (st) => st.names,
-      },
-
-      {
-        id: 'pistes',
-        label: 'Piste colours',
-        icon: ICONS.pistes,
-        press: () => this.actions.key('Digit3'),
-        when: () => true,
-        on: (st) => st.pistes,
-      },
-      {
-        id: 'fullscreen',
-        label: 'Fullscreen',
-        icon: ICONS.fullscreen,
-        press: () => void toggleFullscreen(),
-        when: () => document.fullscreenEnabled,
-      },
-    ];
     const make = (spec: ButtonSpec, parent: HTMLElement, cls: string) => {
       const el = document.createElement('button');
       el.type = 'button';
@@ -470,11 +368,9 @@ export class TouchControls {
       parent.appendChild(el);
       this.buttons.push({ spec, el });
     };
+    this.make = make;
     const cluster = this.root.querySelector<HTMLElement>('#touch-buttons')!;
-    const toolbar = this.root.querySelector<HTMLElement>('#touch-tools')!;
     for (const spec of specs) make(spec, cluster, 'touch-btn glass');
-    for (const spec of tools) make(spec, toolbar, 'touch-tool glass');
-    this.markFullscreen();
     // The portrait hint goes when dismissed (for this visit) or the phone's turned.
     const dismissed = 'ski-sim.rotate-hint';
     if (sessionStorage.getItem(dismissed)) document.body.classList.add('rotate-dismissed');
@@ -484,6 +380,34 @@ export class TouchControls {
     });
     // Pause: the one way back to the menu (there's no Esc on a phone).
     this.root.querySelector('#touch-pause')!.addEventListener('click', () => this.input.unlock());
+  }
+
+  private make: (spec: ButtonSpec, parent: HTMLElement, cls: string) => void = () => {};
+  private tools: TouchTool[] = [];
+
+  /**
+   * The tools row (map, drone, paraglider, snowmobile, view, labels, piste colours,
+   * fullscreen): one button per registry entry with a touch tool (`ui/toggles.ts`), shown
+   * while it can be used and lit while it's on.
+   */
+  setTools(tools: TouchTool[]): void {
+    this.tools = tools;
+    const toolbar = this.root.querySelector<HTMLElement>('#touch-tools')!;
+    for (const tool of tools) {
+      this.make(
+        {
+          id: tool.id,
+          label: tool.label,
+          icon: tool.icon,
+          press: () => tool.press(),
+          when: () => tool.shown(),
+          on: () => tool.on(),
+        },
+        toolbar,
+        'touch-tool glass',
+      );
+    }
+    this.stateKey = '';
   }
 
   private repeatTimers = new Map<string, number>();
@@ -530,8 +454,7 @@ export class TouchControls {
   }
 
   private markFullscreen(): void {
-    const el = this.buttons.find((b) => b.spec.id === 'fullscreen')?.el;
-    el?.classList.toggle('on', !!document.fullscreenElement);
+    this.stateKey = ''; // the fullscreen tool is lit while it's on
   }
 
   // --- the pad: stick on the left half, look on the right ---
@@ -592,7 +515,7 @@ export class TouchControls {
   }
 }
 
-async function toggleFullscreen(): Promise<void> {
+export async function toggleFullscreen(): Promise<void> {
   try {
     if (document.fullscreenElement) await document.exitFullscreen();
     else await document.documentElement.requestFullscreen({ navigationUI: 'hide' });

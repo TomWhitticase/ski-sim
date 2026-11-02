@@ -65,8 +65,23 @@
             Go to marker
           </button>
         </div>
-        <!-- Quick toggles: always on screen, small, lit when on. -->
+        <!-- Quick settings (ui/quick-settings.ts): Tab or this button opens the panel below
+             it; the compact strip under the button shows what's on (and flashes a key). -->
+        <button
+          id="quick-button"
+          class="glass"
+          type="button"
+          aria-expanded="false"
+          aria-controls="quick-settings"
+        ></button>
         <div id="toggles"></div>
+        <div
+          id="quick-settings"
+          class="glass"
+          role="dialog"
+          aria-label="Quick settings"
+          hidden
+        ></div>
       </div>
       <div class="hud-bottom">
         <div id="run" class="glass" hidden></div>
@@ -79,6 +94,8 @@
         <div id="fly-speed" class="glass" hidden></div>
       </div>
       <div id="prompt" class="glass" hidden></div>
+      <!-- A context hint (ui/hints.ts): one line, once, the first time it's relevant. -->
+      <div id="hint" class="glass" role="status" hidden></div>
       <div id="debug" class="glass" hidden></div>
     </div>
 
@@ -91,6 +108,8 @@
       >
     </button>
     <div id="sky-flash"></div>
+    <!-- The command palette (Ctrl/⌘ + K, ui/command-palette.ts). -->
+    <div id="palette" class="glass-dark" hidden></div>
 
     <div id="world-map" class="glass-light" hidden>
       <canvas></canvas>

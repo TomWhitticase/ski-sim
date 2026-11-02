@@ -337,6 +337,23 @@ export class Labels {
   }
 
   /** True if terrain rises above the straight line from the eye to the anchor. */
+  /**
+   * Is any tag of this kind (shown or not) on screen within `range` m and not behind
+   * the terrain? For the context hints: "Press 2 for peak names" when a summit's in view.
+   */
+  anyInView(kind: LabelKind, camera: PerspectiveCamera, range: number): boolean {
+    for (const label of this.labels) {
+      if (label.kind !== kind) continue;
+      if (label.position.distanceTo(camera.position) > Math.min(range, label.maxDistance)) continue;
+      const view = this.projected.copy(label.position).applyMatrix4(camera.matrixWorldInverse);
+      if (view.z > -camera.near) continue;
+      const p = view.applyMatrix4(camera.projectionMatrix);
+      if (Math.abs(p.x) > 0.85 || Math.abs(p.y) > 0.85) continue;
+      if (!this.isOccluded(camera.position, label.position)) return true;
+    }
+    return false;
+  }
+
   private isOccluded(eye: Vector3, target: Vector3): boolean {
     for (let i = 1; i < OCCLUSION_SAMPLES; i++) {
       const t = i / OCCLUSION_SAMPLES;

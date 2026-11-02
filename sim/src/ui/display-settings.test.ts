@@ -11,9 +11,12 @@ describe('display settings', () => {
   it('keeps valid values and clamps the scale', () => {
     expect(sanitizeDisplay({ glass: 'tint', uiScale: 1.2 })).toEqual({
       signReadout: true,
+      tips: true,
       glass: 'tint',
       uiScale: 1.2,
     });
+    expect(sanitizeDisplay({ tips: false }).tips).toBe(false);
+    expect(sanitizeDisplay({ tips: 'no' }).tips).toBe(true);
     expect(sanitizeDisplay({ uiScale: 9 }).uiScale).toBe(1.5);
     expect(sanitizeDisplay({ uiScale: 0.1 }).uiScale).toBe(0.8);
   });

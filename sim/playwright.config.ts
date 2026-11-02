@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
+import { HINTS } from './src/ui/hints';
+
 // Each worktree runs its own dev server, so the port is configurable.
 const port = Number(process.env.SIM_PORT ?? 5173);
 
@@ -31,6 +33,9 @@ export default defineConfig({
                 pistes: true,
               }),
             },
+            // Every context hint already seen: none pops up in the views (palette.spec.ts
+            // tests them).
+            { name: 'ski-sim.hints-seen', value: JSON.stringify(HINTS.map((h) => h.id)) },
           ],
         },
       ],

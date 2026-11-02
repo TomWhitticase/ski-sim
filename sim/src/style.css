@@ -1,4 +1,5 @@
 @import './ui/theme.css';
+@import './ui/quick.css';
 
 /* Layout of the sim's UI. Colours, glass and components come from ui/theme.css: the HUD
    (#hud) is dark glass, the menus (#overlay, #options, #world-map) light glass. */
@@ -384,72 +385,7 @@ body:not(.flying) #hud {
   color: var(--key-fg);
 }
 
-/* Quick toggles: always there, small and dim; lit when on, highlighted briefly when
-   their key is pressed. */
-#toggles {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-  margin-top: 4px;
-}
-
-#toggles > div {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 6px 2px 3px;
-  border-radius: var(--r-chip);
-  background: rgba(16, 21, 31, 0.3);
-  -webkit-backdrop-filter: blur(8px) saturate(1.6);
-  backdrop-filter: blur(8px) saturate(1.6);
-  font: 500 10.5px var(--font-ui);
-  color: rgba(255, 255, 255, 0.55);
-  transition:
-    background 0.2s var(--ease),
-    color 0.2s var(--ease);
-}
-
-:root[data-glass='tint'] #toggles > div {
-  background: rgba(16, 21, 31, 0.62);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-
-#toggles kbd {
-  min-width: 15px;
-  height: 15px;
-  margin: 0;
-  padding: 0 3px;
-  font-size: 9px;
-  background: rgba(255, 255, 255, 0.14);
-}
-
-#toggles > div::after {
-  content: '';
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.25);
-}
-
-/* Flying has no first or third person, so V isn't listed. */
-body:not(.skiing) #toggles [data-toggle='view'] {
-  display: none;
-}
-
-#toggles > div.on {
-  color: #fff;
-}
-
-#toggles > div.on::after {
-  background: var(--accent);
-}
-
-#toggles > div.flash {
-  background: rgba(16, 21, 31, 0.72);
-  color: #fff;
-}
+/* Quick settings, its compact strip, the palette and hints: ui/quick.css. */
 
 /* H: full immersion. The HUD, world labels, markers and crosshair all go (piste
    colours and the marker beam are switched off in main.ts). */
@@ -2625,7 +2561,7 @@ body.hud-off #touch > :not(#touch-pad, #touch-pause) {
   #touch-tools {
     left: auto;
     right: calc(14px + env(safe-area-inset-right));
-    top: calc(50% + 24px);
+    top: calc(50% + 48px); /* clear of the minimap panel and Quick settings above */
     bottom: auto;
     translate: 0 -50%;
     flex-direction: column;
@@ -2670,7 +2606,7 @@ body.hud-off #touch > :not(#touch-pad, #touch-pause) {
 
   /* Under the minimap panel (with a marker's too) and left of the tool column. */
   #rotate-hint {
-    top: calc(252px + env(safe-area-inset-top));
+    top: calc(292px + env(safe-area-inset-top));
     left: calc(14px + env(safe-area-inset-left));
     translate: none;
     max-width: calc(100vw - 136px - env(safe-area-inset-left) - env(safe-area-inset-right));
@@ -3216,6 +3152,17 @@ body.touch .map-places {
   .hub-tabs {
     padding: max(10px, env(safe-area-inset-top)) 8px 10px max(8px, env(safe-area-inset-left));
     overflow-y: auto;
+  }
+
+  /* Ten tabs don't fit a landscape phone: the list scrolls, and Close stays on screen
+     at its foot. */
+  .hub-tabs .hub-close {
+    position: sticky;
+    bottom: -10px;
+    margin-bottom: -10px;
+    padding-bottom: 10px;
+    background: #eef2f6;
+    box-shadow: 0 -1px 0 var(--hair);
   }
 
   .hub-head {
