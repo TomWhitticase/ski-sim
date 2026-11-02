@@ -131,6 +131,15 @@ import { BodyMarker } from './ui/body-marker';
 import { DisplayMenu, type WorldToggle } from './ui/display-menu';
 import { RulesMenu } from './ui/rules-menu';
 import { applyDisplay, displaySettings, loadDisplay, saveDisplay } from './ui/display-settings';
+import {
+  graphics,
+  isGraphicsPreset,
+  loadGraphics,
+  saveGraphics,
+  setGraphicsPreset,
+  terrainDetailFor,
+} from './render/graphics';
+import { GraphicsMenu } from './ui/graphics-menu';
 import { Hud } from './ui/hud';
 import {
   type GameRules,
@@ -235,6 +244,14 @@ async function main(): Promise<void> {
   );
   // Set once, from the device it started on: phones get lighter rendering.
   const quality = qualityFor(touch.kind === 'touch', window.devicePixelRatio);
+  // Graphics preset (Options → Graphics): the device tier picks the hardware budget above;
+  // the saved preset lays the look on top (terrain detail today). Read before the terrain
+  // material is built. `?graphics=fast|default|fancy` overrides the saved choice for this load.
+  const graphicsMobile = touch.kind === 'touch';
+  loadGraphics(localStorage);
+  const graphicsParam = params.get('graphics');
+  if (isGraphicsPreset(graphicsParam)) setGraphicsPreset(graphicsParam);
+  quality.terrainDetail = terrainDetailFor(graphics.terrainDetail, graphicsMobile);
   // Ski areas come from the pipeline's index.
   const resorts = await fetchJson<{ resorts: ResortEntry[] }>(`${DATA_URL}resorts.json`)
     .then((r) => r.resorts)
@@ -389,6 +406,21 @@ async function main(): Promise<void> {
     () => {
       saveDisplay(localStorage);
       signposts?.setHintEnabled(displaySettings.signReadout);
+    },
+  );
+  // Graphics (Options → Graphics): the preset/options are persisted at once; terrain detail
+  // is baked into the terrain material at load, so "Apply & reload" reloads into the current
+  // area (the saved pose restores the position).
+  new GraphicsMenu(
+    $('#opt-graphics'),
+    graphicsMobile,
+    () => saveGraphics(localStorage),
+    () => {
+      const url = new URL(location.href);
+      const here = localStorage.getItem(LAST_RESORT_KEY);
+      if (here) url.searchParams.set('resort', here);
+      url.searchParams.delete('graphics'); // the saved choice applies; don't pin an override
+      location.assign(url.toString());
     },
   );
   // Game rules (Options → Rules): your own until a world (and maybe a party) is loaded.
