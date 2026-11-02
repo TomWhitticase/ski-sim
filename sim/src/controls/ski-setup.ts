@@ -172,6 +172,9 @@ export interface SkiHandling {
   turnRate: number;
   pivotRate: number;
   edgeRate: number;
+  /** W's low-speed push (m/s², m/s); skis skate at `SKI.pushAccel` / `pushMaxSpeed`. */
+  pushAccel?: number;
+  pushMaxSpeed?: number;
 }
 
 /** Reference values: the All-mountain preset maps exactly onto these. */

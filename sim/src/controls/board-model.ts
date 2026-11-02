@@ -171,17 +171,17 @@ export function createBoardGeometry(d: BoardDimensions, underfoot: number): Buff
 }
 
 /**
- * A freestyle binding: a baseplate disc, a highback up the heel edge, and ankle + toe
- * straps. Built facing +toe (the highback behind the heel at -toeX), so the caller rotates
- * the group to the binding angle and reflects it for the back foot / goofy stance. Sits on
- * the deck's topsheet at height `top`.
+ * A freestyle binding, in the boot's frame (toe at −z, heel at +z, x across the foot): a
+ * baseplate disc with a toe ramp, a heel cup and side rails, a highback up behind the calf
+ * leaning a little forward, and an ankle strap over the instep plus a toe strap over the toes,
+ * ratcheted on the outside. Sits on the deck's topsheet at height `top`; the caller turns it to
+ * the binding angle on the board.
  */
 export function createBinding(
   top: number,
   base: MeshStandardNodeMaterial,
   metal: MeshStandardNodeMaterial,
   strap: MeshStandardNodeMaterial,
-  toeX: 1 | -1,
 ): Group {
   const g = new Group();
   const add = (m: Mesh, x: number, y: number, z: number, rx = 0) => {
@@ -191,19 +191,23 @@ export function createBinding(
     g.add(m);
     return m;
   };
-  // Baseplate: a low disc under the boot.
-  add(new Mesh(new CylinderGeometry(0.085, 0.09, 0.012, 16), base), 0, 0.006, 0);
-  // Heel cup / highback up the heel edge (behind the heel, away from the toe edge).
-  const highback = new Mesh(new BoxGeometry(0.11, 0.17, 0.02), base);
-  add(highback, -toeX * 0.085, 0.09, 0);
-  highback.rotation.z = toeX * 0.22; // lean the highback back a little
-  // Ankle strap across the top of the foot.
-  const ankle = add(new Mesh(new BoxGeometry(0.11, 0.03, 0.05), strap), 0, 0.085, 0.0);
-  ankle.rotation.z = 0;
-  // Toe strap nearer the toes.
-  add(new Mesh(new BoxGeometry(0.1, 0.025, 0.045), strap), toeX * 0.01, 0.05, -0.08);
-  // Two ratchets on the toe-edge side.
-  for (const z of [0.0, -0.08])
-    add(new Mesh(new BoxGeometry(0.018, 0.018, 0.022), metal), toeX * 0.07, 0.055, z);
+  // Baseplate: a disc under the arch, a flat plate heel to toe.
+  add(new Mesh(new CylinderGeometry(0.075, 0.08, 0.012, 16), base), 0, 0.006, 0.01);
+  add(new Mesh(new BoxGeometry(0.1, 0.01, 0.27), base), 0, 0.012, 0);
+  // Heel cup and side rails up the boot.
+  add(new Mesh(new BoxGeometry(0.12, 0.06, 0.018), base), 0, 0.04, 0.135);
+  for (const x of [-0.064, 0.064])
+    add(new Mesh(new BoxGeometry(0.012, 0.055, 0.22), base), x, 0.035, 0.03);
+  // Highback behind the calf, leaning forward with the shin.
+  add(new Mesh(new BoxGeometry(0.115, 0.2, 0.016), base), 0, 0.15, 0.15, -0.22);
+  // Ankle strap over the instep, toe strap over the toes.
+  add(new Mesh(new BoxGeometry(0.13, 0.035, 0.075), strap), 0, 0.12, 0.0, 0.45);
+  add(new Mesh(new BoxGeometry(0.122, 0.028, 0.05), strap), 0, 0.07, -0.115, -0.25);
+  // Ratchets on the outside.
+  for (const [y, z] of [
+    [0.115, 0.03],
+    [0.07, -0.09],
+  ] as const)
+    add(new Mesh(new BoxGeometry(0.018, 0.02, 0.026), metal), 0.072, y, z);
   return g;
 }

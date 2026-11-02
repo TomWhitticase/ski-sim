@@ -20,12 +20,14 @@ import { DEFAULT_HANDLING, type SkiSetup, skiHandling } from './ski-setup';
 import {
   type BoardSetup,
   boardHandling,
+  boardPushes,
   catchesEdge,
   DEFAULT_BOARD_SETUP,
   type Discipline,
   ridingSwitch,
   switchHandling,
 } from './discipline';
+import { type BoardGeometry, boardFeet, boardGeometry } from './board-stance';
 import { initialStance, type Stance, updateStance } from './ski-stance';
 import type { SnowContact } from '../fx/intensity';
 
@@ -58,6 +60,7 @@ const MAX_BALANCE_ACCEL = 1.3 * SKI.gravity;
 const BALANCE_RATE = 6;
 const ZERO = new Vector3();
 const RIDING_STANCE = initialStance();
+const RIDING_FEET = { left: { ...RIDING_STANCE.left }, right: { ...RIDING_STANCE.right } };
 
 export type SkiCamera = 'first-person' | 'chase';
 
@@ -81,6 +84,9 @@ export class SkiControls {
   /** Handling for whichever discipline is active. */
   private skiHandlingValue = DEFAULT_HANDLING;
   private boardHandlingValue = boardHandling(DEFAULT_BOARD_SETUP);
+  private boardGeo: BoardGeometry = boardGeometry(DEFAULT_BOARD_SETUP);
+  /** On a board, W is pushing with the back foot out of its binding (see `boardPushes`). */
+  pushing = false;
 
   private readonly state: SkiState = {
     position: new Vector3(),
@@ -229,6 +235,7 @@ export class SkiControls {
     this.handling = discipline === 'snowboard' ? this.boardHandlingValue : this.skiHandlingValue;
     this.model.setSnowboard(discipline === 'snowboard', board.stance === 'regular');
     this.model.setBoardSetup(board);
+    this.boardGeo = boardGeometry(board);
   }
 
   /** Change the board's geometry/stance (handling and the deck follow). */
@@ -236,6 +243,7 @@ export class SkiControls {
     this.boardHandlingValue = boardHandling(board);
     if (this.discipline === 'snowboard') this.handling = this.boardHandlingValue;
     this.model.setBoardSetup(board);
+    this.boardGeo = boardGeometry(board);
   }
 
   get isSnowboard(): boolean {
@@ -291,6 +299,12 @@ export class SkiControls {
     const seated = (sit?.amount ?? 0) > 0.5;
     RIDING_STANCE.poleSweep = seated ? -0.25 : crouch > 0.5 ? 1.1 : 0.4;
     RIDING_STANCE.sit = sit;
+    // Standing on a board in the loading zone: feet on its bindings. Seated or in a cabin the
+    // boots are side by side (the board hangs off the lead one, or is stowed).
+    const onBoard = this.discipline === 'snowboard' && !sit && !stowed;
+    const stand = onBoard ? boardFeet(this.boardGeo, 0, false, 0) : RIDING_FEET;
+    Object.assign(RIDING_STANCE.left, stand.left);
+    Object.assign(RIDING_STANCE.right, stand.right);
     this.model.apply(RIDING_STANCE, UP);
   }
 
@@ -359,9 +373,17 @@ export class SkiControls {
     const tuck = this.tucked;
     const forward = input.down('KeyW') && !plough;
     const flatSpeed = Math.hypot(this.state.velocity.x, this.state.velocity.z);
-    // A board has no poles: W is a slow one-foot skate/push on the flat, never a double-pole.
-    this.poling = this.discipline === 'snowboard' ? false : doublePoling(flatSpeed, this.poling);
-    const skate = forward && (!this.poling || this.climbing);
+    // A board has no poles: W pushes with the back foot out of its binding, at low speed and
+    // where it's too flat to glide; otherwise the foot stays strapped in and W does nothing.
+    const board = this.discipline === 'snowboard';
+    this.poling = board ? false : doublePoling(flatSpeed, this.poling);
+    this.pushing =
+      board &&
+      forward &&
+      !this.state.airborne &&
+      !this.crashed &&
+      boardPushes(flatSpeed, -(this.state.pitch ?? 0), this.pushing);
+    const skate = board ? this.pushing : forward && (!this.poling || this.climbing);
     const pole = forward && !skate;
     const wasAirborne = this.state.airborne;
     const fallSpeed = -this.state.velocity.y;
@@ -483,10 +505,12 @@ export class SkiControls {
         foreAft: this.crashed ? 0 : lean,
         crashed: this.crashed,
         edgeRate: this.handling.edgeRate,
+        board: board ? this.boardGeo : undefined,
       },
       dt,
     );
-    this.footstep = events.step && (this.climbing || speed < WALK_MAX);
+    // Every push on a board is a foot on the snow.
+    this.footstep = events.step && (board || this.climbing || speed < WALK_MAX);
     this.polePlant = events.plant;
     this.updateCamera();
   }

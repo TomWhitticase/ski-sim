@@ -3154,6 +3154,17 @@ body.touch .map-places {
     overflow-y: auto;
   }
 
+  /* Ten tabs don't fit a landscape phone: the list scrolls, and Close stays on screen
+     at its foot. */
+  .hub-tabs .hub-close {
+    position: sticky;
+    bottom: -10px;
+    margin-bottom: -10px;
+    padding-bottom: 10px;
+    background: #eef2f6;
+    box-shadow: 0 -1px 0 var(--hair);
+  }
+
   .hub-head {
     padding-top: 12px;
   }

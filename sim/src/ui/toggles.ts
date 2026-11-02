@@ -9,6 +9,7 @@ export type PlayMode = 'fly' | 'ski' | 'glide' | 'ride' | 'sled' | 'plane' | 'he
 export type TabName =
   | 'camera'
   | 'display'
+  | 'graphics'
   | 'controls'
   | 'ski'
   | 'rules'
@@ -460,6 +461,14 @@ export function createEntries(d: ToggleDeps): Entry[] {
       icon: 'options',
       synonyms: ['options', 'settings', 'graphics', 'glass', 'scale'],
       ...tab('display'),
+    },
+    {
+      id: 'tab-graphics',
+      label: 'Graphics options',
+      hint: 'Fast, Default or Fancy, and terrain detail',
+      icon: 'options',
+      synonyms: ['options', 'settings', 'quality', 'performance', 'fps', 'detail'],
+      ...tab('graphics'),
     },
     {
       id: 'tab-controls',

@@ -158,7 +158,42 @@ export function boardHandling(s: BoardSetup): SkiHandling {
     // But a flat-base skid / flat spin is loose and easy on a board.
     pivotRate: 1.25 * length ** -0.8 * waist ** -0.1,
     edgeRate: 0.8 * waist ** -0.8 * (1 + 0.15 * stiff),
+    // One back foot out of its binding pushing on the snow: slower than skating on two skis.
+    pushAccel: BOARD_PUSH.accel,
+    pushMaxSpeed: BOARD_PUSH.maxSpeed,
   };
+}
+
+// --- one-foot push ----------------------------------------------------------------------
+
+/**
+ * Pushing along on a board (W at low speed): the back foot comes out of its binding and
+ * pushes on the snow beside the toe edge. A real push tops out at a fast walk-to-jog; past
+ * that (or on a slope steep enough to glide) the rider steps back in and rides.
+ */
+export const BOARD_PUSH = {
+  /** Push acceleration along the board (m/s²); skis skate at 2.5. */
+  accel: 1.7,
+  /** A push adds no speed past this (m/s, ~12 km/h); skis skate to 6. */
+  maxSpeed: 3.4,
+  /** Coming in faster than this (m/s) the foot stays in: you're riding, not pushing. */
+  stopSpeed: 3.9,
+  /** Once riding, start pushing again only below this (m/s): no flicker at the switch. */
+  resumeSpeed: 2.9,
+  /** Downhill grade along the board (sine of the slope) past which you glide, not push. */
+  glideGrade: 0.09,
+  /** Strides per second. */
+  hz: 0.95,
+} as const;
+
+/**
+ * Whether W pushes on a board this instant: below the push speed (with hysteresis, from
+ * whether it was pushing, so holding W on the flat keeps pushing at the push's top speed) and not on a slope steep enough to glide. `downhill` is the
+ * sine of the slope along the board, > 0 pointing downhill; uphill always pushes (or climbs).
+ */
+export function boardPushes(speed: number, downhill: number, pushing: boolean): boolean {
+  if (downhill > BOARD_PUSH.glideGrade) return false;
+  return speed < (pushing ? BOARD_PUSH.stopSpeed : BOARD_PUSH.resumeSpeed);
 }
 
 export const DEFAULT_BOARD_HANDLING: SkiHandling = boardHandling(DEFAULT_BOARD_SETUP);

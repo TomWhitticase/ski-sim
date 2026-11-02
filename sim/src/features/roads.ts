@@ -59,16 +59,20 @@ const PISTE_CUT = 0.25;
 export const FLAG = { centreLine: 1, bridge: 2, side: 4 } as const;
 
 /** Ploughed snowbank along a road: lower and narrower than a runway's (m). */
-export const ROAD_BANK = { base: 2.2, top: 0.7, height: 0.8, taper: 2 } as const;
+export const ROAD_BANK = { base: 2.2, top: 0.7, height: 0.8, taper: 4 } as const;
 /** Snow pole (m). */
 export const SNOW_POLE = { height: 2.2, radius: 0.035 } as const;
 
-const ASPHALT = vec3(0.05, 0.053, 0.057);
-const SLUSH = vec3(0.5, 0.52, 0.55);
+// A ploughed winter road is wet, salted slush, not dry black tarmac: a dark blue-grey that
+// still reads as "road" against the snow without collapsing to a black void in bright sun.
+const ASPHALT = vec3(0.1, 0.105, 0.115);
+const SLUSH = vec3(0.52, 0.54, 0.57);
 const LINE_PAINT = vec3(0.62, 0.62, 0.6);
 const CONCRETE = vec3(0.42, 0.42, 0.41);
-const BANK: RGB = [0.95, 0.96, 0.99];
-const BANK_DIRTY: RGB = [0.78, 0.78, 0.79];
+// The windrow is cleaner than the trodden snow but only a touch brighter, so it doesn't
+// flare white against the slope; its plough-thrown foot is greyer.
+const BANK: RGB = [0.9, 0.915, 0.95];
+const BANK_DIRTY: RGB = [0.72, 0.73, 0.76];
 const POLE: RGB = [0.8, 0.13, 0.06];
 const POLE_BAND: RGB = [0.92, 0.92, 0.9];
 
@@ -294,28 +298,40 @@ class SurfaceBuilder {
   }
 }
 
-/** A snowbank along `points`: a rounded windrow, its ends tapering (one-sided faces). */
+/**
+ * A snowbank along `points`: a rounded windrow draped on the ground. Every vertex is set
+ * on the terrain under it (not the whole section at the centreline's height), so the bank
+ * hugs a cross-slope instead of floating on one side and burying the other — which read as
+ * angular shards. Its width and height taper to nothing at each end so it melts into the snow.
+ */
 function snowbank(b: Builder, points: EN[], ground: Ground): void {
   const pts = densify(points, STEP);
   if (pts.length < 2) return;
   const { u, right } = stripFrame(pts);
   const length = u[u.length - 1]!;
-  const { base, top, height, taper } = ROAD_BANK;
-  const section = (i: number) => {
+  const { base, height, taper } = ROAD_BANK;
+  // Across the windrow: offset from the centre (fraction of `base`) and height (fraction of
+  // the peak). A rounded dome that tucks a little into the snow at both feet.
+  const profile: [number, number][] = [
+    [-0.5, -0.12],
+    [-0.34, 0.5],
+    [-0.16, 0.9],
+    [0, 1],
+    [0.16, 0.9],
+    [0.34, 0.5],
+    [0.5, -0.12],
+  ];
+  const section = (i: number): number[][] => {
     const [e, n] = pts[i]!;
     const [re, rn] = right[i]!;
-    const g = ground(e, n);
     const k = Math.min(1, Math.min(u[i]!, length - u[i]!) / taper);
-    const h = height * (0.35 + 0.65 * k);
-    const shape: [number, number][] = [
-      [-base / 2, -0.3],
-      [-base * 0.32, h * 0.55],
-      [-top / 2, h * 0.95],
-      [top / 2, h * 0.95],
-      [base * 0.32, h * 0.55],
-      [base / 2, -0.3],
-    ];
-    return shape.map(([v, y]) => [e + re * v, g + y, n + rn * v]);
+    const h = height * (0.2 + 0.8 * k);
+    const w = base * (0.5 + 0.5 * k);
+    return profile.map(([f, yf]) => {
+      const pe = e + re * f * w;
+      const pn = n + rn * f * w;
+      return [pe, ground(pe, pn) + yf * h, pn];
+    });
   };
   let prev = section(0);
   for (let i = 1; i < pts.length; i++) {

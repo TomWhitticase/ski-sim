@@ -10,7 +10,7 @@ import { keyLabel, type Registry } from './registry';
 
 /**
  * Display (Options): what's drawn in the world (the registry's `display` entries: the
- * same switches as the H / V / 1–4 / K keys) and how the interface looks (glass
+ * same switches as the H / V / 1–5 / K keys) and how the interface looks (glass
  * strength, size). World switches need a loaded map (`data-needs-map`); the interface
  * ones apply at once and are saved via `onChange`.
  */
