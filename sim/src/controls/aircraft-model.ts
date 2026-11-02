@@ -31,7 +31,6 @@ const DARK: RGB = [0.08, 0.08, 0.09];
 const GREY: RGB = [0.42, 0.44, 0.46];
 const METAL: RGB = [0.6, 0.62, 0.65];
 const TYRE: RGB = [0.06, 0.06, 0.07];
-const SKI: RGB = [0.78, 0.8, 0.82];
 const INTERIOR: RGB = [0.18, 0.19, 0.2];
 const BLADE: RGB = [0.14, 0.14, 0.15];
 const PANEL: RGB = [0.2, 0.21, 0.23];
@@ -219,18 +218,15 @@ function wheel(radius: number, width: number, at: [number, number, number]): Buf
   ];
 }
 
-/** A ski under a wheel (wheel-skis): flat, with an upturned tip; `y` is its base. */
-function ski(length: number, width: number, x: number, y: number, z: number): BufferGeometry[] {
-  const flat = length * 0.82;
-  return [
-    part(new BoxGeometry(width, 0.06, flat), SKI, [x, y + 0.03, z + (length - flat) / 2]),
-    part(
-      new BoxGeometry(width, 0.05, length - flat + 0.05),
-      SKI,
-      [x, y + 0.1, z - flat / 2 + 0.02 - (length - flat) / 2 + 0.04],
-      [0.45, 0, 0],
-    ),
-  ];
+/**
+ * A wheel fairing (spat): a streamlined shell over the top of a wheel of `radius`,
+ * `width` wide, centred on its axle; open underneath, where the tyre comes through.
+ */
+function fairing(radius: number, width: number, at: [number, number, number]): BufferGeometry {
+  const shell = new SphereGeometry(1, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.5);
+  shell.scale(width / 2 + 0.04, radius * 1.15, radius * 1.6);
+  // Its rim at the axle: the lower half of the tyre shows.
+  return part(shell, WHITE, [at[0], at[1] + 0.02, at[2] + radius * 0.12]);
 }
 
 /**
@@ -326,7 +322,7 @@ function lamps(points: { at: [number, number, number]; colour: RGB; r?: number }
   return new Mesh(g, new MeshBasicNodeMaterial({ vertexColors: true }));
 }
 
-/** Pilatus PC-6 Porter on wheel-skis: high strut-braced wing, long turboprop nose, tailwheel. */
+/** Pilatus PC-6 Porter on wheels: high strut-braced wing, long turboprop nose, tailwheel. */
 export function createPlane(type: PlaneType = PC6): AircraftParts {
   const span = type.span;
   const hub = type.geometry.propHub;
@@ -399,12 +395,13 @@ export function createPlane(type: PlaneType = PC6): AircraftParts {
     parts.push(
       rod(foot.clone().lerp(head, 0.55), new Vector3(side * 2.6, wingY, lead + 0.75), 0.025, GREY),
     );
-    // Main gear: a long-travel leg out to the wheel-ski, braced back.
+    // Main gear: a long-travel leg out to the wheel in its fairing, braced back. The
+    // tyre's bottom is the ground reference (y = 0).
     const axle = new Vector3(side * type.ground.track * 0.5, 0.36, 0);
     parts.push(rod(new Vector3(side * 0.58, 1.12, -0.25), axle, 0.06, GREY));
     parts.push(rod(new Vector3(side * 0.58, 1.1, 0.55), axle, 0.04, GREY));
-    parts.push(...wheel(0.32, 0.2, [axle.x, axle.y, axle.z]));
-    parts.push(...ski(2.1, 0.34, axle.x, 0, axle.z - 0.15));
+    parts.push(...wheel(0.36, 0.22, [axle.x, axle.y, axle.z]));
+    parts.push(fairing(0.36, 0.22, [axle.x, axle.y, axle.z]));
     // Exhaust stacks on the cowling's sides.
     parts.push(
       part(
@@ -446,7 +443,7 @@ export function createPlane(type: PlaneType = PC6): AircraftParts {
     );
   }
   parts.push(rod(new Vector3(0, 2.07, -1.44), new Vector3(0, wingY - 0.1, -0.68), 0.022, FRAME));
-  // Tailplane, fin and rudder, tailwheel on its spring with a small ski.
+  // Tailplane, fin and rudder, tailwheel on its spring.
   for (const side of [-1, 1]) {
     parts.push(
       bridge(
@@ -464,7 +461,6 @@ export function createPlane(type: PlaneType = PC6): AircraftParts {
     rod(new Vector3(0, tailY + 0.62, 7.1), new Vector3(0, tailY + 0.16, tailArm), 0.035, DARK),
   );
   parts.push(...wheel(0.15, 0.09, [0, tailY + 0.15, tailArm]));
-  parts.push(...ski(0.6, 0.14, 0, tailY, tailArm - 0.05));
   // Spinner.
   parts.push(
     part(new ConeGeometry(0.24, 0.38, 16), DARK, [0, hub[0], hub[1] - 0.19], [-Math.PI / 2, 0, 0]),

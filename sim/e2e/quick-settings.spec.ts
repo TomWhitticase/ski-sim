@@ -46,7 +46,7 @@ test('Tab opens Quick settings under the minimap; its switches drive the real to
   await expect(button).toContainText('Quick settings');
   await expect(button.locator('kbd')).toHaveText('Tab');
   // The tests start with every label and piste colours on.
-  await expect(button.locator('.qs-count')).toHaveText('4 on');
+  await expect(button.locator('.qs-count')).toHaveText('5 on');
 
   await page.keyboard.press('Tab');
   await expect(panel).toBeVisible();
@@ -70,6 +70,18 @@ test('Tab opens Quick settings under the minimap; its switches drive the real to
     'Go',
   ]);
   await expect(row(page, 'peak').locator('kbd')).toHaveText('2');
+  await expect(row(page, 'lift').locator('.qs-label > span')).toHaveText('Lift names');
+  await expect(row(page, 'airfield').locator('.qs-label > span')).toHaveText('Airfield names');
+  await expect(row(page, 'airfield').locator('kbd')).toHaveText('5');
+  // 5 works it, and Options → Display follows.
+  await page.keyboard.press('Digit5');
+  await expect(row(page, 'airfield').locator('.switch')).toHaveAttribute('aria-checked', 'false');
+  await expect(page.locator('#opt-display [data-toggle="airfield"]')).toHaveAttribute(
+    'aria-checked',
+    'false',
+  );
+  await page.keyboard.press('Digit5');
+  await expect(row(page, 'airfield').locator('.switch')).toHaveAttribute('aria-checked', 'true');
   await expect(row(page, 'peak').locator('.switch')).toHaveAttribute('aria-checked', 'true');
   await page.waitForTimeout(300);
   await shot(page, 'desktop-open');
@@ -85,7 +97,7 @@ test('Tab opens Quick settings under the minimap; its switches drive the real to
     'false',
   );
   await expect(page.locator('#toggles [data-toggle="peak"]')).not.toHaveClass(/\bon\b/);
-  await expect(panel.locator('.qs-on')).toHaveText('3 on');
+  await expect(panel.locator('.qs-on')).toHaveText('4 on');
   // Its key still works with the panel open, and the switch follows.
   await page.keyboard.press('Digit2');
   await expect(row(page, 'peak').locator('.switch')).toHaveAttribute('aria-checked', 'true');

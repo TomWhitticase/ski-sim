@@ -23,6 +23,13 @@ import {
   AIRCRAFT_OFF,
   aircraftFalloff,
   aircraftSound,
+  aircraftWindLevel,
+  crashSeverity,
+  flapMotorLevel,
+  ROLLING_OFF,
+  rollingSound,
+  stallHornLevel,
+  touchdownSound,
   DRONE_OFF,
   droneFalloff,
   droneSound,
@@ -1042,8 +1049,8 @@ async function main(): Promise<void> {
   const hud = new Hud($('#hud'));
   hud.setDiscipline(discipline);
   hud.setToggles(
-    ['hud', 'view', 'lift', 'peak', 'pistes', 'restaurant', 'sound', 'discipline'].map((id) =>
-      registry.get(id)!,
+    ['hud', 'view', 'lift', 'peak', 'pistes', 'restaurant', 'airfield', 'sound', 'discipline'].map(
+      (id) => registry.get(id)!,
     ),
   );
   registry.subscribe((id, announce) => {
@@ -1059,6 +1066,7 @@ async function main(): Promise<void> {
     manifest.minimap.extent,
   );
   minimap.restaurants = restaurants;
+  minimap.airfields = features.airfields?.aerodromes ?? [];
   minimap.borders = features.borders ?? [];
   const buildingsById = new Map(features.buildings.map((b) => [b.id, b]));
   const labels = new Labels(
@@ -1072,7 +1080,7 @@ async function main(): Promise<void> {
       ...(features.airfields?.aerodromes ?? []).map(aerodromeLabel),
     ],
     groundHeight,
-    { lift: prefs.lift, peak: prefs.peak, restaurant: prefs.restaurant },
+    { lift: prefs.lift, peak: prefs.peak, restaurant: prefs.restaurant, airfield: prefs.airfield },
   );
   const sound = new Sound(!prefs.sound);
   const flash = $('#sky-flash');
@@ -1086,6 +1094,7 @@ async function main(): Promise<void> {
         lift: labels.isVisible('lift'),
         peak: labels.isVisible('peak'),
         restaurant: labels.isVisible('restaurant'),
+        airfield: labels.isVisible('airfield'),
         pistes: pisteColours,
         sound: !sound.isMuted,
         hud: hudShown,
@@ -1542,6 +1551,7 @@ async function main(): Promise<void> {
       };
     }
     setMode(kind);
+    sound.door(true); // in, and the door shut behind you
     persistPose();
   };
   /**
@@ -1552,6 +1562,7 @@ async function main(): Promise<void> {
   const getOut = (kind: 'plane' | 'heli') => {
     const ctl = aircraftFor(kind);
     if (ctl.crashing) return;
+    sound.door(false); // the door swinging open, on the ground or in the air
     if (ctl.canLeaveOnGround) setMode('ski');
     else bailOut(kind);
   };
@@ -1939,6 +1950,7 @@ async function main(): Promise<void> {
       worldMap,
       roads,
       waypoint,
+      sound,
       lifts,
       ski,
       ride,
@@ -2109,8 +2121,12 @@ async function main(): Promise<void> {
     trails.flush();
     const levels = soundLevels(airSpeed, contact, weatherWind, mode === 'ski' && ski.isSnowboard);
     if (mode === 'fly') levels.wind = 0; // the drone's camera hears its props, not the wind
-    // In a cockpit the slipstream is a muffled hiss under the engine.
-    if ((mode === 'plane' || mode === 'heli') && view === 'first-person') levels.wind *= 0.35;
+    // An aircraft's slipstream, by airspeed: a roar round the chase camera, a muffled
+    // hiss under the engine from the cockpit.
+    if (mode === 'plane' || mode === 'heli') {
+      const cockpit = view === 'first-person';
+      levels.wind = aircraftWindLevel(aircraftFor(mode).airspeed, cockpit, weatherWind);
+    }
     // Freefall roars: louder still with speed (head down at 290 km/h).
     if (mode === 'skydive' && !skydiver.canopyOut) {
       levels.wind = Math.min(1, 0.55 + 0.45 * Math.min(1, skydiver.airspeed / 80));
@@ -2136,7 +2152,20 @@ async function main(): Promise<void> {
         level: s.level * aircraftFalloff(otherAircraft.distance),
       });
     } else sound.setAircraft('other', AIRCRAFT_OFF);
-    if (flying && flying.impact > 0) sound.thump(flying.impact * 2);
+    if (flying) {
+      const cockpit = view === 'first-person';
+      const surface = flying.onGround ? flying.surface : 'groomed';
+      sound.setAircraftExtras(
+        flying.crashing
+          ? ROLLING_OFF
+          : rollingSound(flying.kind, flying.onGround, flying.speed, surface, flying.braking),
+        stallHornLevel(flying.stallWarning && !flying.onGround, cockpit),
+        flapMotorLevel(flying.flapsMoving, cockpit),
+      );
+      if (flying.impact > 0) {
+        sound.touchdown(touchdownSound(flying.kind, flying.impact, flying.speed, surface));
+      }
+    } else sound.setAircraftExtras(ROLLING_OFF, 0, 0);
     if (mode === 'sled' && sled.impact > 0) sound.thump(sled.impact);
     // A board lands flat on its base — one heavier, duller thud than two skis.
     if (mode === 'ski' && ski.landingImpact > 0 && !ski.onRail)
@@ -2224,7 +2253,7 @@ async function main(): Promise<void> {
       if (ctl.crashed && !crashNoted) {
         crashNoted = true;
         partyHud.notify(`Crashed · ${ctl.crashed}`);
-        sound.thump(8);
+        sound.crash(crashSeverity(ctl.speed));
       }
       if (ctl.wrecked) {
         // Thrown clear onto your skis where it came to rest, standing; the wreck stays
@@ -2453,6 +2482,7 @@ async function main(): Promise<void> {
       : multiplayer.dots;
     minimap.players = dots;
     worldMap.setPlayers(dots);
+    minimap.pinAirfields = mode === 'plane' || mode === 'heli' || mode === 'fly';
     minimap.draw(east, north, controls().heading);
     updatePrompt();
     touch.update({
@@ -2464,6 +2494,8 @@ async function main(): Promise<void> {
       flying: (mode === 'plane' || mode === 'heli') && !aircraftFor(mode).onGround,
       canopy: mode === 'skydive' && skydiver.canopyOut,
     });
+    // Flying (an aircraft or the drone), airfields show from far off with their range.
+    labels.setFlying(mode === 'plane' || mode === 'heli' || mode === 'fly');
     labels.update(camera);
     signposts?.update(camera);
     waypoint.update(camera, here);
@@ -2542,23 +2574,28 @@ interface Prefs {
   lift: boolean;
   peak: boolean;
   restaurant: boolean;
+  airfield: boolean;
   pistes: boolean;
   sound: boolean;
   hud: boolean;
 }
 
 function loadPrefs(): Prefs {
-  // Markers start off: a clean view until you turn them on (1-4).
+  // Markers start off: a clean view until you turn them on (1-5).
   const defaults = {
     lift: false,
     peak: false,
     restaurant: false,
+    airfield: false,
     pistes: false,
     sound: true,
     hud: true,
   };
   try {
-    return { ...defaults, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') };
+    const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as Partial<Prefs>;
+    // Airfield names used to come with the lift names (1): saved before they had their
+    // own toggle, they follow it.
+    return { ...defaults, airfield: saved.lift ?? false, ...saved };
   } catch {
     return defaults;
   }

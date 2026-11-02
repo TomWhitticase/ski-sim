@@ -17,6 +17,7 @@ export const PRESET_TOGGLES = [
   'lift',
   'peak',
   'restaurant',
+  'airfield',
   'pistes',
   'sign-readout',
   'debug',
@@ -33,7 +34,7 @@ export const PRESETS: readonly Preset[] = [
     id: 'navigator',
     label: 'Navigator',
     hint: 'Names and piste colours to find your way',
-    on: ['lift', 'peak', 'restaurant', 'pistes', 'sign-readout'],
+    on: ['lift', 'peak', 'restaurant', 'airfield', 'pistes', 'sign-readout'],
   },
   {
     id: 'explorer',

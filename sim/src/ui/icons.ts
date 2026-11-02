@@ -48,6 +48,10 @@ export const ICONS = {
     '<path d="M3 5l18-2"/><path d="M12 4v5"/><rect x="7" y="9" width="10" height="8" rx="2"/><path d="M7 13h10"/>',
   ),
   peak: svg('<path d="M3 20l6-13 4 7 2-3 6 9z"/>'),
+  // A plane seen from above.
+  airfield: svg(
+    '<path d="M12 3c1 0 1.5 1 1.5 2v5l7 4v2l-7-2v4l2 1.5V21L12 20l-3.5 1v-1.5l2-1.5v-4l-7 2v-2l7-4V5c0-1 .5-2 1.5-2z"/>',
+  ),
   restaurant: svg('<path d="M6 3v8M9 3v8M6 11h3M7.5 11v10M17 3c-2 0-3 3-3 6h3zM17 9v12"/>'),
   hud: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h5M16 15h5"/>'),
   sound: svg('<path d="M4 9v6h4l5 4V5L8 9H4zM16 8a5 5 0 010 8"/>'),

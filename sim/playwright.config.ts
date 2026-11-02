@@ -25,7 +25,13 @@ export default defineConfig({
             { name: 'ski-sim.view', value: 'first-person' },
             {
               name: 'ski-sim.labels',
-              value: JSON.stringify({ lift: true, peak: true, restaurant: true, pistes: true }),
+              value: JSON.stringify({
+                lift: true,
+                peak: true,
+                restaurant: true,
+                airfield: true,
+                pistes: true,
+              }),
             },
             // Every context hint already seen: none pops up in the views (palette.spec.ts
             // tests them).

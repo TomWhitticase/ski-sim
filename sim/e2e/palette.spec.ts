@@ -54,6 +54,7 @@ test('Ctrl+K searches every setting and action, shows keys and state, and runs o
   await page.keyboard.type('name');
   await expect(page.locator('#palette .palette-item').first()).toHaveAttribute('data-id', 'lift');
   await expect(item(page, 'peak').locator('kbd')).toHaveText('2');
+  await expect(item(page, 'airfield').locator('kbd')).toHaveText('5');
   await expect(item(page, 'peak').locator('.palette-state')).toHaveText('On');
   await shot(page, 'palette-search');
   // Typing doesn't reach the game: K didn't mute, 2 doesn't hide peak names.
@@ -132,12 +133,14 @@ test('Quick settings: presets set the labels and overlays together', async ({ pa
   await expect(preset('realistic')).toHaveText('Realistic');
   await preset('realistic').click();
   await expect(preset('realistic')).toHaveAttribute('aria-pressed', 'true');
-  for (const id of ['lift', 'peak', 'restaurant', 'pistes']) expect(await on(id)).toBe('false');
+  for (const id of ['lift', 'peak', 'restaurant', 'airfield', 'pistes'])
+    expect(await on(id)).toBe('false');
   await expect(page.locator('#labels .label:not([hidden])')).toHaveCount(0);
   await expect(page.locator('#debug')).toBeHidden();
   await shot(page, 'preset-realistic');
   await preset('navigator').click();
-  for (const id of ['lift', 'peak', 'restaurant', 'pistes']) expect(await on(id)).toBe('true');
+  for (const id of ['lift', 'peak', 'restaurant', 'airfield', 'pistes'])
+    expect(await on(id)).toBe('true');
   await expect(page.locator('#debug')).toBeHidden();
   await preset('explorer').click();
   await expect(page.locator('#debug')).toBeVisible(); // F3's debug info too

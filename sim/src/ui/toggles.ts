@@ -88,7 +88,7 @@ export function touchTools(entries: readonly Entry[]): Entry[] {
   return entries.filter((e) => e.tool).sort((a, b) => at(a) - at(b));
 }
 
-const LABEL_KINDS = ['lift', 'peak', 'restaurant'] as const;
+const LABEL_KINDS = ['lift', 'peak', 'restaurant', 'airfield'] as const;
 
 /**
  * Every toggle and action in the game, in the order the panel and palette list them.
@@ -122,14 +122,14 @@ export function createEntries(d: ToggleDeps): Entry[] {
     // ---- Labels: name tags in the world ----
     {
       id: 'lift',
-      label: 'Lift & airfield names',
+      label: 'Lift names',
       short: 'Lifts',
       display: true,
-      hint: 'Name tags over the lifts, airfields and heliports',
+      hint: 'Name tags over the chairlifts, gondolas and drags',
       group: 'labels',
       key: { code: 'Digit1', also: ['Numpad1'], glyph: '1' },
       icon: 'lift',
-      synonyms: ['labels', 'tags', 'chairlift', 'gondola', 'airport', 'runway'],
+      synonyms: ['labels', 'tags', 'chairlift', 'gondola', 'cable car', 'drag'],
       panel: true,
       ...label('lift'),
     },
@@ -160,10 +160,23 @@ export function createEntries(d: ToggleDeps): Entry[] {
       ...label('restaurant'),
     },
     {
+      id: 'airfield',
+      label: 'Airfield names',
+      short: 'Airfields',
+      display: true,
+      hint: 'Altiports, airstrips and heliports, seen from far off while flying',
+      group: 'labels',
+      key: { code: 'Digit5', also: ['Numpad5'], glyph: '5' },
+      icon: 'airfield',
+      synonyms: ['labels', 'tags', 'airport', 'altiport', 'runway', 'heliport', 'helipad'],
+      panel: true,
+      ...label('airfield'),
+    },
+    {
       // Touch's single labels button: every kind on or off together.
       id: 'names',
       label: 'All names',
-      hint: 'Lift, peak and restaurant names together',
+      hint: 'Lift, peak, restaurant and airfield names together',
       group: 'labels',
       icon: 'labels',
       synonyms: ['labels', 'tags'],

@@ -19,6 +19,11 @@ const CASCADES = 'at=45.295119,6.577488,2256&heading=108&pitch=-5';
 
 const shot = (page: Page, name: string) =>
   page.screenshot({ path: `test-results/mobile/${name}.png` });
+/** Quick settings shots go beside the desktop ones too. */
+const quickShot = async (page: Page, name: string) => {
+  await shot(page, name);
+  await page.screenshot({ path: `test-results/quick-settings/${name}.png` });
+};
 
 /** Real multi-touch through CDP: each finger by id, every event lists those still down. */
 class Fingers {
@@ -494,9 +499,11 @@ test('touch: the piste colours tool turns them on and off; labels still toggle',
   await tap('[data-touch="labels"]');
   await expect(labels).not.toHaveClass(/\bon\b/);
   await expect(page.locator('#toggles [data-toggle="lift"]')).not.toHaveClass(/\bon\b/);
+  await expect(page.locator('#toggles [data-toggle="airfield"]')).not.toHaveClass(/\bon\b/);
   await expect(pistes).toHaveClass(/\bon\b/); // names only
   await tap('[data-touch="labels"]');
   await expect(labels).toHaveClass(/\bon\b/);
+  await expect(page.locator('#toggles [data-toggle="airfield"]')).toHaveClass(/\bon\b/);
   await shot(page, 'tools-landscape');
   await page.setViewportSize(PORTRAIT);
   await page.waitForTimeout(400);
@@ -700,6 +707,24 @@ test('the helicopter and the plane by touch: buttons for collective, power and f
   expect(parseFloat((await flight('power')) ?? '0')).toBeGreaterThan(40);
   await expect.poll(() => hud(page, 'speed'), { timeout: 8000 }).toBeGreaterThan(5);
   await shot(page, 'plane-landscape');
+
+  // Flying ~7.5 km south of the Courchevel and Méribel altiports: airfield names show, with
+  // the range to each (on a phone's screen the nearer of two close together wins).
+  await page.evaluate(() => {
+    type V = { x: number; y: number; z: number };
+    const c = (
+      window.__sim as unknown as {
+        plane: { position: V; mount(at: V, v: V, yaw: number, running: boolean): void };
+      }
+    ).plane;
+    const Vec = c.position.constructor as new (x: number, y: number, z: number) => V;
+    c.mount(new Vec(1400, 3800, -1000), new Vec(0, 0, -50), 0, true);
+  });
+  const airfield = (name: string) =>
+    page.locator('#labels .label-airfield:not([hidden])').filter({ hasText: name });
+  await expect(airfield('Altiport de Courchevel')).toContainText(/km/, { timeout: 8000 });
+  await shot(page, 'plane-airfields');
+  expect(await airfield('km').count()).toBeGreaterThanOrEqual(2);
 });
 
 for (const [name, size] of [
@@ -1000,12 +1025,16 @@ test('touch: Quick settings from its button, each label kind on its own; HUD and
   expect(sheet.y).toBeGreaterThan(20);
   expect(sheet.width).toBeGreaterThan(400);
   await expect(panel.locator('kbd').first()).toBeHidden(); // no keys on touch
-  await shot(page, 'quick-sheet-landscape');
+  await quickShot(page, 'quick-sheet-landscape');
   // Each label kind on its own (the labels tool turns them all together).
   await tap('#quick-settings .qs-row[data-id="peak"] .switch');
   await expect(row('peak').locator('.switch')).toHaveAttribute('aria-checked', 'false');
   await expect(row('lift').locator('.switch')).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('[data-touch="labels"]')).toHaveClass(/\bon\b/);
+  // Airfield names (5) are their own row too.
+  await tap('#quick-settings .qs-row[data-id="airfield"] .switch');
+  await expect(row('airfield').locator('.switch')).toHaveAttribute('aria-checked', 'false');
+  await expect(row('restaurant').locator('.switch')).toHaveAttribute('aria-checked', 'true');
   // A tap on the scene closes it.
   await fingers.tap(40, 250);
   await expect(panel).toBeHidden();
@@ -1021,7 +1050,7 @@ test('touch: Quick settings from its button, each label kind on its own; HUD and
   expect(box.y).toBeGreaterThan(map.y + map.height);
   expect(box.y + box.height).toBeLessThanOrEqual(PORTRAIT.height);
   await expect(page.locator('#touch-tools')).toBeHidden();
-  await shot(page, 'quick-portrait');
+  await quickShot(page, 'quick-portrait');
   await tap('#quick-settings .qs-close');
   await expect(panel).toBeHidden();
   await shot(page, 'quick-closed-portrait');
@@ -1035,7 +1064,7 @@ test('touch: Quick settings from its button, each label kind on its own; HUD and
   const tabletMap = (await page.locator('#minimap').boundingBox())!;
   expect(tablet.y).toBeGreaterThan(tabletMap.y + tabletMap.height);
   expect(tablet.width).toBeLessThan(400);
-  await shot(page, 'quick-tablet');
+  await quickShot(page, 'quick-tablet');
 });
 
 test('touch: a hint offers what it is about with a button; the palette from Quick settings', async ({
@@ -1058,7 +1087,7 @@ test('touch: a hint offers what it is about with a button; the palette from Quic
   await expect(hint).toHaveAttribute('data-hint', 'quick');
   await expect(hint.locator('kbd')).toHaveCount(0); // no keys on touch
   await expect(hint.locator('.hint-do')).toHaveText('Open');
-  await shot(page, 'hint-landscape');
+  await quickShot(page, 'hint-landscape');
   const open = await centre(page, '#hint .hint-do');
   await fingers.tap(open.x, open.y);
   await expect(hint).toBeHidden();
@@ -1073,7 +1102,7 @@ test('touch: a hint offers what it is about with a button; the palette from Quic
   await page.locator('#palette input').fill('snowmo');
   await page.setViewportSize(PORTRAIT);
   await page.waitForTimeout(400);
-  await shot(page, 'palette-portrait');
+  await quickShot(page, 'palette-portrait');
   const sled = await centre(page, '#palette .palette-item[data-id="snowmobile"]');
   await fingers.tap(sled.x, sled.y);
   await expect(page.locator('#palette')).toBeHidden();

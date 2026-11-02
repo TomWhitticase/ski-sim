@@ -36,10 +36,11 @@ describe('presets', () => {
     expect(activePreset(reg)?.id).toBe('realistic');
   });
 
-  it('Navigator: names and piste colours, no debug', () => {
+  it('Navigator: names (airfields too) and piste colours, no debug', () => {
     const { state, reg } = registry();
     applyPreset(reg, preset('navigator'));
-    expect([state.lift, state.peak, state.restaurant, state.pistes]).toEqual([
+    expect([state.lift, state.peak, state.restaurant, state.airfield, state.pistes]).toEqual([
+      true,
       true,
       true,
       true,

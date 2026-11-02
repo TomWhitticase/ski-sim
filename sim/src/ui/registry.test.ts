@@ -10,6 +10,7 @@ function fakeGame() {
     lift: false,
     peak: false,
     restaurant: false,
+    airfield: false,
     pistes: false,
     hud: true,
     sound: true,
@@ -96,6 +97,8 @@ describe('the registry', () => {
     expect(at('Digit2')).toBe('peak');
     expect(at('Digit3')).toBe('pistes');
     expect(at('Digit4')).toBe('restaurant');
+    expect(at('Digit5')).toBe('airfield');
+    expect(at('Numpad5')).toBe('airfield');
     expect(at('KeyH')).toBe('hud');
     expect(at('KeyV')).toBe('view');
     expect(at('KeyK')).toBe('sound');
@@ -147,9 +150,19 @@ describe('the registry', () => {
     state.peak = true;
     expect(registry.isOn(names)).toBe(true);
     names.run();
-    expect([state.lift, state.peak, state.restaurant]).toEqual([false, false, false]);
+    expect([state.lift, state.peak, state.restaurant, state.airfield]).toEqual([
+      false,
+      false,
+      false,
+      false,
+    ]);
     names.run();
-    expect([state.lift, state.peak, state.restaurant]).toEqual([true, true, true]);
+    expect([state.lift, state.peak, state.restaurant, state.airfield]).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
   });
 
   it('disables entries by mode, with the reason', () => {
