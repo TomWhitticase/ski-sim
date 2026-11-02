@@ -235,14 +235,35 @@ function bankAngle(): number {
  * wings across the slope, the nose `pitch` above the ground.
  */
 export function groundOrientation(yaw: number, normal: Vector3, pitch: number, out: Quaternion) {
-  GF.set(-Math.sin(yaw), 0, -Math.cos(yaw));
-  GF.addScaledVector(normal, -GF.dot(normal)).normalize();
+  groundForward(yaw, normal, GF);
   GR.crossVectors(GF, normal);
   TMP.copy(GF).negate();
   BASIS.makeBasis(GR, normal, TMP);
   out.setFromRotationMatrix(BASIS);
   Q.setFromAxisAngle(TMP2.set(1, 0, 0), pitch);
   return out.multiply(Q);
+}
+
+/**
+ * The direction along the ground (square to `normal`) whose compass heading is exactly
+ * `yaw`: the level heading tilted up or down the slope, never sideways. Projecting the
+ * level heading along the normal instead turns it toward the fall line wherever the
+ * ground slopes across it, and re-reading the heading from that every step turned a
+ * rolling plane off the runway on the gentlest cross-slope (42° in 2 s on 2 %).
+ */
+export function groundForward(yaw: number, normal: Vector3, out: Vector3): Vector3 {
+  out.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+  out.y = -(out.x * normal.x + out.z * normal.z) / Math.max(normal.y, 0.1);
+  return out.normalize();
+}
+
+/**
+ * Compass heading (Look convention) of the body's forward axis laid flat on the ground:
+ * the inverse of `groundOrientation`, whatever the pitch.
+ */
+function groundHeading(forward: Vector3, normal: Vector3): number {
+  TMP.copy(forward).addScaledVector(normal, -forward.dot(normal));
+  return Math.atan2(-TMP.x, -TMP.z);
 }
 
 /** Heading of the nose (Look convention: 0 north, + left). */
@@ -436,7 +457,8 @@ function touchdown(s: PlaneState, type: PlaneType, terrain: AirTerrain): void {
   const sink = -v.dot(N);
   const nose = Math.asin(clamp(F.dot(N), -1, 1));
   if (sink > geo.maxSink) return startCrash(s, 'Hard landing');
-  if (nose < -0.07) return startCrash(s, 'Prop strike');
+  // Nose-low (a wheel landing, tail up) is fine until the prop tip itself reaches the
+  // snow: ~6.5° below level for the Porter's 2.67 m prop on its tall gear.
   if (U.dot(N) < 0.8) return startCrash(s, 'Wingtip in the snow');
   if (strike) return startCrash(s, strike);
   s.onGround = true;
@@ -463,9 +485,8 @@ function groundStep(
   const v = s.velocity;
   const geo = type.ground;
   groundNormal(terrain, p.x, p.z, N);
-  const yaw = Math.atan2(-F.x, -F.z);
-  GF.set(-Math.sin(yaw), 0, -Math.cos(yaw));
-  GF.addScaledVector(N, -GF.dot(N)).normalize();
+  const yaw = groundHeading(F, N);
+  groundForward(yaw, N, GF);
   GR.crossVectors(GF, N);
   const fn = FORCE.dot(N);
   const speed = v.dot(GF);

@@ -223,20 +223,111 @@ test('the Porter takes off downhill from Courchevel and climbs away', async ({ p
   expect(errors).toEqual([]);
 });
 
-test('the Porter lands uphill on Courchevel 22 and stops on the runway', async ({ page }) => {
-  test.setTimeout(180_000);
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+test('hands off down Courchevel: the take-off roll holds the centreline over the bumps', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
   await start(page, COURCHEVEL_TOP);
   await page.keyboard.press('KeyF');
   await page.keyboard.press('KeyV');
   await standBy(page, 'pc6', 'Courchevel', 6, 0);
   await page.keyboard.press('KeyE');
-  // On a 4.5° approach 700 m out, flaps down, then an autopilot flies the stick and the
-  // power lever like a pilot would: down the glide path, a flare onto the slope, reverse.
+  expect(await mode(page)).toBe('PLANE');
+  // Full power, stick centred, no rudder: it should run straight down the runway (the
+  // hump 330–350 m from 22 and the 12.7 → 18.6 % break included) until it flies off.
+  const roll = await page.evaluate(
+    ({ T22, T04 }) =>
+      new Promise<{ maxCross: number; maxTurn: number; along: number; crashed: string | null }>(
+        (done) => {
+          const sim = window.__sim as unknown as Sim & {
+            plane: { setStick(s: { x: number; y: number } | null): void; lever: number };
+          };
+          const c = sim.plane;
+          const len = Math.hypot(T04.e - T22.e, T04.n - T22.n);
+          const ux = (T04.e - T22.e) / len;
+          const un = (T04.n - T22.n) / len;
+          const heading0 = c.heading;
+          let maxCross = 0;
+          let maxTurn = 0;
+          let along = 0;
+          const t0 = performance.now();
+          c.setStick({ x: 0, y: 0 });
+          const step = () => {
+            c.lever = 1;
+            const e = c.position.x;
+            const n = -c.position.z;
+            along = (e - T22.e) * ux + (n - T22.n) * un;
+            const cross = (e - T22.e) * un - (n - T22.n) * ux;
+            const turn = Math.abs(((c.heading - heading0 + 540) % 360) - 180);
+            maxCross = Math.max(maxCross, Math.abs(cross));
+            maxTurn = Math.max(maxTurn, turn);
+            // Until it's flying 10 m up (a bump can toss it off the snow for a moment).
+            const agl = c.position.y - sim.groundHeight(c.position.x, c.position.z);
+            if (!c.crashing && agl < 10 && performance.now() - t0 < 40_000)
+              requestAnimationFrame(step);
+            else {
+              c.setStick(null);
+              done({ maxCross, maxTurn, along, crashed: c.crashed });
+            }
+          };
+          requestAnimationFrame(step);
+        },
+      ),
+    { T22, T04 },
+  );
+  expect(roll.crashed).toBeNull();
+  // Flying, not stopped: it flew off the runway's lower half, straight.
+  expect((await handle(page, 'plane')).onGround).toBe(false);
+  expect(roll.along).toBeGreaterThan(0);
+  expect(roll.maxCross).toBeLessThan(1);
+  expect(roll.maxTurn).toBeLessThan(1);
+});
+
+// Méribel altiport (LFKX) 15/33 (features.json): 15 at its low north end, 406 m, 15 m wide,
+// rising 6.8 % to the south-south-east.
+const T15 = { e: -862.34, n: 9078.27, h: 1691.03 };
+const T33 = { e: -689.39, n: 8710.81, h: 1718.48 };
+
+interface Threshold {
+  e: number;
+  n: number;
+  h: number;
+}
+
+interface Approach {
+  /** Where the wheels first touched: along and across the runway (m), sink (m/s). */
+  touch: { along: number; cross: number; sink: number; pitch: number } | null;
+  /** Where it came to a stop (or crashed). */
+  end: { along: number; cross: number };
+  crashed: string | null;
+  /** The flight strip on final (30–60 m up): the glide path's lights and the radio altitude. */
+  final: { runway: string; white: number; radio: string } | null;
+  /** The strip's touchdown readout once on the wheels. */
+  readout: string | null;
+}
+
+/**
+ * Board the Porter at Courchevel, put it on a 4.5° final `out` m from `low`'s threshold
+ * (landing toward `high`), flaps down, and fly it the way a player does: only the stick
+ * (`setStick`, as the mouse or arrow keys would) and the power lever, the stick moved ten
+ * times a second. Wings level to the centreline, the stick holding the glide path, a flare
+ * by height above the ground to sink `flareSink` m/s onto the slope (null: no flare, fly it
+ * in on the approach). On the ground hands off the stick: reverse, then brakes.
+ */
+async function flyApproach(
+  page: Page,
+  low: Threshold,
+  high: Threshold,
+  options: { out?: number; aim?: number; flareSink: number | null; shoot?: string },
+): Promise<Approach> {
+  await start(page, COURCHEVEL_TOP);
+  await page.keyboard.press('KeyF');
+  await page.keyboard.press('KeyV');
+  await standBy(page, 'pc6', 'Courchevel', 6, 0);
+  await page.keyboard.press('KeyE');
+  expect(await mode(page)).toBe('PLANE');
   await page.evaluate(
-    ({ T22, T04 }) => {
+    ({ low, high, out, aim, flareSink }) => {
       type V = { x: number; y: number; z: number };
       const sim = window.__sim as unknown as {
         plane: {
@@ -246,6 +337,7 @@ test('the Porter lands uphill on Courchevel 22 and stops on the runway', async (
           airspeed: number;
           onGround: boolean;
           crashing: boolean;
+          crashed: string | null;
           lever: number;
           flapSetting: number;
           impact: number;
@@ -257,16 +349,14 @@ test('the Porter lands uphill on Courchevel 22 and stops on the runway', async (
       };
       const c = sim.plane;
       const Vec = c.position.constructor as new (x: number, y: number, z: number) => V;
-      const len = Math.hypot(T04.e - T22.e, T04.n - T22.n);
-      const ux = (T04.e - T22.e) / len;
-      const un = (T04.n - T22.n) / len;
-      const slope = (T04.h - T22.h) / len;
+      const len = Math.hypot(high.e - low.e, high.n - low.n);
+      const ux = (high.e - low.e) / len;
+      const un = (high.n - low.n) / len;
+      const slope = (high.h - low.h) / len;
       const glide = Math.tan((4.5 * Math.PI) / 180);
       const course = (Math.atan2(ux, un) * 180) / Math.PI;
-      const out = 700;
-      const aim = 70; // touchdown aim, past the threshold
-      const aimHeight = T22.h + slope * aim;
-      const start = { e: T22.e - ux * out, n: T22.n - un * out };
+      const aimHeight = low.h + slope * aim;
+      const start = { e: low.e - ux * out, n: low.n - un * out };
       c.mount(
         new Vec(start.e, aimHeight + glide * (out + aim), -start.n),
         new Vec(ux * 31, -31 * glide, -un * 31),
@@ -274,34 +364,42 @@ test('the Porter lands uphill on Courchevel 22 and stops on the runway', async (
         true,
       );
       c.flapSetting = 2;
-      const log: {
-        along: number;
-        cross: number;
+      const w = window as unknown as { __approach: unknown };
+      const result: {
+        touch: { along: number; cross: number; sink: number; pitch: number } | null;
+        end: { along: number; cross: number };
+        crashed: string | null;
+        final: { runway: string; white: number; radio: string } | null;
+        readout: string | null;
         agl: number;
-        vs: number;
-        air: number;
-        ground: boolean;
-      }[] = [];
-      const w = window as unknown as {
-        __landing: typeof log;
-        __touch?: { along: number; cross: number; sink: number };
+        done: boolean;
+      } = {
+        agl: 1e9,
+        touch: null,
+        end: { along: 0, cross: 0 },
+        crashed: null,
+        final: null,
+        readout: null,
+        done: false,
       };
-      w.__landing = log;
-      let integral = 0;
+      const strip = document.querySelector('#flight')!;
+      w.__approach = result;
       let last = performance.now();
+      let since = 1;
+      let integral = 0;
       let braking = false;
+      let stick = { x: 0, y: 0 };
       const step = () => {
         const now = performance.now();
         const dt = Math.min(0.1, (now - last) / 1000);
         last = now;
         const p = c.position;
         const v = c.velocity;
-        const e = p.x;
-        const n = -p.z;
-        const along = (e - T22.e) * ux + (n - T22.n) * un;
-        const cross = (e - T22.e) * un - (n - T22.n) * ux;
-        const ground = sim.groundHeight(p.x, p.z);
-        const agl = p.y - ground;
+        const along = (p.x - low.e) * ux + (-p.z - low.n) * un;
+        const cross = (p.x - low.e) * un - (-p.z - low.n) * ux;
+        result.end = { along, cross };
+        const agl = p.y - sim.groundHeight(p.x, p.z);
+        result.agl = agl;
         const gs = Math.hypot(v.x, v.z);
         const q = c.root.quaternion;
         const bank =
@@ -309,64 +407,150 @@ test('the Porter lands uphill on Courchevel 22 and stops on the runway', async (
           Math.PI;
         let hErr = c.heading - (course - Math.max(-15, Math.min(15, cross * 0.8)));
         hErr = ((hErr + 540) % 360) - 180;
-        const rollStick = Math.max(-1, Math.min(1, 0.06 * (-hErr * 1.2 - bank)));
+        // On final 350–550 m out: the glide path's lights; 20–60 m up: the radio altitude.
+        if (!c.onGround && along > -490 && along < -290) {
+          const papi = strip.querySelector<HTMLElement>('[data-tile="papi"]');
+          result.final ??= { runway: '', white: -1, radio: '' };
+          result.final.runway = papi?.hidden
+            ? ''
+            : (papi?.querySelector('.lab')?.textContent ?? '');
+          result.final.white = papi?.querySelectorAll('i.white').length ?? -1;
+        }
+        if (!c.onGround && agl > 20 && agl < 60 && result.final) {
+          const radio = strip.querySelector<HTMLElement>('[data-tile="radio"]');
+          result.final.radio = radio?.hidden ? '' : (radio?.querySelector('b')?.textContent ?? '');
+        }
+        if (c.onGround && !result.readout) {
+          const t = strip.querySelector<HTMLElement>('.touchdown');
+          if (t && !t.hidden) result.readout = t.textContent;
+        }
         if (!c.onGround) {
-          const flare = agl < 12 && along > -15;
+          const flare = flareSink !== null && agl < 12 && along > -15;
           const target = aimHeight + glide * (aim - along);
           const want = flare
-            ? slope * gs - 0.6
+            ? slope * gs - flareSink!
             : -gs * glide + Math.max(-2, Math.min(2, 0.25 * (target - p.y)));
           integral = Math.max(-0.5, Math.min(0.5, integral + 0.05 * (want - v.y) * dt));
-          c.setStick({
-            x: rollStick,
-            // The stick curves the flight path: a gentle gain (it was an angle of attack).
-            y: Math.max(-1, Math.min(1, 0.25 * (want - v.y) + integral)),
-          });
+          since += dt;
+          // A hand on the stick: moved ten times a second, held in between.
+          if (since >= 0.1) {
+            since = 0;
+            stick = {
+              x: Math.max(-1, Math.min(1, 0.06 * (-hErr * 1.2 - bank))),
+              y: Math.max(-1, Math.min(1, 0.25 * (want - v.y) + integral)),
+            };
+          }
+          c.setStick(stick);
           c.lever = flare ? 0 : Math.max(0, Math.min(1, 0.3 + 0.12 * (30 - c.airspeed)));
         } else {
-          w.__touch ??= { along, cross, sink: c.impact };
-          c.setStick({ x: Math.max(-1, Math.min(1, -0.05 * hErr)), y: 0.3 });
+          if (!result.touch) {
+            // Nose above the ground at touchdown (° from the root's pitch less the slope).
+            const pitch =
+              (Math.asin(Math.max(-1, Math.min(1, 2 * (q.w * q.x - q.y * q.z)))) * 180) / Math.PI -
+              (Math.atan(slope) * 180) / Math.PI;
+            result.touch = { along, cross, sink: c.impact, pitch };
+          }
+          // Hands off on the ground: no steering, so a yaw would run it off.
+          c.setStick({ x: 0, y: 0 });
           c.lever = gs > 6 ? -1 : 0; // reverse, then idle
           if (!braking) {
             braking = true;
             document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));
           }
         }
-        log.push({ along, cross, agl, vs: v.y, air: c.airspeed, ground: c.onGround });
+        if (c.crashing) result.crashed = c.crashed;
         if (!c.crashing && !(c.onGround && gs < 0.3)) requestAnimationFrame(step);
-        else c.setStick(null);
+        else {
+          c.setStick(null);
+          result.done = true;
+        }
       };
       requestAnimationFrame(step);
     },
-    { T22, T04 },
+    { low, high, out: options.out ?? 700, aim: options.aim ?? 70, flareSink: options.flareSink },
   );
-  await page.waitForTimeout(9000);
-  await page.screenshot({ path: 'test-results/views/aircraft-plane-approach.png' });
-  await expect
-    .poll(
-      async () => {
-        const h = await handle(page, 'plane');
-        return h.crashed ?? (h.onGround && h.speed < 0.3 ? 'stopped' : 'flying');
-      },
-      { timeout: 90_000 },
-    )
-    .toBe('stopped');
-  const touch = await page.evaluate(
-    () =>
-      (window as unknown as { __touch: { along: number; cross: number; sink: number } }).__touch,
+  if (options.shoot) {
+    await page.waitForTimeout(9000);
+    await page.screenshot({ path: `test-results/views/${options.shoot}-approach.png` });
+    type W = { __approach: { agl: number; touch: unknown; done: boolean } };
+    // Short final, with the radio altitude and the lights in the strip; then the
+    // touchdown readout.
+    await page.waitForFunction(() => (window as unknown as W).__approach.agl < 25, null, {
+      timeout: 60_000,
+    });
+    await page.screenshot({ path: `test-results/views/${options.shoot}-short-final.png` });
+    await page.waitForFunction(
+      () => !!(window as unknown as W).__approach.touch || (window as unknown as W).__approach.done,
+      null,
+      { timeout: 60_000 },
+    );
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `test-results/views/${options.shoot}-touchdown.png` });
+  }
+  await page.waitForFunction(
+    () => (window as unknown as { __approach: { done: boolean } }).__approach.done,
+    null,
+    { timeout: 120_000 },
   );
-  const end = await page.evaluate(() => {
-    const log = (window as unknown as { __landing: { along: number; cross: number }[] }).__landing;
-    return log[log.length - 1]!;
-  });
+  return page.evaluate(() => (window as unknown as { __approach: Approach }).__approach);
+}
+
+test('the Porter lands uphill on Courchevel 22, firmly, and stops on the runway hands off', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  // A firm arrival onto the 18.6 % slope (a bush pilot's 2–3 m/s), not a greaser.
+  const r = await flyApproach(page, T22, T04, { flareSink: 2.2, shoot: 'aircraft-plane' });
+  expect(r.crashed).toBeNull();
   // On the runway (40 m wide), past the threshold, stopped before its top.
-  expect(touch.along).toBeGreaterThan(0);
-  expect(Math.abs(touch.cross)).toBeLessThan(15);
-  expect(touch.sink).toBeLessThan(3.5); // firm onto the slope, well inside the gear's 4.5 m/s
-  expect(end.along).toBeLessThan(RUNWAY);
-  expect(end.along - touch.along).toBeLessThan(250);
+  expect(r.touch!.along).toBeGreaterThan(0);
+  expect(Math.abs(r.touch!.cross)).toBeLessThan(15);
+  expect(r.touch!.sink).toBeGreaterThan(1.2);
+  expect(r.touch!.sink).toBeLessThan(3.5); // firm, inside the gear's 4.5 m/s
+  // Hands off on the ground it stays on the centreline (it used to yaw off at the first
+  // cross-slope).
+  expect(Math.abs(r.end.cross)).toBeLessThan(5);
+  expect(r.end.along).toBeLessThan(RUNWAY);
+  expect(r.end.along - r.touch!.along).toBeLessThan(250);
+  // What the pilot saw: on the glide path (two white, two red, give or take one) to 22,
+  // the radio altitude, then how firm the touchdown was.
+  expect(r.final!.runway).toBe('Path 22');
+  expect(r.final!.white).toBeGreaterThanOrEqual(1);
+  expect(r.final!.white).toBeLessThanOrEqual(3);
+  expect(r.final!.radio).toMatch(/^\d+m$/);
+  expect(r.readout).toMatch(/^(FIRM|SMOOTH) · \d\.\d m\/s$/);
   await page.screenshot({ path: 'test-results/views/aircraft-plane-landed.png' });
   expect(errors).toEqual([]);
+});
+
+test('the Porter lands uphill on Méribel 15 (15 m wide) and stops hands off', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  const r = await flyApproach(page, T15, T33, {
+    flareSink: 2.5,
+    aim: 50,
+    shoot: 'aircraft-meribel',
+  });
+  expect(r.crashed).toBeNull();
+  expect(r.touch!.along).toBeGreaterThan(0);
+  expect(r.touch!.sink).toBeLessThan(3.5);
+  expect(Math.abs(r.touch!.cross)).toBeLessThan(5);
+  expect(Math.abs(r.end.cross)).toBeLessThan(5);
+  expect(r.end.along).toBeLessThan(Math.hypot(T33.e - T15.e, T33.n - T15.n));
+  expect(r.final!.runway).toBe('Path 15');
+  await page.screenshot({ path: 'test-results/views/aircraft-meribel-landed.png' });
+  expect(errors).toEqual([]);
+});
+
+test('a genuinely hard landing still crashes: 6 m/s onto Courchevel', async ({ page }) => {
+  test.setTimeout(180_000);
+  const r = await flyApproach(page, T22, T04, { flareSink: 6 });
+  expect(r.crashed).toBe('Hard landing');
 });
 
 test('the H125 lifts off, hovers and lands on the next pad', async ({ page }) => {

@@ -45,6 +45,7 @@ import { SnowSpray } from './fx/snow-spray';
 import { SLED_TRENCH, SnowTrails } from './fx/snow-trails';
 import { GliderControls } from './controls/glider-controls';
 import { AircraftControls, type AircraftTerrain, BOARD_RANGE } from './controls/aircraft-controls';
+import { approachCue, landingEnds } from './controls/approach-guide';
 import { H125, PC6 } from './controls/aircraft-types';
 import { SkydiveControls } from './controls/skydive-controls';
 import type { Surface } from './controls/plane-physics';
@@ -938,6 +939,10 @@ async function main(): Promise<void> {
   // Planes and helicopters: cleared runways are tarmac (wheels), groomed runs and runways
   // snow (skis), everything else powder. They hit buildings, towers and lift cables.
   const paved = features.airfields ? pavedAt(features.airfields) : () => false;
+  // Runway ends to land on, for the flight strip's glide-path cue.
+  const runwayEnds = landingEnds(features.airfields?.runways ?? []);
+  // The last touchdown's sink rate, shown for a few seconds after it.
+  const touchdown = { sink: 0, until: 0 };
   const probe = new Vector3();
   const still = new Vector3();
   const aircraftTerrain: AircraftTerrain = {
@@ -2477,20 +2482,32 @@ async function main(): Promise<void> {
         agl,
         warning: skydiver.canopyOut ? null : agl < 600 ? 'PULL' : agl < 1000 ? 'LOW' : null,
       });
-    } else
-      hud.setFlight(
-        pilotOf
-          ? {
-              kind: pilotOf.kind,
-              airspeed: pilotOf.airspeed,
-              vertical: pilotOf.velocity.y,
-              power: pilotOf.kind === 'plane' ? pilotOf.lever : pilotOf.load,
-              flaps: pilotOf.flapSetting,
-              stall: pilotOf.stallWarning,
-              onGround: pilotOf.onGround,
-            }
-          : null,
-      );
+    } else if (pilotOf) {
+      const at = pilotOf.position;
+      const v = pilotOf.velocity;
+      const now = performance.now();
+      if (pilotOf.impact > 0) {
+        touchdown.sink = pilotOf.impact;
+        touchdown.until = now + 6000;
+      }
+      if (pilotOf.crashing) touchdown.until = 0;
+      const cue =
+        pilotOf.kind === 'plane' && !pilotOf.onGround
+          ? approachCue(runwayEnds, at.x, at.y, at.z, v.x, v.z)
+          : null;
+      hud.setFlight({
+        kind: pilotOf.kind,
+        airspeed: pilotOf.airspeed,
+        vertical: v.y,
+        power: pilotOf.kind === 'plane' ? pilotOf.lever : pilotOf.load,
+        flaps: pilotOf.flapSetting,
+        stall: pilotOf.stallWarning,
+        onGround: pilotOf.onGround,
+        agl: at.y - groundHeight(at.x, at.z),
+        touchdown: now < touchdown.until ? touchdown.sink : null,
+        approach: cue ? { runway: cue.end.name, white: cue.white } : null,
+      });
+    } else hud.setFlight(null);
     // Which run is underfoot (only meaningful near the snow).
     const nearSnow = here.y - ground < 60;
     const piste = nearSnow ? pisteLookup.at(east, north) : null;
