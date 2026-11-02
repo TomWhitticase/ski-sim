@@ -277,7 +277,7 @@ const VIEWS = [
     query: 'at=45.34308,6.57994,2403&heading=135&pitch=-8',
   },
   { name: 'station-chair-fixed', query: 'at=45.32557,6.53075,1662&heading=4&pitch=-8' },
-  { name: 'station-gondola', query: 'at=45.27297,6.60583,2818&heading=118&pitch=-6' },
+  { name: 'station-gondola', query: 'at=45.273097,6.605492,2820&heading=118&pitch=-6' },
   // Lift crossings: one line passes over the other on a pair of taller towers.
   { name: 'crossing-moutiere', query: 'at=45.29289,6.56499,2134&heading=239&pitch=0' },
   // Moraine's bottom station, set into a building in Val Thorens: the walkway to its door.

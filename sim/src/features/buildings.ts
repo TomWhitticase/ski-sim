@@ -24,7 +24,29 @@ import type { Building } from './types';
 
 /** Facade styles, chosen per building and drawn by the shader. Huts (mountain
  *  restaurants) carry a shutter colour variant in the fraction: 4, 4.25, 4.5. */
-export const STYLE = { chalet: 0, render: 1, stone: 2, metal: 3, hut: 4, trim: 5 } as const;
+export const STYLE = {
+  chalet: 0,
+  render: 1,
+  stone: 2,
+  metal: 3,
+  hut: 4,
+  trim: 5,
+  station: 6,
+} as const;
+/** Per-building tone, added to the chalet and render styles (0, 1 or 2 steps). */
+const TONE_STEP = 0.15;
+/** OSM `building:material` to a facade style. */
+const MATERIAL_STYLE: Record<string, number> = {
+  wood: STYLE.chalet,
+  timber_framing: STYLE.chalet,
+  stone: STYLE.stone,
+  concrete: STYLE.render,
+  plaster: STYLE.render,
+  cement_block: STYLE.render,
+  brick: STYLE.render,
+  metal: STYLE.metal,
+  glass: STYLE.metal,
+};
 /** Roof thickness shown at the eaves (fascia and soffit), m. */
 const ROOF_THICKNESS = 0.28;
 
@@ -41,14 +63,22 @@ export function signedArea(ring: [number, number][]): number {
 
 export function facadeStyle(b: Building): number {
   if (b.use === 'restaurant') return STYLE.hut + (Math.abs(b.id) % 3) * 0.25;
+  // A lift station's own building: board cladding over a concrete plinth, ribbon windows.
+  if (b.use === 'station') return STYLE.station;
+  // A tone per building (timber light to dark, render warm to white): stable, from its
+  // id. Kept under 0.5 so it never crosses into the next style.
+  const tone = (Math.abs(Math.round(b.id / 7)) % 3) * TONE_STEP;
+  // OSM's material where it's mapped.
+  const material = MATERIAL_STYLE[b.material ?? ''];
+  if (material !== undefined) return material <= STYLE.render ? material + tone : material;
   const area = Math.abs(signedArea(b.footprint));
   const t = b.type ?? 'yes';
   if (['lift_station', 'industrial', 'warehouse', 'garage', 'garages', 'service'].includes(t))
     return STYLE.metal;
   if (t === 'church' || t === 'chapel' || t === 'ruins') return STYLE.stone;
   // Big blocks are rendered with timber balconies; smaller ones are timber chalets.
-  if (area > 450) return Math.abs(b.id) % 3 === 0 ? STYLE.chalet : STYLE.render;
-  return STYLE.chalet;
+  if (area > 450) return (Math.abs(b.id) % 3 === 0 ? STYLE.chalet : STYLE.render) + tone;
+  return STYLE.chalet + tone;
 }
 
 /** Height of the roof (or flat top) above the point. Eaves continue the roof planes
@@ -58,7 +88,14 @@ export function roofHeight(b: Building, e: number, n: number): number {
   if (!roof) return b.top;
   const [[ax, ay], [bx, by]] = roof.ridge;
   const len = Math.hypot(bx - ax, by - ay);
-  const d = Math.abs((bx - ax) * (ay - n) - (ax - e) * (by - ay)) / len;
+  let d = Math.abs((bx - ax) * (ay - n) - (ax - e) * (by - ay)) / len;
+  if (roof.hip) {
+    // Beyond the ridge's ends the roof falls away along it too (the hips).
+    const along = Math.abs(
+      ((e - (ax + bx) / 2) * (bx - ax) + (n - (ay + by) / 2) * (by - ay)) / len,
+    );
+    d = Math.max(d, along - len / 2);
+  }
   const k = 1 - d / roof.halfWidth;
   return b.top + roof.rise * (roof.eaves ? k : Math.max(0, k));
 }
@@ -95,6 +132,8 @@ export function buildBuildingGeometry(buildings: Building[]): BufferGeometry {
     const ring = signedArea(b.footprint) < 0 ? [...b.footprint].reverse() : b.footprint;
     const style = facadeStyle(b);
     const wall = 1 + (b.footing ?? 0);
+    // Facade heights count from the ground the building stands on.
+    const v0 = b.groundBase ?? b.base;
 
     // Walls, splitting any edge that crosses the ridge so gable ends peak correctly.
     let u = 0;
@@ -119,12 +158,12 @@ export function buildBuildingGeometry(buildings: Building[]): BufferGeometry {
         const h1 = roofHeight(b, e1, n1);
         const u1 = u + len;
         // With a counter-clockwise ring, outside is to the right of each edge.
-        vertex(e0, b.base, n0, u, 0, style, wall);
-        vertex(e1, b.base, n1, u1, 0, style, wall);
-        vertex(e1, h1, n1, u1, h1 - b.base, style, wall);
-        vertex(e0, b.base, n0, u, 0, style, wall);
-        vertex(e1, h1, n1, u1, h1 - b.base, style, wall);
-        vertex(e0, h0, n0, u, h0 - b.base, style, wall);
+        vertex(e0, b.base, n0, u, b.base - v0, style, wall);
+        vertex(e1, b.base, n1, u1, b.base - v0, style, wall);
+        vertex(e1, h1, n1, u1, h1 - v0, style, wall);
+        vertex(e0, b.base, n0, u, b.base - v0, style, wall);
+        vertex(e1, h1, n1, u1, h1 - v0, style, wall);
+        vertex(e0, h0, n0, u, h0 - v0, style, wall);
         u = u1;
       }
     }
@@ -234,12 +273,19 @@ export function createBuildingMaterial(): MeshStandardNodeMaterial {
   // Sun-darkened larch: blotchier than the chalet planks.
   const weathering = mx_noise_float(vec3(u.mul(0.15), v.mul(0.3), style.mul(7))).mul(0.12);
 
-  const timber = vec3(0.4, 0.26, 0.15).mul(float(0.94).add(planks).add(grain));
-  const renderWall = vec3(0.86, 0.81, 0.71).add(grain);
+  // Tone 0, 1 or 2 (facadeStyle): timber from honey to dark, render from warm to white.
+  const tone = fract(style).div(0.15).round();
+  const timber = mix(vec3(0.47, 0.31, 0.18), vec3(0.27, 0.17, 0.1), tone.div(2)).mul(
+    float(0.94).add(planks).add(grain),
+  );
+  const renderWall = mix(vec3(0.84, 0.76, 0.62), vec3(0.9, 0.89, 0.86), tone.div(2)).add(grain);
   const stoneWall = vec3(0.6, 0.58, 0.54).add(grain.mul(2));
   const metal = vec3(0.5, 0.53, 0.57).mul(float(0.92).add(ribs));
   const larch = vec3(0.3, 0.2, 0.13).mul(float(0.9).add(boards).add(weathering).add(grain));
   const darkTimber = vec3(0.22, 0.14, 0.08);
+  // Lift stations: weathered vertical boards (greyer than the huts' larch) over concrete.
+  const stationClad = vec3(0.34, 0.27, 0.2).mul(float(0.88).add(boards).add(weathering).add(grain));
+  const concrete = vec3(0.55, 0.54, 0.52).add(grain);
   const glass = vec3(0.1, 0.13, 0.18);
   const frameColour = vec3(0.9, 0.9, 0.88);
   const snow = vec3(0.94, 0.96, 0.99);
@@ -253,7 +299,11 @@ export function createBuildingMaterial(): MeshStandardNodeMaterial {
       select(
         style.lessThan(2.5),
         stoneWall,
-        select(style.lessThan(3.5), metal, select(style.lessThan(4.9), larch, darkTimber)),
+        select(
+          style.lessThan(3.5),
+          metal,
+          select(style.lessThan(4.9), larch, select(style.lessThan(5.5), darkTimber, stationClad)),
+        ),
       ),
     ),
   );
@@ -262,10 +312,18 @@ export function createBuildingMaterial(): MeshStandardNodeMaterial {
   const residential = step(style, 1.5);
   let colour = mix(wallColour, stoneWall, plinth.mul(residential));
   colour = mix(colour, darkTimber, balcony.mul(residential));
-  // Metal sheds get fewer, smaller windows.
-  const windows = inWindow
-    .mul(select(style.greaterThan(2.5), step(0.5, fract(u.div(bay.mul(3)))), float(1)))
-    .mul(float(1).sub(step(v, footing.add(0.4)).mul(hut)));
+  // Metal sheds get fewer, smaller windows; stations a continuous ribbon above the
+  // ground floor, on a concrete plinth.
+  const station = step(5.5, style);
+  const ribbon = step(0.38, level).mul(step(level, 0.74)).mul(step(3.2, v));
+  colour = mix(colour, concrete, step(v, 1.0).mul(station));
+  const windows = select(
+    station.greaterThan(0.5),
+    ribbon,
+    inWindow
+      .mul(select(style.greaterThan(2.5), step(0.5, fract(u.div(bay.mul(3)))), float(1)))
+      .mul(float(1).sub(step(v, footing.add(0.4)).mul(hut))),
+  );
   // Huts: a rough stone footing, and painted shutters either side of each window.
   const inFooting = step(v, footing).mul(hut);
   colour = mix(colour, stoneWall, inFooting);

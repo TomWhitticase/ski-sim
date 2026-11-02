@@ -983,12 +983,15 @@ async function main(): Promise<void> {
   await nextFrame();
   const lifts = new LiftSystem(features.lifts, groundHeight);
   // Solid things you can't ski through: buildings and the lift terminals' walls and huts.
+  // A chair station's own building (`shell`) has the hood, and you, inside it.
   const obstacles = new ObstacleIndex([
-    ...features.buildings.map((b) => ({
-      ring: b.footprint,
-      base: b.base,
-      top: b.top + (b.roof?.rise ?? 0),
-    })),
+    ...features.buildings
+      .filter((b) => !b.shell)
+      .map((b) => ({
+        ring: b.footprint,
+        base: b.base,
+        top: b.top + (b.roof?.rise ?? 0),
+      })),
     ...lifts.obstacles,
     ...terraceSolids(restaurants, (east, north) => groundHeight(east, -north)),
     // Snowbanks, edge markers and windsock masts (hangars are buildings).

@@ -27,6 +27,13 @@ const TIMBER: RGB = [0.38, 0.25, 0.15];
 const WHEEL: RGB = [0.15, 0.15, 0.17];
 const DARK_STEEL: RGB = [0.2, 0.22, 0.25];
 const CABIN_WALL: RGB = [0.9, 0.9, 0.88];
+/** Hall cladding: weathered boards (matching a station building's facade) or dark panels. */
+const CLAD_TIMBER: RGB = [0.34, 0.25, 0.17];
+const CLAD_DARK: RGB = [0.24, 0.25, 0.27];
+const STONE: RGB = [0.47, 0.45, 0.42];
+const SNOW_CAP: RGB = [0.93, 0.95, 0.98];
+/** Retaining wall thickness, m. */
+const WALL_THICKNESS = 0.6;
 /**
  * Station colours (hood / roof, then trim). Picked per lift from its id, so a resort's
  * stations aren't all one colour but both ends of a lift match.
@@ -307,6 +314,15 @@ function buildTerminal(
   const at = t.end === 'bottom' ? t.load : t.unload;
   const [paintwork, trim] = livery(seed);
   b.wheel(rail);
+  // Retaining walls where the pad is cut into the slope (stone) or built up (concrete),
+  // centred on the pad's edge, with snow lying on top.
+  const half = WALL_THICKNESS / 2;
+  for (const [u0, v0, u1, v1, bottom, top, kind] of t.walls ?? []) {
+    const [ua, ub] = u0 === u1 ? [u0 - half, u0 + half] : [Math.min(u0, u1), Math.max(u0, u1)];
+    const [va, vb] = v0 === v1 ? [v0 - half, v0 + half] : [Math.min(v0, v1), Math.max(v0, v1)];
+    b.box(ua, ub, va, vb, bottom, top, kind > 0 ? STONE : CONCRETE, true);
+    b.box(ua - 0.03, ub + 0.03, va - 0.03, vb + 0.03, top, top + 0.12, SNOW_CAP);
+  }
 
   if (t.kind === 'chair') {
     let signY: number;
@@ -371,6 +387,10 @@ function buildTerminal(
     }
   } else if (t.kind === 'gondola' || t.kind === 'cabin') {
     const roofY = roofTop - 0.45;
+    // Roofed by the building's storeys above: the walls run up to them, no slab of its own.
+    const wallTop = t.roofed ? roofTop + 0.3 : roofY;
+    // In its own building the hall is clad like it; free-standing halls vary by lift.
+    const clad = t.housing || seed % 2 === 0 ? CLAD_TIMBER : CLAD_DARK;
     // Door on the entrance side: in the side wall at the (un)loading point, or in the back
     // wall beside the uphill track (outside the carriers' loop).
     const door: [number, number] = [at - 3, at + 3];
@@ -379,37 +399,40 @@ function buildTerminal(
     const doorTop = Math.min(2.8, roofY - 0.8);
     const sill = Math.min(1.2, doorTop - 0.4); // solid wall below the glazing
     b.box(-B, L, -w, w, -2.5, 0.08, CONCRETE); // platform on its foundation
-    // Walls: a concrete plinth, glazing above it, a trim band under the roof. Solid for
+    // Walls: a concrete plinth, board or panel cladding, and glass: tall glazing beside
+    // the door, a ribbon of windows high up elsewhere; a trim band at the top. Solid for
     // collisions all the way up.
-    const wall = (u0: number, u1: number, v0: number, v1: number, y0 = 0) => {
-      b.box(u0, u1, v0, v1, y0, roofY, CONCRETE, true);
-      if (y0 < sill) {
-        const inset = 0.05;
-        const out = (lo: number, hi: number) => [lo - inset, hi + inset] as const;
-        const [a0, a1] = out(u0, u1);
-        const [b0, b1] = out(v0, v1);
-        b.box(a0, a1, b0, b1, Math.max(y0, sill), roofY - 0.5, GLAZING);
-        b.box(a0, a1, b0, b1, roofY - 0.5, roofY, trim);
-      }
+    const wall = (u0: number, u1: number, v0: number, v1: number, glazed = false) => {
+      b.box(u0, u1, v0, v1, 0, wallTop, CONCRETE, true);
+      const inset = 0.05;
+      const [a0, a1] = [u0 - inset, u1 + inset];
+      const [b0, b1] = [v0 - inset, v1 + inset];
+      b.box(a0, a1, b0, b1, 1.0, wallTop - 0.4, clad);
+      const g = [a0 - 0.02, a1 + 0.02, b0 - 0.02, b1 + 0.02] as const;
+      if (glazed) b.box(...g, sill, Math.max(sill + 0.6, wallTop - 1.4), GLAZING);
+      else if (wallTop - 2.6 > sill) b.box(...g, wallTop - 2.6, wallTop - 1.5, GLAZING);
+      b.box(a0, a1, b0, b1, wallTop - 0.4, wallTop, trim);
     };
     if (sideDoor) {
       wall(-B, -B + 0.4, -w, w);
-      wall(-B, door[0], w - 0.4, w);
-      wall(door[1], L, w - 0.4, w);
-      b.box(door[0], door[1], w - 0.4, w, doorTop, roofY, trim); // lintel
+      wall(-B, door[0], w - 0.4, w, true);
+      wall(door[1], L, w - 0.4, w, true);
+      b.box(door[0], door[1], w - 0.4, w, doorTop, wallTop, trim); // lintel
     } else {
-      wall(-B, -B + 0.4, -w, backDoor[0]);
-      wall(-B, -B + 0.4, backDoor[1], w);
-      b.box(-B, -B + 0.4, backDoor[0], backDoor[1], doorTop, roofY, trim); // lintel
+      wall(-B, -B + 0.4, -w, backDoor[0], true);
+      wall(-B, -B + 0.4, backDoor[1], w, true);
+      b.box(-B, -B + 0.4, backDoor[0], backDoor[1], doorTop, wallTop, trim); // lintel
       wall(-B, L, w - 0.4, w);
     }
     wall(-B, L, -w, -w + 0.4);
     // Steel portal round the open end, where the cabins leave.
     for (const v of [-w + 0.2, w - 0.2])
-      b.box(L - 0.5, L + 0.1, v - 0.3, v + 0.3, 0, roofY, DARK_STEEL);
+      b.box(L - 0.5, L + 0.1, v - 0.3, v + 0.3, 0, wallTop, DARK_STEEL);
     // Roof: a slab with rounded edges over the hall, overhanging every wall (the hall is
-    // square-cornered, so the roof is too) and the open end most.
-    b.box(-B - 0.6, L + 2.5, -w - 0.6, w + 0.6, roofY, roofTop + 0.3, paintwork, false, 0.35);
+    // square-cornered, so the roof is too) and the open end most. A hall roofed by the
+    // building above has none: the storeys are its roof.
+    if (!t.roofed)
+      b.box(-B - 0.6, L + 2.5, -w - 0.6, w + 0.6, roofY, roofTop + 0.3, paintwork, false, 0.35);
     b.box(-B + 0.5, L - 0.5, -(r + 0.6), r + 0.6, rail + 0.2, rail + 0.5, STEEL); // rail beam
     // Drive housing over the bullwheel, seen through the open end.
     b.box(-1.2, 1.2, -1.2, 1.2, rail + 0.5, Math.min(rail + 2.2, roofY - 0.2), paintwork);

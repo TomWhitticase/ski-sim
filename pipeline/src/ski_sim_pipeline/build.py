@@ -32,6 +32,7 @@ from . import (
     territory,
 )
 from . import bases as base_finder
+from . import heights as building_heights
 from .config import MAX_GRID_SIZE, Area, Extent, ResortConfig, load_resort
 from .export import write_heightmap
 from .fingerprint import fingerprint
@@ -140,8 +141,10 @@ def build_features(
     far: np.ndarray,
     far_grid: Grid,
     area: Area | None = None,
+    runs: list | None = None,
 ) -> dict:
-    """Lifts, buildings and peaks from OSM, placed on the terrain."""
+    """Lifts, buildings and peaks from OSM, placed on the terrain. `runs` are the pistes'
+    shapes, which station retaining walls keep clear of."""
     bounds = frame.bounds_in("EPSG:4326", near_grid.extent)
     elements = osm.fetch_features(bounds, raw_dir)
 
@@ -156,6 +159,27 @@ def build_features(
     log.info("Flattened %d lift terminal pads", len(terms))
 
     buildings, stations = features.extract_buildings(elements, frame, near_grid.extent, ground)
+    # Measured heights where the IGN lidar's height-above-ground model covers (France).
+    lidar_heights = {"lidar": 0}
+    if "ign-lidar-hd" in cfg.near.sources:
+        lidar_heights = building_heights.apply(buildings, frame, raw_dir, ground)
+        log.info(
+            "Building heights: %d from lidar (%d now flat-roofed), %d kept estimates; %d MNH tiles",
+            lidar_heights["lidar"],
+            lidar_heights["flat"],
+            lidar_heights["kept"],
+            lidar_heights["tiles"],
+        )
+    # Stations fit their own buildings: station height, gondola halls grown to the
+    # footprint (pads with them), chair stations keeping the building as their shell.
+    adopted = terminals.adopt_station_buildings(terms, buildings, near, near_grid, ground)
+    log.info(
+        "Station buildings: %d at station height, %d halls grown to their building, "
+        "%d chair stations keep their building as a shell",
+        adopted["stationHeight"],
+        adopted["grown"],
+        adopted["shells"],
+    )
     lifts = features.extract_lifts(elements, frame, near_grid.extent, ground, stations, area)
     by_lift: dict[int, list[dict]] = {}
     for t in terms:
@@ -230,6 +254,13 @@ def build_features(
 
     # Entrances, then cut buildings only as much as lifts need (3D volumes).
     terminals.choose_entrances(terms, buildings)
+    walls = terminals.retaining_walls(terms, near, near_grid, ground, buildings, runs or [])
+    log.info(
+        "Retaining walls: %d cut into the slope, %d holding up fill, %d m in all",
+        walls["cut"],
+        walls["fill"],
+        walls["metres"],
+    )
     cuts = terminals.cut_volumes(lifts, terms)
     buildings, cut_stats = terminals.cut_buildings(buildings, cuts, terminals.station_halls(terms))
     log.info(
@@ -238,6 +269,8 @@ def build_features(
         cut_stats["cut"],
         cut_stats["raisedPieces"],
     )
+    roofed = terminals.mark_roofed(terms, buildings)
+    log.info("%d station halls roofed by the building above them", roofed)
     problems = terminals.conflicts(buildings, cuts)
     for problem in problems:
         log.error("Lift clearance check failed: %s", problem)
@@ -250,7 +283,7 @@ def build_features(
     for lift in lifts:
         lift["terminals"] = by_lift.get(lift["id"], [])
         lift["detachable"] = bool(lift["terminals"] and lift["terminals"][0]["detachable"])
-    cut_stats = {**cut_stats, "steepExits": len(steep), **smooth}
+    cut_stats = {**cut_stats, "steepExits": len(steep), **smooth, **adopted}
 
     for lift in sorted(lifts, key=lambda lift: lift["name"] or ""):
         kinds = [s["kind"] for s in lift["supports"]]
@@ -276,6 +309,7 @@ def build_features(
         "buildings": buildings,
         "peaks": peaks,
         "_clearance": {**cut_stats, "problems": problems},
+        "_heights": lidar_heights,
         "_notches": notches,
     }
 
@@ -620,8 +654,11 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     stitch_far_to_near(far, far_grid, near, near_grid)
 
     log.info("Building lifts and buildings (OpenStreetMap)")
-    feature_data = build_features(cfg, frame, raw_root, near, near_grid, far, far_grid, ours)
+    feature_data = build_features(
+        cfg, frame, raw_root, near, near_grid, far, far_grid, ours, [s[1] for s in piste_shapes]
+    )
     clearance = feature_data.pop("_clearance")
+    lidar_heights = feature_data.pop("_heights")
     notches = feature_data.pop("_notches")
     places = osm.fetch_places(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root)
     places += [
@@ -882,6 +919,17 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
             },
             {"layer": "features", **osm.PROVENANCE},
             {"layer": "features.airfields", **ourairports.PROVENANCE},
+            *(
+                [
+                    {
+                        "layer": "buildings.height",
+                        **ign.MNH.provenance,
+                        "buildings": lidar_heights["lidar"],
+                    }
+                ]
+                if lidar_heights["lidar"]
+                else []
+            ),
             {
                 "layer": "landCover",
                 **worldcover.PROVENANCE,
