@@ -13,6 +13,7 @@ import argparse
 import json
 import logging
 import math
+import os
 import re
 import time
 from collections.abc import Callable
@@ -111,6 +112,13 @@ def main() -> None:
     build_cmd.add_argument(
         "--dry-run", action="store_true", help="With --stale: list them and why, build nothing"
     )
+    build_cmd.add_argument(
+        "--overpass-budget",
+        type=float,
+        metavar="SECONDS",
+        help="Total time to retry flaky Overpass mirrors before failing (default 600; "
+        "also settable with the OVERPASS_BUDGET_S env var)",
+    )
     init_cmd = sub.add_parser("init", help="Create a resort config from a ski area or bbox")
     init_cmd.add_argument("resort", nargs="?", help="Resort id (default: slug of --name)")
     init_cmd.add_argument("--name", required=True)
@@ -155,6 +163,8 @@ def main() -> None:
 
     if args.command == "build":
         resorts_dir = DATA_DIR / "resorts"
+        if args.overpass_budget is not None:
+            os.environ["OVERPASS_BUDGET_S"] = str(args.overpass_budget)
         if sum((args.all, args.stale, bool(args.resorts))) != 1:
             parser.error("give resort ids, --all or --stale (just one)")
         if args.dry_run and not args.stale:
