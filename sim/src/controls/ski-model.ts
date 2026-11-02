@@ -388,15 +388,26 @@ export class SkierModel {
       return m;
     };
     for (let i = 0; i < 2; i++) {
+      const sfx = i === 0 ? 'left' : 'right';
       const shin = limb(0.074, 0.078, pants); // flares over the boot
-      shin.name = i === 0 ? 'shin-left' : 'shin-right';
+      shin.name = `shin-${sfx}`;
+      const thigh = limb(0.088, 0.074, pants);
+      thigh.name = `thigh-${sfx}`;
+      const knee = joint(0.078, pants);
+      knee.name = `knee-${sfx}`;
+      const upperArm = limb(0.062, 0.055, jacket);
+      upperArm.name = `upperarm-${sfx}`;
+      const forearm = limb(0.055, 0.05, jacket);
+      forearm.name = `forearm-${sfx}`;
+      const elbow = joint(0.058, jacket);
+      elbow.name = `elbow-${sfx}`;
       this.limbs.push({
-        thigh: limb(0.088, 0.074, pants),
+        thigh,
         shin,
-        knee: joint(0.078, pants),
-        upperArm: limb(0.062, 0.055, jacket),
-        forearm: limb(0.055, 0.05, jacket),
-        elbow: joint(0.058, jacket),
+        knee,
+        upperArm,
+        forearm,
+        elbow,
         cuff: limb(0.052, 0.052, jacketDark),
       });
     }
@@ -828,13 +839,18 @@ export class SkierModel {
       .setFromUnitVectors(Y_AXIS, up)
       .multiply(new Quaternion().setFromAxisAngle(Y_AXIS, bodyYaw))
       .multiply(new Quaternion().setFromAxisAngle(X_AXIS, -0.12 * stance.foreAft));
-    const hipHeight = (THIGH + SHIN) * (0.9 - 0.42 * c);
+    const hipHeight = (THIGH + SHIN) * (0.94 - 0.4 * c);
     const pelvis = new Vector3(0, hipHeight, 0).applyQuaternion(align).add(feet);
 
+    // Forward hinge from the hips. On the toe edge (edge < 0) the body already inclines toward
+    // the toes through `up`, so a big forward bend on top folds the rider over at the waist
+    // (face to the snow). Ease the bend off as the toe edge bites, keeping the chest up with a
+    // slight arch — the real toeside look — while the heelside keeps its sit-back hinge.
+    const forwardBend = 0.12 + 0.55 * c + BOARD_TOE_UPRIGHT * Math.min(0, edge);
     this.chest.position.copy(pelvis);
     this.chest.quaternion
       .copy(align)
-      .multiply(new Quaternion().setFromEuler(new Euler(-(0.12 + 0.55 * c), 0, 0, 'YXZ')));
+      .multiply(new Quaternion().setFromEuler(new Euler(-forwardBend, 0, 0, 'YXZ')));
     this.chest.updateMatrix();
     // The gaze turns off the shoulders, back toward the direction of travel.
     this.head.rotation.set(0.05, -bodyYaw * BOARD_GAZE, 0, 'YXZ');
@@ -844,7 +860,18 @@ export class SkierModel {
       // Hips spread nose-to-tail (the across-body x maps onto the deck's z through bodyYaw).
       const hip = new Vector3(side * 0.1, -0.03, 0).applyQuaternion(align).add(pelvis);
       const ankle = side < 0 ? ankles[0]! : ankles[1]!;
-      const kneeHint = new Vector3(toe, 0.35, 0).applyQuaternion(align);
+      const rig = i === 0 ? this.skis.left : this.skis.right;
+      // The knee tracks over the toes, *along this foot's binding angle* — not down the deck.
+      // Take the boot's own forward (toe) direction, flatten it to the snow and tip it up a
+      // touch, so the shin leads forward (and a little up) from the ankle, the way a real
+      // rider's knees point over the toes whatever the splay (duck knees fan out symmetrically;
+      // a forward stance drives them toward the nose). The old hint pushed both knees down the
+      // board's long axis, which read as a lunge/straddle (the scissored "janky" stance).
+      const kneeHint = new Vector3(0, 0, -1)
+        .applyQuaternion(rig.group.quaternion)
+        .setY(0)
+        .normalize()
+        .setY(BOARD_KNEE_RISE);
       const knee = solveJoint(hip, ankle, THIGH, SHIN, kneeHint);
       stretch(limb.thigh, hip, knee);
       stretch(limb.shin, knee, ankle);
@@ -855,7 +882,6 @@ export class SkierModel {
       // from the leg. Unlike the ski cuff (fore/aft hinge only), a soft snowboard boot follows
       // the shin in both planes, so the cuff's natural axis is pointed straight along the shin
       // (minimal rotation, no twist), clamped so an out-of-reach IK pose can't break it.
-      const rig = i === 0 ? this.skis.left : this.skis.right;
       const shinDir = knee
         .clone()
         .applyMatrix4(inverse.copy(rig.group.matrix).invert())
@@ -1072,6 +1098,10 @@ const BOARD_ANTICIP = 0.45;
 const BOARD_GAZE = 0.7;
 /** Nose-up tilt (rad) at a full tail-load ollie press. */
 const BOARD_OLLIE_TILT = 0.3;
+/** How far up (from the flat toe direction) a knee leads over the toes; direction, not height. */
+const BOARD_KNEE_RISE = 0.35;
+/** How much the forward hinge is eased off per radian of toe edge (chest stays up, not folded). */
+const BOARD_TOE_UPRIGHT = 0.5;
 
 /**
  * Two-bone IK: where the middle joint goes so bones of length a and b join `from` to

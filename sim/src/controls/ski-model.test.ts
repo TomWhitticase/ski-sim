@@ -1,4 +1,4 @@
-import { Quaternion, Vector3 } from 'three/webgpu';
+import { Object3D, Quaternion, Vector3 } from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
 
 import { createSkiGeometry, SkierModel, skiProfile } from './ski-model';
@@ -163,6 +163,59 @@ describe('SkierModel snowboard boot cuffs', () => {
     model.apply({ ...initialStance(), crouch }, new Vector3(Math.sin(a), Math.cos(a), 0));
     // Both cuffs run up their shin to within ~18° (cos 18° ≈ 0.95).
     for (const d of cuffAlignment(model)) expect(d).toBeGreaterThan(0.95);
+  });
+
+  it('tracks each knee over its toes, along the binding angle (not down the deck)', () => {
+    // The foot's forward (toe) direction, flattened to the snow, in the skier frame.
+    const toeFlat = (ski: Object3D) => {
+      const d = new Vector3(0, 0, -1).applyQuaternion(ski.getWorldQuaternion(new Quaternion()));
+      return new Vector3(d.x, 0, d.z).normalize();
+    };
+    // The horizontal direction the shin leads from the ankle (ankle→knee).
+    const shinFlat = (model: SkierModel, sideName: 'left' | 'right') => {
+      const shin = model.root.getObjectByName(`shin-${sideName}`)!;
+      const knee = model.root.getObjectByName(`knee-${sideName}`)!.getWorldPosition(new Vector3());
+      // The shin cylinder's local +Y runs knee→ankle; its far end is the ankle.
+      const down = new Vector3(0, 1, 0).applyQuaternion(shin.getWorldQuaternion(new Quaternion()));
+      const ankle = shin.getWorldPosition(new Vector3()).addScaledVector(down, shin.scale.y / 2);
+      const lean = knee.sub(ankle);
+      return new Vector3(lean.x, 0, lean.z);
+    };
+    const boardSetup = (angleFront: number, angleBack: number) => ({
+      stance: 'regular' as const,
+      length: 156,
+      waist: 252,
+      radius: 8,
+      flex: 6,
+      angleFront,
+      angleBack,
+    });
+    // All-mountain and a duck stance, neutral and a toeside traverse (where the shin has a clear
+    // forward lean): every knee leads over its own toes to within ~30°, never down the board.
+    for (const [front, back] of [
+      [15, -6],
+      [15, -15],
+    ]) {
+      for (const [crouch, leanDeg] of [
+        [0.25, 3],
+        [0.3, 22],
+      ]) {
+        const model = new SkierModel();
+        model.setSnowboard(true);
+        model.setBoardSetup(boardSetup(front, back));
+        const a = (leanDeg * Math.PI) / 180;
+        model.apply({ ...initialStance(), crouch }, new Vector3(Math.sin(a), Math.cos(a), 0));
+        model.root.updateMatrixWorld(true);
+        for (const sideName of ['left', 'right'] as const) {
+          const ski = model.root.getObjectByName(`ski-${sideName}`)!;
+          const lean = shinFlat(model, sideName).normalize();
+          const toe = toeFlat(ski);
+          // The knee leads over the toes (not down the deck's long axis, ±z).
+          expect(lean.dot(toe)).toBeGreaterThan(0.86); // within ~30°
+          expect(lean.dot(toe)).toBeGreaterThan(Math.abs(lean.z)); // over the toes, not the deck
+        }
+      }
+    }
   });
 
   it('leaves no residual cuff twist after switching from board back to skis', () => {
