@@ -341,7 +341,8 @@ function substep(
   v.addScaledVector(gravityAlong, h);
 
   skiDirection(state.yaw, n, skis);
-  if (intent.push && !intent.brake && v.length() < SKI.pushMaxSpeed) {
+  const pushMax = ski.pushMaxSpeed ?? SKI.pushMaxSpeed;
+  if (intent.push && !intent.brake && v.length() < pushMax) {
     // Skating or stepping along a traverse you set your edges: they hold the sideways
     // slip instead of scraping all your speed away (which would pin you in place).
     v.copy(target.copy(skis).multiplyScalar(v.dot(skis)));
@@ -388,8 +389,8 @@ function substep(
     v.copy(dir).multiplyScalar(speed);
   }
 
-  if (intent.push && !intent.brake && speed < SKI.pushMaxSpeed) {
-    v.addScaledVector(skis, SKI.pushAccel * h);
+  if (intent.push && !intent.brake && speed < pushMax) {
+    v.addScaledVector(skis, (ski.pushAccel ?? SKI.pushAccel) * h);
   }
   if (intent.pole && !intent.brake && speed < SKI.poleMaxSpeed) {
     v.addScaledVector(skis, SKI.poleAccel * h);

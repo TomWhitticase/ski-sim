@@ -275,6 +275,7 @@
           <div class="lab">Options</div>
           <button type="button" data-tab="opt-camera">Camera <kbd>O</kbd></button>
           <button type="button" data-tab="opt-display">Display</button>
+          <button type="button" data-tab="opt-graphics">Graphics</button>
           <button type="button" data-tab="opt-controls">Controls</button>
           <button type="button" data-tab="opt-ski">Ski setup <kbd>G</kbd></button>
           <button type="button" data-tab="opt-rules">Rules</button>
@@ -308,6 +309,18 @@
           <div class="modal-body display"></div>
           <footer class="modal-footer">
             <span></span>
+            <button class="modal-close btn btn-primary" type="button">Done</button>
+          </footer>
+        </section>
+
+        <section id="opt-graphics" class="hub-panel" hidden>
+          <header class="hub-head">
+            <h2>Graphics</h2>
+            <p>How rich the rendering is — a preset, or tune each option</p>
+          </header>
+          <div class="modal-body graphics"></div>
+          <footer class="modal-footer">
+            <button class="setup-reset btn" type="button">Reset to defaults</button>
             <button class="modal-close btn btn-primary" type="button">Done</button>
           </footer>
         </section>
@@ -533,6 +546,8 @@
                   <dd>Piste colours</dd>
                   <dt>4</dt>
                   <dd>Restaurant names</dd>
+                  <dt>5</dt>
+                  <dd>Airfield and heliport names (from far off while flying)</dd>
                   <dt>K</dt>
                   <dd>Sound on / off</dd>
                   <dt>- / =</dt>

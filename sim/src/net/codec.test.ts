@@ -161,3 +161,29 @@ describe('state codec', () => {
     expect(2 * Math.acos(Math.abs(q[3]!)) * (180 / Math.PI)).toBeCloseTo(10, 1);
   });
 });
+
+describe('snowboard stance over the wire', () => {
+  it("carries a goofy rider's push: the remote model shows the back foot out on the snow", async () => {
+    const { Vector3 } = await import('three/webgpu');
+    const { SkierModel } = await import('../controls/ski-model');
+    const { boardFeet, boardGeometry } = await import('../controls/board-stance');
+    const { DEFAULT_BOARD_SETUP } = await import('../controls/discipline');
+    const geo = boardGeometry({ ...DEFAULT_BOARD_SETUP, stance: 'goofy' });
+    const stance = { ...initialStance(), ...boardFeet(geo, 0, true, 1.2) };
+    const s = createState();
+    s.flags = stanceToSlots(stance, s.pose) | Flag.Snowboard;
+    const back = decodeState(encodeState(s))!;
+    const remote = slotsToStance(back.pose, back.flags, initialStance());
+    // A remote copy built with the default (regular) setup, as RemotePlayers does.
+    const model = new SkierModel();
+    model.setSnowboard((back.flags & Flag.Snowboard) !== 0);
+    model.apply(remote, new Vector3(0, 1, 0));
+    model.root.updateMatrixWorld(true);
+    // Goofy is read back from the feet: the right foot leads at the nose, and the left (back)
+    // foot pushes on the snow off the toe edge, which for goofy is −x.
+    expect(model.footRig('right').position.z).toBeCloseTo(-geo.half, 2);
+    const pushing = model.footRig('left').position;
+    expect(pushing.x).toBeLessThan(-geo.halfWidth - 0.05);
+    expect(pushing.x).toBeCloseTo(stance.left.x, 2);
+  });
+});

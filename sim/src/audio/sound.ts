@@ -1,4 +1,12 @@
-import type { AircraftSound, DroneSound, EngineSound, RailSound, SoundLevels } from './levels';
+import type {
+  AircraftSound,
+  DroneSound,
+  EngineSound,
+  RailSound,
+  RollingSound,
+  SoundLevels,
+  TouchdownSound,
+} from './levels';
 
 interface AircraftVoice {
   gain: GainNode;
@@ -37,6 +45,10 @@ const SMOOTHING = 0.08; // s: time constant for level changes (avoids zipper noi
  * - aircraft: a turbine's whine (two sines), the blades (a sawtooth at the blade-pass
  *   frequency through a low-pass: a propeller's buzz) and, for a helicopter, band-passed
  *   noise gated at the blade-pass frequency (the rotor's slap); yours and the nearest other
+ * - aircraft on the ground: tyre rumble (low-passed noise), a gritty crunch on snow (or
+ *   skids scraping), brake squeal (two wavering sines); in the air the stall horn (two
+ *   beating squares) and the flap motor (a band-passed sawtooth); one-shots for touchdowns
+ *   (thud, tyre chirp, snow crunch), crashes and the door
  * Browsers only allow audio after a user gesture, so start() is called from a click.
  */
 export class Sound {
@@ -62,6 +74,13 @@ export class Sound {
   };
   private drones!: { own: DroneVoice; other: DroneVoice };
   private aircraft!: { own: AircraftVoice; other: AircraftVoice };
+  private gear!: {
+    rumble: { gain: GainNode; filter: BiquadFilterNode };
+    crunch: { gain: GainNode; filter: BiquadFilterNode };
+    squeal: { gain: GainNode; oscillators: OscillatorNode[] };
+    horn: GainNode;
+    flap: GainNode;
+  };
   private muted: boolean;
 
   constructor(muted = false) {
@@ -320,6 +339,212 @@ export class Sound {
       };
     };
     this.aircraft = { own: aircraftVoice(), other: aircraftVoice() };
+
+    // Aircraft on the ground and its warnings. Rumble: low-passed noise. Crunch: band-
+    // passed noise through a fast flutter (snow packing under the tyres or skids).
+    const rumble = ctx.createBiquadFilter();
+    rumble.type = 'lowpass';
+    rumble.Q.value = 1.1;
+    const rumbleGain = ctx.createGain();
+    rumbleGain.gain.value = 0;
+    source.connect(rumble).connect(rumbleGain).connect(this.master);
+    const crunch = ctx.createBiquadFilter();
+    crunch.type = 'bandpass';
+    crunch.Q.value = 1.4;
+    const crunchGrit = ctx.createGain();
+    const crunchGain = ctx.createGain();
+    crunchGain.gain.value = 0;
+    source.connect(crunch).connect(crunchGrit).connect(crunchGain).connect(this.master);
+    const crunchFlutter = ctx.createOscillator();
+    crunchFlutter.type = 'sawtooth';
+    crunchFlutter.frequency.value = 17;
+    const crunchDepth = ctx.createGain();
+    crunchDepth.gain.value = 0.45;
+    crunchFlutter.connect(crunchDepth).connect(crunchGrit.gain);
+    crunchFlutter.start();
+    // Brake squeal: two inharmonic sines with a slow waver in pitch.
+    const squealGain = ctx.createGain();
+    squealGain.gain.value = 0;
+    squealGain.connect(this.master);
+    const waver = ctx.createOscillator();
+    waver.frequency.value = 6.5;
+    waver.start();
+    const squeals = (
+      [
+        [2350, 0.6],
+        [3170, 0.3],
+      ] as const
+    ).map(([freq, level]) => {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const depth = ctx.createGain();
+      depth.gain.value = freq * 0.012;
+      waver.connect(depth).connect(osc.frequency);
+      const g = ctx.createGain();
+      g.gain.value = level;
+      osc.connect(g).connect(squealGain);
+      osc.start();
+      return osc;
+    });
+    // Stall horn: two squares a few hertz apart (a reed's buzz), softened.
+    const horn = ctx.createGain();
+    horn.gain.value = 0;
+    const hornFilter = ctx.createBiquadFilter();
+    hornFilter.type = 'lowpass';
+    hornFilter.frequency.value = 2600;
+    hornFilter.connect(horn).connect(this.master);
+    for (const freq of [1460, 1467]) {
+      const osc = ctx.createOscillator();
+      osc.type = 'square';
+      osc.frequency.value = freq;
+      const g = ctx.createGain();
+      g.gain.value = 0.35;
+      osc.connect(g).connect(hornFilter);
+      osc.start();
+    }
+    // Flap motor: an electric motor's whine through its gearbox.
+    const flap = ctx.createGain();
+    flap.gain.value = 0;
+    const flapFilter = ctx.createBiquadFilter();
+    flapFilter.type = 'bandpass';
+    flapFilter.frequency.value = 900;
+    flapFilter.Q.value = 1.5;
+    flapFilter.connect(flap).connect(this.master);
+    for (const [freq, level] of [
+      [395, 0.6],
+      [790, 0.35],
+      [1210, 0.2],
+    ] as const) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.value = freq;
+      const g = ctx.createGain();
+      g.gain.value = level;
+      osc.connect(g).connect(flapFilter);
+      osc.start();
+    }
+    this.gear = {
+      rumble: { gain: rumbleGain, filter: rumble },
+      crunch: { gain: crunchGain, filter: crunch },
+      squeal: { gain: squealGain, oscillators: squeals },
+      horn,
+      flap,
+    };
+  }
+
+  /**
+   * Your aircraft's own extras: wheels or skids on the ground (`ROLLING_OFF` in the air),
+   * the stall horn and the flap motor (levels, 0 when silent).
+   */
+  setAircraftExtras(rolling: RollingSound, horn: number, flap: number): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const g = this.gear;
+    g.rumble.gain.gain.setTargetAtTime(rolling.rumble, t, SMOOTHING);
+    g.rumble.filter.frequency.setTargetAtTime(rolling.rumbleCutoff, t, SMOOTHING);
+    g.crunch.gain.gain.setTargetAtTime(rolling.crunch, t, SMOOTHING);
+    g.crunch.filter.frequency.setTargetAtTime(rolling.crunchPitch, t, SMOOTHING);
+    g.squeal.gain.gain.setTargetAtTime(rolling.squeal, t, 0.12);
+    // A horn and a motor switch on and off sharply.
+    g.horn.gain.setTargetAtTime(horn, t, 0.02);
+    g.flap.gain.setTargetAtTime(flap, t, 0.04);
+  }
+
+  /** Wheels or skids meeting the ground: a thud, a tyre chirp on tarmac, a crunch on snow. */
+  touchdown(s: TouchdownSound): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (s.thump > 0) {
+      this.burst('lowpass', 160, 0.8, s.thump, 0.3);
+      this.burst('lowpass', 420, 0.7, s.thump * 0.4, 0.12); // the gear legs' clunk
+    }
+    if (s.crunch > 0) {
+      this.burst('bandpass', 1100, 1.2, s.crunch, 0.28, 0.01);
+      this.burst('bandpass', 2600, 1.5, s.crunch * 0.4, 0.18, 0.03);
+    }
+    if (s.chirp > 0) {
+      // Each tyre spinning up: a squeal sliding down in pitch, one a moment after the other.
+      const t0 = ctx.currentTime;
+      for (const [delay, level] of [
+        [0, 1],
+        [0.07, 0.7],
+      ] as const) {
+        const t = t0 + delay;
+        const osc = ctx.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(2600, t);
+        osc.frequency.exponentialRampToValueAtTime(1500, t + 0.18);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(s.chirp * level, t + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+        osc.connect(gain).connect(this.master);
+        osc.start(t);
+        osc.stop(t + 0.22);
+        this.burst('highpass', 3000, 0.7, s.chirp * level * 0.5, 0.15, delay);
+      }
+    }
+  }
+
+  /**
+   * A crash: a deep impact, crumpling metal (a run of ringing, falling partials) and
+   * debris rattling after it. `severity` 0..1 (`crashSeverity`).
+   */
+  crash(severity: number): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const k = Math.min(1, Math.max(0, severity));
+    const t = ctx.currentTime;
+    // The impact: a sine dropping from 70 to 28 Hz under a long low burst.
+    const boom = ctx.createOscillator();
+    boom.frequency.setValueAtTime(70, t);
+    boom.frequency.exponentialRampToValueAtTime(28, t + 0.7);
+    const boomGain = ctx.createGain();
+    boomGain.gain.setValueAtTime(0.9 * k, t);
+    boomGain.gain.exponentialRampToValueAtTime(0.001, t + 0.9);
+    boom.connect(boomGain).connect(this.master);
+    boom.start(t);
+    boom.stop(t + 0.95);
+    this.burst('lowpass', 220, 0.8, k, 0.8);
+    // Crumpling metal: clanks with inharmonic rings, irregularly spaced.
+    for (let i = 0; i < 6; i++) {
+      const delay = 0.02 + i * 0.07 + Math.random() * 0.05;
+      const freq = 500 + Math.random() * 1400;
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(freq, t + delay);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.7, t + delay + 0.25);
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = freq * 1.3;
+      filter.Q.value = 6;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, t + delay);
+      gain.gain.exponentialRampToValueAtTime(0.45 * k * (1 - i * 0.1), t + delay + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + delay + 0.3);
+      osc.connect(filter).connect(gain).connect(this.master);
+      osc.start(t + delay);
+      osc.stop(t + delay + 0.32);
+      this.burst('bandpass', 1800 + Math.random() * 1500, 1, 0.3 * k, 0.12, delay);
+    }
+    // Debris: a scatter of small ticks and scrapes over the next second.
+    for (let i = 0; i < 10; i++) {
+      const delay = 0.4 + Math.random() * 1.1;
+      const level = 0.12 * k * (0.2 + 0.8 * Math.random());
+      this.burst('bandpass', 1500 + Math.random() * 3000, 3, level, 0.05, delay);
+    }
+    this.burst('highpass', 1200, 0.7, 0.25 * k, 1.2, 0.15); // the long scrape
+  }
+
+  /** The cabin door: a latch click and the thud of it shutting (or opening, softer). */
+  door(shutting: boolean): void {
+    if (!this.ctx) return;
+    const v = shutting ? 1 : 0.6;
+    this.burst('bandpass', 2400, 3, 0.16 * v, 0.04); // the latch
+    this.burst('lowpass', 260, 0.9, 0.38 * v, 0.16, 0.02); // the door into its frame
+    this.burst('bandpass', 700, 2, 0.14 * v, 0.1, 0.025); // its panel ringing
   }
 
   /** A plane or helicopter: `own` is yours, `other` the nearest someone else flies (level scaled by distance). */

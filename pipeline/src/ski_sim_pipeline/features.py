@@ -43,19 +43,25 @@ class LiftProfile:
     #: L² / (8 · catenary) mid-span (`rope.py`). Cable car track ropes are tensioned
     #: hardest, but their spans are so long they sag most in metres.
     catenary: float
+    #: The largest carrier of the type, as the sim draws it (`carrier_clearance.carrier`
+    #: has the exact one per lift): underside below the rope, half its length along the
+    #: line, half its width across, and its clearance over the ground out on the line
+    #: (m). None for drags: their riders are on the snow.
+    carrier: tuple[float, float, float, float] | None = None
 
 
 _DRAG = LiftProfile(6, 4, 2.5, 120, 2.5, 2000)
+_GONDOLA_CARRIER = (4.43, 1.1, 1.0, 1.0)
 LIFT_PROFILES = {
     # ~31 m over a 1 km span (3.1%), ~125 m over 2 km.
-    "cable_car": LiftProfile(25, 8, 15, 3000, 8, 4000),
+    "cable_car": LiftProfile(25, 8, 15, 3000, 8, 4000, (7.53, 3.6, 2.0, 1.0)),
     # Rope to ground: a chair's skis hang ~3.4 m below the rope and a gondola cabin's
     # floor ~5.7 m, so these leave ~3.5 m under them (real lines run higher over pistes).
     # Sag: gondolas ~1.8% over 200 m, ~3.6% over 400 m; chairs ~1.1% over 100 m, ~3.4%
     # over 300 m.
-    "gondola": LiftProfile(14, 6, 9, 400, 6, 1400),
-    "mixed_lift": LiftProfile(13, 6, 9, 350, 6, 1400),
-    "chair_lift": LiftProfile(11, 5, 7, 300, 5, 1100),
+    "gondola": LiftProfile(14, 6, 9, 400, 6, 1400, _GONDOLA_CARRIER),
+    "mixed_lift": LiftProfile(13, 6, 9, 350, 6, 1400, _GONDOLA_CARRIER),
+    "chair_lift": LiftProfile(11, 5, 7, 300, 5, 1100, (2.85, 1.0, 1.6, 0.5)),
     "drag_lift": _DRAG,
     "t-bar": _DRAG,
     "j-bar": _DRAG,
@@ -76,6 +82,10 @@ STATION_MATCH_DISTANCE = 15.0
 # Shorter ways are mapped station pieces (e.g. a turn at an angle station), not lifts.
 MIN_LIFT_LENGTH = 40.0
 CABLE_SAMPLE_STEP = 4.0
+#: Closest two towers may stand (m).
+MIN_TOWER_SPACING = 10.0
+#: Tallest buildable tower, as a multiple of the type's standard height (`approach.py`).
+MAX_TOWER_FACTOR = 2.6
 
 
 def _project(frame: LocalFrame, geometry: list[dict]) -> np.ndarray:
@@ -101,8 +111,21 @@ def _support(east: float, north: float, ground: float, height: float, kind: str)
     return {"east": east, "north": north, "ground": ground, "top": ground + height, "kind": kind}
 
 
-def _fill_span(a: dict, b: dict, ground: GroundSampler, profile: LiftProfile, depth: int = 0):
-    """Synthetic towers needed between supports a and b (recursively)."""
+def _fill_span(
+    a: dict,
+    b: dict,
+    ground: GroundSampler,
+    profile: LiftProfile,
+    depth: int = 0,
+    station_gap: float = 0.0,
+    carrier_from: float = 0.0,
+):
+    """Synthetic towers needed between supports a and b (recursively). None go within
+    `station_gap` of a station's exit (the approach's MIN_GAP), and the carriers' own
+    clearance only counts from `carrier_from` m out: closer in, a tower would kink the
+    rope out of the station, and `carrier_clearance.notch` cuts the ground instead."""
+    from .carrier_clearance import PLATFORM_RUN
+
     span = math.hypot(b["east"] - a["east"], b["north"] - a["north"])
     if depth > 12 or span < 2 * CABLE_SAMPLE_STEP:
         return []
@@ -124,23 +147,65 @@ def _fill_span(a: dict, b: dict, ground: GroundSampler, profile: LiftProfile, de
     taper = ends[0] + (ends[1] - ends[0]) * t
     sagged = a["top"] + (b["top"] - a["top"]) * t - cable
     needed = np.minimum(profile.min_clearance, np.maximum(taper - sagged, ends.min()))
-    shortfall = needed - (cable - under)
     # Inside a hall the rope runs level over the station's own pad: not a span to check.
     start, end, _ = rope.free_span(a, b)
-    shortfall[(t * span < start) | (t * span > end)] = -1.0
+    d = t * span
+    if profile.carrier:
+        # Whatever the taper, the carrier itself clears the ground (`carrier_clearance`):
+        # its underside by its margin out on the line, tapering to the platform at a hall's
+        # exit, over the highest ground under its whole length and width.
+        drop, length, width, margin = profile.carrier
+        ux, uy = ay, -ax
+        footprint = np.maximum.reduce(
+            [
+                ground(east + ax * o + ux * f, north + ay * o + uy * f)
+                for o in (-half - width, -half, 0.0, half, half + width)
+                for f in (-length, 0.0, length)
+            ]
+        )
+        exit_d = np.full(t.shape, np.inf)
+        if a.get("exit"):
+            exit_d = np.minimum(exit_d, d - start)
+        if b.get("exit"):
+            exit_d = np.minimum(exit_d, end - d)
+        floor = drop + margin * np.clip(exit_d / PLATFORM_RUN, 0, 1) + footprint - under
+        needed = np.where(exit_d >= carrier_from, np.maximum(needed, floor), needed)
+    shortfall = needed - (cable - under)
+    shortfall[(d < start) | (d > end)] = -1.0
+    # Never two towers closer than MIN_TOWER_SPACING: what's short right beside one is
+    # that tower's height to fix, not a stub next to it.
+    if a.get("kind") != "station":
+        shortfall[d < MIN_TOWER_SPACING] = -1.0
+    if b.get("kind") != "station":
+        shortfall[d > span - MIN_TOWER_SPACING] = -1.0
+    if station_gap > 0:
+        if a.get("kind") == "station":
+            shortfall[d < start + station_gap] = -1.0
+        if b.get("kind") == "station":
+            shortfall[d > end - station_gap] = -1.0
 
     worst = int(np.argmax(shortfall))
+    e, n = float(east[worst]), float(north[worst])
+    g = float(ground(np.array([e]), np.array([n]))[0])
     if shortfall[worst] <= 1e-6:
         if span <= profile.max_span:
             return []
         worst = len(t) // 2  # too long a span: split in the middle
-    e, n = float(east[worst]), float(north[worst])
-    g = float(ground(np.array([e]), np.array([n]))[0])
-    tower = _support(e, n, g, profile.tower_height, "synthetic-tower")
+        e, n = float(east[worst]), float(north[worst])
+        g = float(ground(np.array([e]), np.array([n]))[0])
+        height = profile.tower_height
+    else:
+        # Tall enough for the worst point it's there for (the uphill track on a side
+        # slope stands higher than the centre), within buildable towers.
+        height = min(
+            max(profile.tower_height, float(under[worst] + needed[worst]) - g + 0.5),
+            profile.tower_height * MAX_TOWER_FACTOR,
+        )
+    tower = _support(e, n, g, height, "synthetic-tower")
     return (
-        _fill_span(a, tower, ground, profile, depth + 1)
+        _fill_span(a, tower, ground, profile, depth + 1, station_gap, carrier_from)
         + [tower]
-        + _fill_span(tower, b, ground, profile, depth + 1)
+        + _fill_span(tower, b, ground, profile, depth + 1, station_gap, carrier_from)
     )
 
 

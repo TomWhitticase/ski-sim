@@ -12,6 +12,7 @@ import {
   stepSki,
 } from './ski-physics';
 import { type LineFeature, type RailContact, SnowParks } from '../parks/park-shapes';
+import { BOARD_PUSH, boardHandling, DEFAULT_BOARD_SETUP } from './discipline';
 import { DEFAULT_HANDLING, SKI_PRESETS, type SkiHandling, skiHandling } from './ski-setup';
 
 const RAD = Math.PI / 180;
@@ -601,5 +602,23 @@ describe('ski direction', () => {
     expect(d.dot(wall)).toBeCloseTo(0); // in the surface
     expect(Math.atan2(d.x, -d.z)).toBeCloseTo(Math.PI / 4); // still north-east from above
     expect(d.y).toBeGreaterThan(0.9); // so mostly up the wall, not along it
+  });
+});
+
+describe('one-foot push on a snowboard', () => {
+  const push = { ...idle, push: true };
+  const board = boardHandling(DEFAULT_BOARD_SETUP);
+
+  it('gets a board going on the flat, up to its push speed and no faster', () => {
+    const state = run(skier(slope(0), DOWNHILL), slope(0), 10, push, board);
+    expect(state.velocity.length()).toBeGreaterThan(BOARD_PUSH.maxSpeed * 0.9);
+    expect(state.velocity.length()).toBeLessThan(BOARD_PUSH.maxSpeed * 1.05);
+  });
+
+  it('is slower than skating on skis', () => {
+    const a = run(skier(slope(0), DOWNHILL), slope(0), 1.5, push, board).velocity.length();
+    const b = run(skier(slope(0), DOWNHILL), slope(0), 1.5, push).velocity.length();
+    expect(a).toBeGreaterThan(1);
+    expect(a).toBeLessThan(b);
   });
 });

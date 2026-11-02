@@ -17,6 +17,7 @@ from . import (
     airfields,
     approach,
     borders,
+    carrier_clearance,
     crossings,
     features,
     grading,
@@ -186,7 +187,7 @@ def build_features(
 
     # Smooth the line where it leaves each terminal (towers inside/crowding stations,
     # steep exits), then report what's left.
-    smooth = {"dropped": 0, "adjusted": 0, "inserted": 0, "unresolved": 0}
+    smooth = {"dropped": 0, "adjusted": 0, "inserted": 0, "unresolved": 0, "steepExits": 0}
     steep = []
     for lift in lifts:
         ends = by_lift.get(lift["id"], [])
@@ -204,15 +205,22 @@ def build_features(
         kind = terminals.KIND[lift["type"]]
         for t, seq in ((ends[0], lift["supports"]), (ends[1], lift["supports"][::-1])):
             angle = approach.exit_angle(seq, t, kind)
-            limit = max(approach.MAX_EXIT_ANGLE[kind], approach.feasible_exit_angle(seq, t, kind))
+            limit = max(
+                approach.MAX_EXIT_ANGLE[kind],
+                approach.feasible_exit_angle(seq, t, kind, lift, ground),
+            )
+            if seq[1].get("steepExit"):
+                limit = approach.CLIFF_EXIT_ANGLE[kind]
             if angle > limit + 0.5:
                 steep.append(f"{lift['name'] or lift['id']} {t['end']} {angle:.0f}°")
     log.info(
-        "Lift approaches: %d towers dropped, %d adjusted, %d added; %d steep station exits",
+        "Lift approaches: %d towers dropped, %d adjusted, %d added; %d steep station exits"
+        " (%d cable car exits allowed steeper for the cabin's clearance)",
         smooth["dropped"],
         smooth["adjusted"],
         smooth["inserted"],
         len(steep),
+        smooth["steepExits"],
     )
     if steep:
         log.warning("Steep station exits: %s", ", ".join(steep[:12]))
@@ -225,6 +233,23 @@ def build_features(
         cross["crossings"],
         cross["lifted"],
         cross["unresolved"],
+    )
+
+    # What no tower could fix right outside a hall (no tower stands that close): cut the
+    # terrain under the carriers there, then stand the towers on what's left. First, out
+    # on the line, raise the towers either side of anything the walk and crossings left
+    # too low.
+    raised = carrier_clearance.raise_towers(lifts, by_lift, ground)
+    notches = carrier_clearance.notch(lifts, by_lift, near, near_grid, ground)
+    reseated = carrier_clearance.reseat_towers(lifts, ground)
+    log.info(
+        "Carrier clearance: %d towers raised; terrain notched under the carriers at %d "
+        "station ends (%.0f m³, deepest %.1f m); %d towers re-seated",
+        raised,
+        len(notches),
+        sum(n["volume"] for n in notches),
+        max((n["maxDepth"] for n in notches), default=0.0),
+        reseated,
     )
 
     # Entrances, then cut buildings only as much as lifts need (3D volumes).
@@ -285,6 +310,7 @@ def build_features(
         "peaks": peaks,
         "_clearance": {**cut_stats, "problems": problems},
         "_heights": lidar_heights,
+        "_notches": notches,
     }
 
 
@@ -633,6 +659,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
     )
     clearance = feature_data.pop("_clearance")
     lidar_heights = feature_data.pop("_heights")
+    notches = feature_data.pop("_notches")
     places = osm.fetch_places(frame.bounds_in("EPSG:4326", near_grid.extent), raw_root)
     places += [
         {"type": "node", "lat": p.lat, "lon": p.lon, "tags": {"name": n, "place": "village"}}
@@ -738,6 +765,34 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
         ],
     )
 
+    # Every carrier clears the final ground (after hut sites and everything else): a hut
+    # levelled beside a station can fill a notch back in, so notch again where needed.
+    def final_ground(e, n):
+        return sample_bilinear(near, near_grid, e, n)
+
+    by_id = {lift["id"]: lift["terminals"] for lift in feature_data["lifts"]}
+    again = carrier_clearance.notch(feature_data["lifts"], by_id, near, near_grid, final_ground)
+    if again:
+        carrier_clearance.reseat_towers(feature_data["lifts"], final_ground)
+        log.info("Carrier clearance: %d station ends notched again on the final ground", len(again))
+    carriers = carrier_clearance.validate(feature_data["lifts"], final_ground)
+    carriers["notches"] = carrier_clearance.merge_notches(notches + again)
+    for c in carriers["conflicts"][:20]:
+        log.warning(
+            "Carrier touches the ground: %s (%s) %.0f-%.0f m along, %.1f m under%s",
+            c["name"] or c["lift"],
+            c["type"],
+            c["from"],
+            c["to"],
+            c["shortfall"],
+            f" ({c['outside']:.0f} m outside the {c['station']} station)" if c["station"] else "",
+        )
+    log.info(
+        "Carrier clearance: %d lifts checked, %d stretches still touch the ground",
+        carriers["checked"],
+        len(carriers["conflicts"]),
+    )
+
     log.info("Writing outputs to %s", out_dir)
     (out_dir / "features.json").write_text(json.dumps(feature_data, separators=(",", ":")))
     near_meta = write_heightmap(out_dir / "terrain-near.bin", near, near_grid)
@@ -830,6 +885,7 @@ def build(resort_dir: Path, raw_root: Path, out_root: Path) -> Path:
             "pisteGrading": graded,
             "nearCoverage": coverage,
             "liftClearance": clearance,
+            "carrierClearance": carriers,
             "landCover": land_stats,
             "runways": runway_checks,
         },

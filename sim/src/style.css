@@ -2862,6 +2862,12 @@ body.touch #debug {
     display: none;
   }
 
+  /* A warning (STALL, LOW, PULL) takes the climb's place, so the strip never grows into
+     the minimap. */
+  body.touch #flight:has(.stall:not([hidden])) > div:nth-child(2) {
+    display: none;
+  }
+
   body.touch #flight > div {
     min-width: 0;
     padding: 6px 9px 7px;

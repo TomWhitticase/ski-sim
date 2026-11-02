@@ -5,6 +5,7 @@ import {
   Discard,
   Fn,
   float,
+  fwidth,
   max,
   mix,
   modelWorldMatrix,
@@ -65,8 +66,14 @@ export interface PisteShading {
   overlay: Texture;
   /** Same grid: how much of that coverage is unprepared snow (R); groomed is the rest. */
   ungroomed?: Texture;
-  /** 0..1: how strongly to tint pistes in their difficulty colour. */
+  /** 0..1: how strongly to draw the overlay (also the key-3 on/off master). */
   tint: UniformNode<'float', number>;
+  /**
+   * 0..1 luminous boost for the overlay's lines: how dark/foggy the scene is, so the coloured
+   * edges self-light at night, dusk and in fog but stay subtle in daylight. From `Environment`.
+   * Omit for a non-luminous overlay (no emissive contribution).
+   */
+  glow?: UniformNode<'float', number>;
   /** Floodlit runs: glow mask (R, grid-registered on `extent`) and how lit it is (0..1). */
   floodlit?: {
     mask: Texture;
@@ -271,6 +278,97 @@ export function createTerrainMaterial(
     ? tree.mul(smoothstep(canopyFade[0], canopyFade[1], cameraPosition.distance(positionWorld)))
     : tree;
 
+  // --- Piste overlay (v2) ------------------------------------------------------
+  // Signage-style luminous runs: a crisp coloured edge + a soft glow halo + a faint far
+  // interior fill, drawn in each run's difficulty colour, plus a two-colour diagonal dash
+  // across the piste where a run flows into one of a different colour. The lit colour is
+  // computed here; the luminous part is added separately as emissive (below) so it survives
+  // low light. Built once so the lit colour and the emissive share the same signals. Null
+  // unless there's a piste overlay to read.
+  const buildPisteV2 = () => {
+    const ov = pistes!;
+    const overlay = piste!;
+    // True (un-premultiplied) difficulty colour; the texture stores colour × coverage.
+    const col = overlay.rgb.div(coverage.max(float(0.001))).clamp(0, 1);
+    const pdist = cameraPosition.distance(positionWorld);
+    // Screen-space contour through coverage = 0.5 (the run edge): fwidth keeps it a few
+    // pixels wide at any distance (anti-aliased, mip-stable: no shimmer when moving).
+    const aa = fwidth(coverage).max(float(0.0001));
+    const edgeDist = coverage.sub(0.5).abs();
+    const interior = smoothstep(0.45, 0.85, coverage); // 1 well inside a run, 0 at its edge
+
+    // (2) Distance-aware width: the edge grows from ~2.2 px up close to ~5.2 px far away,
+    // and the glow halo from ~7 px to ~13 px, so a run read from a ridge or lift still has a
+    // visible outline.
+    const far = smoothstep(140, 1100, pdist);
+    const line = float(1)
+      .sub(smoothstep(float(0), aa.mul(float(2.2).add(far.mul(3.0))), edgeDist))
+      .mul(0.95);
+    const glow = float(1)
+      .sub(smoothstep(float(0), aa.mul(float(7).add(far.mul(6.0))), edgeDist))
+      .mul(0.22);
+    const farFill = smoothstep(120, 520, pdist).mul(interior).mul(0.13);
+    const sig = line.max(glow).max(farFill);
+
+    // (3) Colour-change borders. The overlay's difficulty colour changes sharply only where a
+    // run flows into one of a different colour. `fwidth(col)` is that change per screen pixel —
+    // near-zero inside a run, a spike at the seam — so it marks a thin line that stays a few
+    // pixels wide at any range, like the edges. Gated two ways so it's only drawn at a real
+    // run-to-run colour change: well inside the run (`interior`, not the outer edge to snow),
+    // and with a differently-coloured, also-covered run on the other side (`hasOther`). The
+    // diff-weighted mean of those differing neighbours gives the colour on the far side.
+    const colGrad = fwidth(col).dot(vec3(1, 1, 1));
+    const tx = 1 / hm.width;
+    const ty = 1 / hm.height;
+    const o = 1.5; // texels out: ~6 m on the 4 m overlay grid
+    const sampleCol = (du: number, dv: number) => {
+      const t = texture(ov.overlay, uv.add(vec2(du, dv)));
+      return { cov: t.a, col: t.rgb.div(t.a.max(float(0.001))).clamp(0, 1) };
+    };
+    const neigh = [
+      sampleCol(tx * o, 0),
+      sampleCol(-tx * o, 0),
+      sampleCol(0, ty * o),
+      sampleCol(0, -ty * o),
+    ];
+    // Seed with an op (not a bare literal) so the accumulators keep the wide node type when
+    // reassigned in the loop.
+    let wsum = float(0.0001).add(0);
+    let cacc = vec3(0, 0, 0).mul(1);
+    for (const n of neigh) {
+      const covered = smoothstep(0.55, 0.82, n.cov);
+      const diff = n.col
+        .sub(col)
+        .abs()
+        .dot(vec3(1, 1, 1))
+        .mul(covered);
+      wsum = wsum.add(diff);
+      cacc = cacc.add(n.col.mul(diff));
+    }
+    const otherCol = cacc.div(wsum);
+    const hasOther = smoothstep(0.12, 0.45, wsum);
+    // Low thresholds so the screen-space line catches the gradient's falloff and reads as a
+    // few-px bar (not a hairline), while staying put on the actual seam — fwidth(col) only
+    // spikes where the colour changes, so parallel same-corridor runs aren't flooded.
+    const border = smoothstep(0.08, 0.3, colGrad).mul(interior).mul(hasOther);
+    // Drawn as a two-colour diagonal dash (~2.9 m) in both runs' colours: a clear "it changes
+    // here" threshold, consistent with the coloured edge. Diagonal so it reads at any angle.
+    const dash = positionWorld.x.add(positionWorld.z).mul(0.35).fract();
+    const pick = smoothstep(0.45, 0.55, dash);
+    const borderCol = mix(otherCol, col, pick);
+
+    // (1) Luminous: an unlit (emissive) contribution so the edges and the border stay bright
+    // when the scene light is low. `glow` (0 day → 1 night/fog) scales it; a small floor keeps
+    // the lines crisp in deep shadow by day without looking neon under the midday sun.
+    const glowU = ov.glow ?? float(0);
+    const strength = float(0.1).add(glowU.mul(0.9));
+    const mask = line.max(glow.mul(0.55)).max(border).mul(ov.tint);
+    const emissive = mix(col, borderCol, border).mul(mask).mul(strength);
+
+    return { sig, edgeCol: col, border, borderCol, emissive };
+  };
+  const pisteV2 = piste && pistes ? buildPisteV2() : null;
+
   material.colorNode = Fn(() => {
     if (hole) {
       const x = positionWorld.x;
@@ -309,11 +407,14 @@ export function createTerrainMaterial(
     );
     const base = mix(forest.mul(snowRoad.mul(rock.oneMinus()).mul(-0.1).add(1)), ROAD_FAR, farRoad);
     let out = base;
-    if (piste && pistes) {
-      // Freshly groomed snow reads a touch brighter; optional difficulty-colour tint.
+    if (piste && pistes && pisteV2) {
+      // Freshly groomed snow reads a touch brighter (kept regardless of the overlay).
       const brightened = base.mul(groomed.mul(rock.oneMinus()).mul(0.05).add(1));
-      const k = pistes.tint.mul(0.55);
-      out = brightened.mul(coverage.mul(k).oneMinus()).add(piste.rgb.mul(k));
+      const tint = pistes.tint; // 0/1 master (the key-3 toggle)
+      // Edges + glow halo + far fill in the run colour, then the colour-change dash on top in
+      // the two runs' colours. The luminous part is added as emissive (below).
+      const withEdges = mix(brightened, pisteV2.edgeCol, pisteV2.sig.mul(tint));
+      out = mix(withEdges, pisteV2.borderCol, pisteV2.border.mul(0.95).mul(tint));
     }
     // Near-range aerial perspective: a faint sky tint grows over the mid-range so flat near
     // snow lifts off a dead white (`TERRAIN_DETAIL.aerial.strength` 0 disables it).
@@ -336,19 +437,25 @@ export function createTerrainMaterial(
       .mul(HOLE_EDGE_DIP);
     material.positionNode = positionGeometry.sub(vec3(0, dip, 0));
   }
-  if (pistes?.floodlit) {
-    // Pools of warm light under the floodlights: a baked mask, no real lights.
-    const lit = pistes.floodlit;
-    const cols = Math.round((lit.extent.east - lit.extent.west) / lit.cellSize) + 1;
-    const rows = Math.round((lit.extent.north - lit.extent.south) / lit.cellSize) + 1;
-    const litUv = vec2(
-      positionWorld.x.sub(lit.extent.west).div(lit.cellSize).add(0.5).div(cols),
-      positionWorld.z.add(lit.extent.north).div(lit.cellSize).add(0.5).div(rows),
-    );
-    material.emissiveNode = color(lit.colour).mul(
-      texture(lit.mask, litUv).r.mul(lit.on).mul(FLOODLIT_GLOW),
-    );
-  }
+  // Emissive = floodlit pools (if any) + the overlay lines' own glow, so the runs stay
+  // readable in the dark on top of whatever the floodlights light.
+  const floodPool = pistes?.floodlit
+    ? (() => {
+        // Pools of warm light under the floodlights: a baked mask, no real lights.
+        const lit = pistes.floodlit!;
+        const cols = Math.round((lit.extent.east - lit.extent.west) / lit.cellSize) + 1;
+        const rows = Math.round((lit.extent.north - lit.extent.south) / lit.cellSize) + 1;
+        const litUv = vec2(
+          positionWorld.x.sub(lit.extent.west).div(lit.cellSize).add(0.5).div(cols),
+          positionWorld.z.add(lit.extent.north).div(lit.cellSize).add(0.5).div(rows),
+        );
+        return color(lit.colour).mul(texture(lit.mask, litUv).r.mul(lit.on).mul(FLOODLIT_GLOW));
+      })()
+    : null;
+  const lineGlow = pisteV2 ? pisteV2.emissive : null;
+  if (floodPool && lineGlow) material.emissiveNode = floodPool.add(lineGlow);
+  else if (lineGlow) material.emissiveNode = lineGlow;
+  else if (floodPool) material.emissiveNode = floodPool;
   // Base roughness: rougher on rock, glassy on ice.
   let roughness = mix(mix(float(0.6), float(0.9), rock), float(0.35), water);
   if (active) {

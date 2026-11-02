@@ -245,7 +245,11 @@ const terminals = features.lifts.flatMap((lift) =>
     terminal: t,
     name: liftName(lift),
     id: `${slug(liftName(lift))}-${lift.id}-${t.end}`,
-    problems: staticChecks(lift, t, buildingsNear(t), allTerminals).map((p) => `static: ${p}`),
+    problems: staticChecks(lift, t, {
+      ground,
+      buildings: buildingsNear(t),
+      terminals: allTerminals,
+    }).map((p) => `static: ${p}`),
   })),
 );
 

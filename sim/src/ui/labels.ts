@@ -4,7 +4,7 @@ import type { Extent } from '../resort/manifest';
 import type { Aerodrome, Building, Lift, Peak, Restaurant } from '../features/types';
 import { liftTypeName } from '../nav/places';
 
-export type LabelKind = 'lift' | 'peak' | 'restaurant';
+export type LabelKind = 'lift' | 'peak' | 'restaurant' | 'airfield';
 
 export interface LabelSpec {
   kind: LabelKind;
@@ -20,6 +20,33 @@ export interface LabelSpec {
   farTier?: number;
   /** Icon at the tag's left (theme in style.css): what kind of place this is. */
   icon?: LabelIcon;
+  /**
+   * Reach and rank while flying (a plane, helicopter or the drone), if they differ: an
+   * airfield is something to navigate to from far off. `distance` adds the range to the
+   * detail ("Airfield · LFLJ · 2,006 m · 12.4 km").
+   */
+  flying?: { maxDistance: number; tier: number; distance?: boolean };
+}
+
+/** How far a label reaches and how it ranks right now (`distance` from the camera, m). */
+export function labelRule(
+  label: LabelSpec,
+  distance: number,
+  flying: boolean,
+): { maxDistance: number; tier: number; showDistance: boolean } {
+  if (flying && label.flying) {
+    const f = label.flying;
+    return { maxDistance: f.maxDistance, tier: f.tier, showDistance: f.distance ?? false };
+  }
+  const tier = distance > NEAR_DISTANCE ? (label.farTier ?? label.tier) : label.tier;
+  return { maxDistance: label.maxDistance, tier, showDistance: false };
+}
+
+/** "850 m", "4.2 km", "18 km": a range on a label (to 100 m under 10 km). */
+export function rangeText(metres: number): string {
+  if (metres < 1000) return `${Math.max(0, Math.round(metres / 10) * 10)} m`;
+  if (metres < 9950) return `${(metres / 1000).toFixed(1)} km`;
+  return `${Math.round(metres / 1000)} km`;
 }
 
 export type LabelIcon =
@@ -105,21 +132,32 @@ export function aerodromeDetail(a: Aerodrome): string {
   return [a.kind === 'heliport' ? 'Heliport' : 'Airfield', a.icao, ele].filter(Boolean).join(' · ');
 }
 
+/** How far airfield and heliport names reach on foot, and while flying (m). */
+export const AERODROME_REACH = {
+  airfield: { ground: 7000, flying: 25_000 },
+  heliport: { ground: 3000, flying: 12_000 },
+};
+
 /**
- * Airfield and heliport names go with the lift names (1): they're ways up the mountain
- * too, and rank like them. Over the runway's middle, showing from as far as a lift's.
+ * Airfield and heliport names (5): over the runway's middle. On the ground they reach
+ * as far as a lift's and rank like one; flying (an aircraft or the drone) they reach much
+ * further (heliports nearer than runways), win every overlap and show their range, so you
+ * can navigate to one.
  */
 export function aerodromeLabel(a: Aerodrome): LabelSpec {
+  const reach = AERODROME_REACH[a.kind === 'heliport' ? 'heliport' : 'airfield'];
   return {
-    kind: 'lift',
+    kind: 'airfield',
     name: a.name,
     detail: aerodromeDetail(a),
     icon: a.kind === 'heliport' ? 'heliport' : 'airfield',
     position: new Vector3(a.east, a.ground + 12, -a.north),
-    maxDistance: a.kind === 'heliport' ? 3000 : 7000,
+    maxDistance: reach.ground,
     // Like a lift's: the nearer of the two wins an overlap.
     tier: 0,
     farTier: 2,
+    // Ahead of the 4000 m horizon peaks (tier -1 and below); airfields before heliports.
+    flying: { maxDistance: reach.flying, tier: a.kind === 'heliport' ? -2.5 : -3, distance: true },
   };
 }
 
@@ -132,6 +170,9 @@ function centroid(ring: [number, number][]): [number, number] {
 
 interface Label extends LabelSpec {
   el: HTMLElement;
+  detailEl: HTMLElement;
+  /** The detail text showing (with or without the range). */
+  shownDetail: string;
   width: number;
   height: number;
   occluded: boolean;
@@ -157,6 +198,7 @@ export class Labels {
   private readonly visible: Record<LabelKind, boolean>;
   private readonly projected = new Vector3();
   private cursor = 0;
+  private flying = false;
 
   constructor(
     private readonly root: HTMLElement,
@@ -171,10 +213,21 @@ export class Labels {
       el.dataset.icon = spec.icon ?? spec.kind;
       el.innerHTML = '<span class="label-name"></span><span class="label-detail"></span>';
       el.querySelector('.label-name')!.textContent = spec.name;
-      el.querySelector('.label-detail')!.textContent = spec.detail;
+      const detailEl = el.querySelector<HTMLElement>('.label-detail')!;
+      detailEl.textContent = spec.detail;
       el.hidden = true;
       root.appendChild(el);
-      return { ...spec, el, width: 0, height: 0, occluded: false, shown: false };
+      const shownDetail = spec.detail;
+      return {
+        ...spec,
+        el,
+        detailEl,
+        shownDetail,
+        width: 0,
+        height: 0,
+        occluded: false,
+        shown: false,
+      };
     });
     // Measure once, all at the same time, to avoid repeated layout.
     for (const label of this.labels) label.el.hidden = false;
@@ -193,26 +246,41 @@ export class Labels {
     this.visible[kind] = on;
   }
 
+  /** In a plane or helicopter, or flying the drone: airfields reach further (`labelRule`). */
+  setFlying(on: boolean): void {
+    this.flying = on;
+  }
+
   update(camera: PerspectiveCamera): void {
     this.refreshOcclusion(camera.position);
 
     const width = this.root.clientWidth;
     const height = this.root.clientHeight;
-    const candidates: { label: Label; tier: number; x: number; y: number; distance: number }[] = [];
+    const candidates: {
+      label: Label;
+      tier: number;
+      reach: number;
+      range: boolean;
+      x: number;
+      y: number;
+      distance: number;
+    }[] = [];
     for (const label of this.labels) {
       if (!this.visible[label.kind] || label.occluded) continue;
       const distance = label.position.distanceTo(camera.position);
-      if (distance > label.maxDistance) continue;
+      const rule = labelRule(label, distance, this.flying);
+      if (distance > rule.maxDistance) continue;
       // Cull behind the camera in view space: projected depth can't be used for this
       // because its range depends on the depth-buffer convention (reversed-Z here).
       const view = this.projected.copy(label.position).applyMatrix4(camera.matrixWorldInverse);
       if (view.z > -camera.near) continue;
       const p = view.applyMatrix4(camera.projectionMatrix);
       if (p.x < -1.2 || p.x > 1.2 || p.y < -1.2 || p.y > 1.2) continue;
-      const tier = distance > NEAR_DISTANCE ? (label.farTier ?? label.tier) : label.tier;
       candidates.push({
         label,
-        tier,
+        tier: rule.tier,
+        reach: rule.maxDistance,
+        range: rule.showDistance,
         x: (p.x * 0.5 + 0.5) * width,
         y: (-p.y * 0.5 + 0.5) * height,
         distance,
@@ -223,7 +291,8 @@ export class Labels {
     // Greedy declutter: keep a label only if its box doesn't hit one already placed.
     const placed: { l: number; r: number; t: number; b: number }[] = [];
     const show = new Set<Label>();
-    for (const { label, x, y, distance } of candidates) {
+    for (const { label, x, y, distance, reach, range } of candidates) {
+      this.setDetail(label, range ? `${label.detail} · ${rangeText(distance)}` : label.detail);
       const box = {
         l: x - label.width / 2 - GAP,
         r: x + label.width / 2 + GAP,
@@ -233,7 +302,7 @@ export class Labels {
       if (placed.some((o) => box.l < o.r && box.r > o.l && box.t < o.b && box.b > o.t)) continue;
       placed.push(box);
       show.add(label);
-      const fade = Math.min(1, (label.maxDistance - distance) / (label.maxDistance * 0.2));
+      const fade = Math.min(1, (reach - distance) / (reach * 0.2));
       label.el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
       label.el.style.opacity = fade.toFixed(2);
     }
@@ -244,6 +313,18 @@ export class Labels {
         label.shown = on;
       }
     }
+  }
+
+  /** Change a tag's detail, re-measuring it (only when the text changes). */
+  private setDetail(label: Label, text: string): void {
+    if (label.shownDetail === text) return;
+    label.shownDetail = text;
+    label.detailEl.textContent = text;
+    const hidden = label.el.hidden;
+    label.el.hidden = false;
+    label.width = label.el.offsetWidth;
+    label.height = label.el.offsetHeight;
+    label.el.hidden = hidden;
   }
 
   private refreshOcclusion(eye: Vector3): void {

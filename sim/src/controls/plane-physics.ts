@@ -13,8 +13,8 @@ import { airDensity, type PlaneType, RHO0 } from './aircraft-types';
  * - forgiving fly-by-wire style controls: the stick asks for an angle of attack (hands
  *   off is trim), the ailerons for a roll rate (hands off levels the wings), the rudder
  *   for yaw on top of the fin's weathervaning, so turns coordinate themselves
- * - ground roll on wheels (cleared tarmac: wheel brakes) or skis (snow: drag brakes,
- *   more rolling resistance, much more in powder); tailwheel steering; reverse thrust on
+ * - ground roll on the wheels: wheel brakes on cleared tarmac; on snow more rolling
+ *   resistance (much more in powder) and brakes that hardly bite; tailwheel steering; reverse thrust on
  *   the ground; gravity along a sloped runway (land uphill, take off downhill)
  * - crashes: a hard touchdown, the prop or a wingtip in the snow
  *
@@ -449,7 +449,7 @@ function touchdown(s: PlaneState, type: PlaneType, terrain: AirTerrain): void {
   s.stallWarning = false;
 }
 
-/** Rolling on wheels or skis: steering, brakes, gravity along the slope, lift-off. */
+/** Rolling on the wheels: steering, brakes, gravity along the slope, lift-off. */
 function groundStep(
   s: PlaneState,
   input: PlaneInput,
@@ -493,7 +493,7 @@ function groundStep(
   if (Math.abs(along) <= friction * h && Math.abs(speed) < 0.5)
     along = 0; // held still
   else along -= Math.sign(along) * Math.min(Math.abs(along), friction * h);
-  // Sideways the wheels or skis grip (snow less than tarmac).
+  // Sideways the tyres grip (snow less than tarmac).
   const grip = (surface === 'paved' ? 0.6 : 0.35) * G * h;
   let side = v.dot(GR) + (FORCE.dot(GR) / s.mass) * h;
   side -= Math.sign(side) * Math.min(Math.abs(side), grip);

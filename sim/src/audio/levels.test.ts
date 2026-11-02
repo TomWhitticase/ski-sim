@@ -5,6 +5,12 @@ import {
   AIRCRAFT_HEARD_WITHIN,
   aircraftFalloff,
   aircraftSound,
+  aircraftWindLevel,
+  crashSeverity,
+  flapMotorLevel,
+  rollingSound,
+  stallHornLevel,
+  touchdownSound,
   DRONE_HEARD_WITHIN,
   droneFalloff,
   droneSound,
@@ -140,5 +146,101 @@ describe('aircraftSound', () => {
     expect(aircraftFalloff(10)).toBeCloseTo(1, 1);
     expect(aircraftFalloff(500)).toBeGreaterThan(0.05);
     expect(aircraftFalloff(AIRCRAFT_HEARD_WITHIN)).toBe(0);
+  });
+});
+
+describe('touchdownSound', () => {
+  it('is silent for a touch with no sink, and thumps harder the firmer it lands', () => {
+    expect(touchdownSound('plane', 0.05, 25, 'paved').thump).toBe(0);
+    const greaser = touchdownSound('plane', 0.5, 25, 'paved');
+    const firm = touchdownSound('plane', 3, 25, 'paved');
+    expect(firm.thump).toBeGreaterThan(greaser.thump * 2);
+    expect(firm.thump).toBeLessThanOrEqual(0.75);
+  });
+
+  it("chirps the plane's tyres on tarmac, crunches on snow", () => {
+    const tarmac = touchdownSound('plane', 1, 25, 'paved');
+    const snow = touchdownSound('plane', 1, 25, 'groomed');
+    expect(tarmac.chirp).toBeGreaterThan(0.1);
+    expect(tarmac.crunch).toBe(0);
+    expect(snow.chirp).toBe(0);
+    expect(snow.crunch).toBeGreaterThan(0.1);
+    expect(touchdownSound('plane', 1, 25, 'powder').crunch).toBeLessThan(snow.crunch);
+  });
+
+  it("never chirps a helicopter's skids", () => {
+    expect(touchdownSound('heli', 1, 0, 'paved').chirp).toBe(0);
+    expect(touchdownSound('heli', 1, 0, 'groomed').crunch).toBeGreaterThan(0);
+  });
+});
+
+describe('rollingSound', () => {
+  it('is silent in the air and standing still', () => {
+    expect(rollingSound('plane', false, 30, 'paved', false).rumble).toBe(0);
+    expect(rollingSound('plane', true, 0, 'paved', true).squeal).toBe(0);
+  });
+
+  it('rumbles louder and brighter with speed; tarmac rumbles, snow crunches', () => {
+    const taxi = rollingSound('plane', true, 5, 'paved', false);
+    const roll = rollingSound('plane', true, 30, 'paved', false);
+    expect(roll.rumble).toBeGreaterThan(taxi.rumble);
+    expect(roll.rumbleCutoff).toBeGreaterThan(taxi.rumbleCutoff);
+    expect(roll.crunch).toBe(0);
+    const snow = rollingSound('plane', true, 30, 'groomed', false);
+    expect(snow.crunch).toBeGreaterThan(0.1);
+    expect(snow.rumble).toBeLessThan(roll.rumble);
+  });
+
+  it('squeals the brakes only braking hard on tarmac, above walking pace', () => {
+    expect(rollingSound('plane', true, 20, 'paved', true).squeal).toBeGreaterThan(0.1);
+    expect(rollingSound('plane', true, 20, 'paved', false).squeal).toBe(0);
+    expect(rollingSound('plane', true, 20, 'groomed', true).squeal).toBe(0);
+    expect(rollingSound('plane', true, 2, 'paved', true).squeal).toBe(0);
+  });
+
+  it("scrapes a helicopter's skids when they slide, brighter on a pad", () => {
+    const snow = rollingSound('heli', true, 3, 'groomed', false);
+    const pad = rollingSound('heli', true, 3, 'paved', false);
+    expect(snow.crunch).toBeGreaterThan(0.15);
+    expect(pad.crunchPitch).toBeGreaterThan(snow.crunchPitch);
+    expect(rollingSound('heli', true, 0.1, 'groomed', false).crunch).toBe(0);
+  });
+
+  it("stays under the engine's level", () => {
+    const loudest = rollingSound('plane', true, 40, 'paved', true);
+    const engine = aircraftSound('plane', 1, 1).level;
+    expect(Math.max(loudest.rumble, loudest.crunch, loudest.squeal)).toBeLessThan(engine);
+  });
+});
+
+describe('warnings and the cockpit', () => {
+  it('sounds the stall horn only with the warning, louder from the cockpit', () => {
+    expect(stallHornLevel(false, true)).toBe(0);
+    expect(stallHornLevel(true, true)).toBeGreaterThan(stallHornLevel(true, false));
+    expect(stallHornLevel(true, true)).toBeLessThan(aircraftSound('plane', 1, 0).level);
+  });
+
+  it('whines the flap motor only while the flaps move', () => {
+    expect(flapMotorLevel(false, true)).toBe(0);
+    expect(flapMotorLevel(true, true)).toBeGreaterThan(flapMotorLevel(true, false));
+  });
+
+  it('hits harder the faster the crash', () => {
+    expect(crashSeverity(5)).toBeGreaterThan(0.4);
+    expect(crashSeverity(60)).toBe(1);
+    expect(crashSeverity(30)).toBeGreaterThan(crashSeverity(10));
+  });
+
+  it('roars the slipstream with airspeed, muffled in the cockpit', () => {
+    const slow = aircraftWindLevel(15, false);
+    const cruise = aircraftWindLevel(60, false);
+    expect(cruise).toBeGreaterThan(slow * 3);
+    expect(aircraftWindLevel(60, true)).toBeLessThan(cruise / 2);
+    expect(aircraftWindLevel(200, false)).toBeLessThanOrEqual(0.75);
+    expect(aircraftWindLevel(200, true)).toBeLessThanOrEqual(0.3);
+    // Still rising past skiing's 35 m/s, where its wind tops out.
+    expect(aircraftWindLevel(60, true)).toBeGreaterThan(aircraftWindLevel(35, true));
+    // A gale is heard over a slow taxi.
+    expect(aircraftWindLevel(5, false, 25)).toBeGreaterThan(aircraftWindLevel(5, false));
   });
 });
