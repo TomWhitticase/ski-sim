@@ -195,11 +195,11 @@ describe('SkierModel snowboard boot cuffs', () => {
     for (const [front, back] of [
       [15, -6],
       [15, -15],
-    ]) {
+    ] as [number, number][]) {
       for (const [crouch, leanDeg] of [
         [0.25, 3],
         [0.3, 22],
-      ]) {
+      ] as [number, number][]) {
         const model = new SkierModel();
         model.setSnowboard(true);
         model.setBoardSetup(boardSetup(front, back));
