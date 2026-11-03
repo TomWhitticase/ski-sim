@@ -13,6 +13,7 @@ import {
 } from './ski-physics';
 import { type LineFeature, type RailContact, SnowParks } from '../parks/park-shapes';
 import { DEFAULT_HANDLING, SKI_PRESETS, type SkiHandling, skiHandling } from './ski-setup';
+import { DEFAULT_BOARD_HANDLING } from './discipline';
 
 const RAD = Math.PI / 180;
 const idle: SkiIntent = { tuck: false, push: false, brake: false, jump: false };
@@ -156,6 +157,57 @@ describe('stepSki', () => {
     const offPiste = run(skier(powder, DOWNHILL), powder, 30).velocity.length();
     expect(offPiste).toBeLessThan(onPiste * 0.85);
     expect(offPiste).toBeGreaterThan(5); // still skiable
+  });
+});
+
+describe('never pinned on a steep slope (gravity always wins)', () => {
+  const powderAt = (deg: number): SkiTerrain => ({ ...slope(deg), groomed: () => false });
+
+  it('a stopped skier on a steep off-piste slope slides down instead of freezing (the black-run bog)', () => {
+    // The playtest repro: ~35-36° off-piste, bled to 0 km/h and stayed frozen. Gravity must win.
+    for (const yaw of [DOWNHILL, ACROSS, DOWNHILL - 20 * RAD]) {
+      const t = powderAt(36);
+      const state = run(skier(t, yaw), t, 5);
+      expect(state.velocity.length(), `yaw ${yaw}`).toBeGreaterThan(1); // moving, not pinned
+      expect(state.velocity.z, `yaw ${yaw}`).toBeGreaterThan(0.5); // down the fall line (+z)
+    }
+  });
+
+  it('a snowboard is not pinned on the same steep off-piste slope either', () => {
+    const t = powderAt(36);
+    const state = run(skier(t, ACROSS), t, 5, idle, DEFAULT_BOARD_HANDLING);
+    expect(state.velocity.length()).toBeGreaterThan(1);
+    expect(state.velocity.z).toBeGreaterThan(0.5);
+  });
+
+  it('W always gets a stopped skier moving on a steep slope, across the fall line or not', () => {
+    for (const yaw of [ACROSS, DOWNHILL, DOWNHILL - 20 * RAD]) {
+      const t = powderAt(36);
+      const state = run(skier(t, yaw), t, 3, { ...idle, push: true });
+      expect(state.velocity.length(), `yaw ${yaw}`).toBeGreaterThan(1);
+    }
+  });
+
+  it('still holds a hockey stop / traverse on a moderate slope (no regression)', () => {
+    // Below ~27° the edges still grip: parking across a 20° slope stays put.
+    expect(run(skier(slope(20), ACROSS), slope(20), 5).velocity.length()).toBeLessThan(0.5);
+    expect(run(skier(powderAt(18), ACROSS), powderAt(18), 5).velocity.length()).toBeLessThan(0.6);
+  });
+
+  it('leaves the terminal speed down a groomed fall line unchanged (piste feel preserved)', () => {
+    // At speed, aligned, the fix is inert: terminal matches the drag-limited formula exactly.
+    for (const deg of [15, 20, 25]) {
+      const t = slope(deg);
+      const theta = deg * RAD;
+      const terminal = Math.sqrt(
+        (SKI.gravity * Math.sin(theta) -
+          DEFAULT_HANDLING.snowFriction * SKI.gravity * Math.cos(theta)) /
+          SKI.dragUpright,
+      );
+      const got = run(skier(t, DOWNHILL), t, 60).velocity.length();
+      expect(got).toBeGreaterThan(terminal * 0.97);
+      expect(got).toBeLessThan(terminal * 1.02);
+    }
   });
 });
 

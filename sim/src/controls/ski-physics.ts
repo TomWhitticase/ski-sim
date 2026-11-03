@@ -105,6 +105,20 @@ export const SKI = {
   /** ... if you were on such a wall this recently (s). */
   vertMemory: 0.15,
   maxStep: 1 / 120,
+  /**
+   * Static edge grip holding a sideways slip (Coulomb μ). The skis can hold you across the
+   * fall line only up to `holdMu`·N: you can park a hockey stop on a slope up to
+   * arctan(holdMu) ≈ 27°, but anything steeper breaks away into a sideslip. Without this cap
+   * the sideways skid scrub (a constant decel) pinned a stopped skier on any slope up to ~55°.
+   */
+  holdMu: 0.5,
+  /**
+   * Sideways slip speed (m/s) at which the dynamic skid scrub reaches full strength. The scrub
+   * is spraying snow, so it needs a sideways slide to exist: below this it fades out, so it
+   * can't hold a near-stopped skier against gravity. At speed it dominates the static hold, so
+   * hockey stops and on-piste behaviour are unchanged.
+   */
+  skidFade: 2.5,
   /** Sliding a rail: friction (μ), and the pull onto its centreline (1/s², damping 1/s). */
   railFriction: 0.008,
   railCentre: 60,
@@ -195,6 +209,7 @@ const gravityAlong = new Vector3();
 const skis = new Vector3();
 const dir = new Vector3();
 const target = new Vector3();
+const side = new Vector3();
 const slopeDir = new Vector3();
 const deck = new Vector3();
 const steepDir = new Vector3();
@@ -343,8 +358,17 @@ function substep(
   skiDirection(state.yaw, n, skis);
   if (intent.push && !intent.brake && v.length() < SKI.pushMaxSpeed) {
     // Skating or stepping along a traverse you set your edges: they hold the sideways
-    // slip instead of scraping all your speed away (which would pin you in place).
-    v.copy(target.copy(skis).multiplyScalar(v.dot(skis)));
+    // slip instead of scraping all your speed away. The hold is bounded by the edges' grip
+    // (`holdMu`·N), so on a slope too steep to hold (steeper than ~27°) gravity still slips
+    // you down the fall line — W can get you moving but can never pin you against the hill.
+    const along = v.dot(skis);
+    side.copy(v).addScaledVector(skis, -along);
+    const slip = side.length();
+    if (slip > 1e-6) {
+      const canHold = SKI.holdMu * SKI.gravity * n.y * h;
+      side.multiplyScalar(Math.max(0, slip - canHold) / slip);
+    }
+    v.copy(skis).multiplyScalar(along).add(side);
   }
   let speed = v.length();
   if (speed > 1e-4) {
@@ -378,9 +402,18 @@ function substep(
     const friction = groomed ? ski.snowFriction : ski.powderFriction * float;
     const drag =
       (intent.tuck ? SKI.dragTuck : SKI.dragUpright) + (groomed ? 0 : ski.powderDrag * float);
+    // Sideways resistance from the edges. The dynamic skid scrub (spraying snow in a skid or
+    // hockey stop) is strong but needs a sideways slide to exist, so it fades to nothing as you
+    // stop; a bounded static edge hold (`holdMu`·N) is all that's left at a standstill. At speed
+    // the scrub dominates and equals the old value, so hockey stops and piste feel are unchanged
+    // — but a stopped skier on a slope past ~27° always sideslips instead of being pinned.
+    const slideSpeed = speed * sideways;
+    const scrub =
+      ski.skidDecel * Math.sqrt(bite) * sideways * Math.min(1, slideSpeed / SKI.skidFade);
+    const hold = SKI.holdMu * SKI.gravity * n.y * sideways;
     const decel =
       friction * SKI.gravity * n.y +
-      ski.skidDecel * Math.sqrt(bite) * sideways +
+      Math.max(hold, scrub) +
       ski.chatter * over +
       (intent.brake ? SKI.brakeDecel : 0) +
       drag * speed * speed;
