@@ -254,5 +254,8 @@ export function createParkMeshes(
   mesh.name = 'snow-parks';
   mesh.castShadow = true;
   mesh.receiveShadow = true;
+  // Resorts with no snow parks (e.g. romme-alpin) leave an empty geometry; drawing it warns
+  // "index count of 0" once per render pass. Hide it so the renderer skips the empty draw.
+  mesh.visible = b.indices.length > 0;
   return mesh;
 }

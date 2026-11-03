@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Terminal } from '../features/types';
-import { createTerminals, GROUND_GAP } from './terminals';
+import { createTerminals, GROUND_GAP, livery, LIVERY_SATURATION, mute } from './terminals';
 
 const terminal = (kind: Terminal['kind'], extra: Partial<Terminal> = {}): Terminal => ({
   end: 'bottom',
@@ -55,6 +55,29 @@ describe('createTerminals', () => {
       }
     },
   );
+
+  describe('livery', () => {
+    it('mute pulls a colour toward its own luminance', () => {
+      const vivid: [number, number, number] = [0.1, 0.42, 0.62];
+      const grey = mute(vivid, 0);
+      expect(grey[0]).toBeCloseTo(grey[1], 5);
+      expect(grey[1]).toBeCloseTo(grey[2], 5);
+      const same = mute(vivid, 1);
+      for (let i = 0; i < 3; i++) expect(same[i]).toBeCloseTo(vivid[i]!, 5);
+      // Partial desaturation narrows the channel spread by exactly the factor.
+      const spread = (c: [number, number, number]) => Math.max(...c) - Math.min(...c);
+      expect(spread(mute(vivid, 0.6))).toBeCloseTo(spread(vivid) * 0.6, 5);
+    });
+
+    it('keeps every station roof colour plausibly muted (not a vivid teal)', () => {
+      expect(LIVERY_SATURATION).toBeLessThan(1);
+      for (let id = -20; id < 40; id++) {
+        const [paint] = livery(id);
+        // No channel spread wide enough to read as a vivid painted roof against the snow.
+        expect(Math.max(...paint) - Math.min(...paint)).toBeLessThan(0.34);
+      }
+    });
+  });
 
   it('never puts a face level with the snow on the pad (no z-fighting)', () => {
     const terminals = [

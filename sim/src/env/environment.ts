@@ -132,6 +132,12 @@ export class Environment {
    * dominates; overcast and whiteout add a smaller amount (the lines need contrast then too).
    */
   readonly pisteGlow = uniform(0);
+  /**
+   * 0..1 how strongly lit windows (and a faint village glow) show through, from just before
+   * sunset to full once the sun is down — the same `daylight().dark` the headlights use, so
+   * buildings light up as dusk falls. Shader uniform read by the building material.
+   */
+  readonly windowLight = uniform(0);
   /** The grey cloud dome inside the sky: an overcast or a fog, merging with the haze. */
   private readonly dome: Mesh;
   private readonly domeHorizon = uniform(new Color());
@@ -250,6 +256,7 @@ export class Environment {
       .lerp(night, look.grey);
     this.fog.density = look.fogDensity;
     this.floodlights.value = light.floodlights;
+    this.windowLight.value = light.dark;
     // Luminous piste lines: mostly how dark it is, with a smaller boost from fog/overcast so
     // they keep contrast in flat light and whiteouts.
     this.pisteGlow.value = Math.min(1, Math.max(light.dark, look.grey * 0.6, look.white * 0.5));

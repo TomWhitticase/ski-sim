@@ -209,9 +209,19 @@ export function createTerrainMaterial(
   // (patchily, wind-scoured), and forest holds it on steep slopes. Frozen lakes are flat.
   const steepness = normal.y.oneMinus();
   const shift = bare.mul(colourNoise.mul(0.05).add(0.07)).sub(tree.mul(0.12));
-  const rock = smoothstep(0.22, 0.32, steepness.add(breakup.mul(0.06)).add(shift)).mul(
-    water.oneMinus(),
-  );
+  // The 8 m land-cover grid is bilinear-sampled, so rock patches have mushy, smeared edges
+  // up close. A zero-mean high-frequency dither on the rock threshold, faded in only near the
+  // camera, breaks that soft ramp into a natural rock/snow speckle (visual only; it doesn't
+  // bias how much rock there is, and the far layer passes no detail so it's unaffected).
+  let rockShift = steepness.add(breakup.mul(0.06)).add(shift);
+  if (active) {
+    rockShift = rockShift.add(
+      mx_fractal_noise_float(positionWorld.mul(0.45), oct(2))
+        .mul(0.05)
+        .mul(nearFade([45, 160])),
+    );
+  }
+  const rock = smoothstep(0.22, 0.32, rockShift).mul(water.oneMinus());
   /** Snow (not rock / water / forest): where the extra snow detail belongs. */
   const snowy = rock.oneMinus().mul(water.oneMinus()).mul(tree.oneMinus());
   const offPiste = groomed.oneMinus();

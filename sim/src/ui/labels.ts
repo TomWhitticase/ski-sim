@@ -205,6 +205,8 @@ export class Labels {
     specs: LabelSpec[],
     private readonly groundHeight: (x: number, z: number) => number,
     visible: Record<LabelKind, boolean>,
+    /** HUD panels (minimap, toggle legend, stats) labels must not be drawn behind. */
+    private readonly reserved: HTMLElement[] = [],
   ) {
     this.visible = { ...visible };
     this.labels = specs.map((spec) => {
@@ -288,8 +290,10 @@ export class Labels {
     }
     candidates.sort((a, b) => a.tier - b.tier || a.distance - b.distance);
 
-    // Greedy declutter: keep a label only if its box doesn't hit one already placed.
-    const placed: { l: number; r: number; t: number; b: number }[] = [];
+    // Greedy declutter: keep a label only if its box doesn't hit one already placed. The HUD
+    // panels (minimap, toggle legend, stats) are seeded in first, so a label is never drawn
+    // clipped behind them (the peak-label-behind-the-legend bug).
+    const placed = this.reservedBoxes();
     const show = new Set<Label>();
     for (const { label, x, y, distance, reach, range } of candidates) {
       this.setDetail(label, range ? `${label.detail} · ${rangeText(distance)}` : label.detail);
@@ -313,6 +317,26 @@ export class Labels {
         label.shown = on;
       }
     }
+  }
+
+  /** Screen boxes of the HUD panels labels must avoid, in the label root's pixel space. */
+  private reservedBoxes(): { l: number; r: number; t: number; b: number }[] {
+    if (!this.reserved.length) return [];
+    const origin = this.root.getBoundingClientRect();
+    const boxes: { l: number; r: number; t: number; b: number }[] = [];
+    for (const el of this.reserved) {
+      // Skip hidden panels (display:none has no layout box; width/height 0).
+      if (!el.offsetParent && el.offsetWidth === 0 && el.offsetHeight === 0) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      boxes.push({
+        l: r.left - origin.left,
+        r: r.right - origin.left,
+        t: r.top - origin.top,
+        b: r.bottom - origin.top,
+      });
+    }
+    return boxes;
   }
 
   /** Change a tag's detail, re-measuring it (only when the text changes). */

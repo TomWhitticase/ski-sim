@@ -3,6 +3,7 @@ import {
   cameraPosition,
   positionWorld,
   float,
+  floor,
   fract,
   mix,
   mx_noise_float,
@@ -17,6 +18,7 @@ import {
   Mesh,
   MeshStandardNodeMaterial,
   ShapeUtils,
+  type UniformNode,
   Vector2,
 } from 'three/webgpu';
 
@@ -199,7 +201,10 @@ function roofEdge(
  * Facade shader: no textures, everything procedural from the `facade` attribute, so a
  * whole resort of buildings is still a single draw call.
  */
-export function createBuildingMaterial(): MeshStandardNodeMaterial {
+export function createBuildingMaterial(
+  /** 0..1 how lit windows glow (from `Environment.windowLight`); omit for never-lit. */
+  windowLight?: UniformNode<'float', number>,
+): MeshStandardNodeMaterial {
   const material = new MeshStandardNodeMaterial({ roughness: 0.85 });
   const f = attribute<'vec4'>('facade', 'vec4');
   const u = f.x;
@@ -295,11 +300,25 @@ export function createBuildingMaterial(): MeshStandardNodeMaterial {
   material.colorNode = mix(snow, colour, isWall);
   material.roughnessNode = mix(float(0.9), mix(float(0.85), float(0.12), windows), isWall);
   material.metalnessNode = windows.mul(isWall).mul(0.4);
+
+  // Lit windows at dusk/night: a warm emissive on a share of the window glass, fading in with
+  // `windowLight` (0 by day → 1 after sunset), so villages and buildings glow instead of going
+  // pure black. Cheap (a handful of nodes, no lights), so the phone tier keeps it too. A per-
+  // window hash leaves some windows dark, so a facade isn't a uniform grid of lights.
+  if (windowLight) {
+    const cell = vec3(floor(u.div(bay)), floor(v.div(storey)), style);
+    const lit = step(0.15, mx_noise_float(cell.mul(1.7)));
+    const warm = vec3(1.0, 0.82, 0.5);
+    material.emissiveNode = warm.mul(windows.mul(isWall).mul(lit).mul(windowLight).mul(1.4));
+  }
   return material;
 }
 
-export function createBuildings(buildings: Building[]): Mesh {
-  const mesh = new Mesh(buildBuildingGeometry(buildings), createBuildingMaterial());
+export function createBuildings(
+  buildings: Building[],
+  windowLight?: UniformNode<'float', number>,
+): Mesh {
+  const mesh = new Mesh(buildBuildingGeometry(buildings), createBuildingMaterial(windowLight));
   mesh.name = 'buildings';
   mesh.castShadow = true;
   mesh.receiveShadow = true;

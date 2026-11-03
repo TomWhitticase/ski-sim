@@ -29,4 +29,14 @@ describe('SnowTrails', () => {
     trails.extend('right', new Vector3(100, 0, 0), up, 0.1, 0);
     expect(trails.mesh.count).toBe(0);
   });
+
+  it('stays hidden until it has a mark, so a 0-instance draw is never issued', () => {
+    const trails = new SnowTrails();
+    expect(trails.mesh.visible).toBe(false);
+    const up = new Vector3(0, 1, 0);
+    trails.extend('left', new Vector3(0, 100, 0), up, 0.1, 0);
+    trails.extend('left', new Vector3(0, 100, -1), up, 0.1, 0);
+    expect(trails.mesh.count).toBe(1);
+    expect(trails.mesh.visible).toBe(true);
+  });
 });

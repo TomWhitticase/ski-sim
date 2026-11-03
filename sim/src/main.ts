@@ -698,7 +698,7 @@ async function main(): Promise<void> {
   scene.add(
     nearTerrain.object,
     farTerrain.object,
-    createBuildings(features.buildings),
+    createBuildings(features.buildings, environment.windowLight),
     createRestaurants(restaurants, features.buildings, (east, north) => groundHeight(east, -north)),
     createPisteMarkers(pisteData),
     createParkMeshes(parks.features, (east, north) => groundHeight(east, -north)),
@@ -958,6 +958,9 @@ async function main(): Promise<void> {
     ],
     groundHeight,
     { lift: prefs.lift, peak: prefs.peak, restaurant: prefs.restaurant, airfield: prefs.airfield },
+    // The top-right HUD column (minimap, clock/coords, toggle legend) and the bottom-left
+    // stats: world labels must not be drawn clipped behind them.
+    [$('.hud-side'), $('.hud-bottom')],
   );
   const sound = new Sound(!prefs.sound);
   const flash = $('#sky-flash');

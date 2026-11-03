@@ -259,6 +259,27 @@ def test_duplicate_footprints_are_merged():
     assert merged["top"] == 14 and merged["type"] == "lift_station"
 
 
+def test_partial_overlap_clips_the_smaller_footprint():
+    from shapely.geometry import Polygon
+
+    from ski_sim_pipeline.features import dedupe_buildings
+
+    # The smaller square overlaps the big one by 30% of its own area (between the clip and
+    # merge thresholds), so both survive but the smaller is clipped clear of the larger.
+    big = [[0, 0], [20, 0], [20, 20], [0, 20]]
+    small = [[17, 5], [27, 5], [27, 15], [17, 15]]
+    b = lambda fp, top: {"footprint": fp, "type": "yes", "top": top, "base": 0}  # noqa: E731
+    out = dedupe_buildings([b(big, 12), b(small, 8)])
+    assert len(out) == 2  # neither dropped
+    big_poly = Polygon(big)
+    small_out = next(x for x in out if x["footprint"] != big)
+    clipped = Polygon(small_out["footprint"])
+    # The clipped building barely overlaps the larger one now (a hair, from the 5 cm buffer).
+    assert big_poly.intersection(clipped).area < 1.0
+    # It kept most of its area (the non-overlapping ~70 m²), so it wasn't mangled or dropped.
+    assert clipped.area > 50
+
+
 def test_display_name_prefers_english_only_for_non_latin_names():
     from ski_sim_pipeline.features import display_name
 

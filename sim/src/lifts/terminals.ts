@@ -1,6 +1,16 @@
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
+  attribute,
+  float,
+  mix,
+  mx_noise_float,
+  normalWorld,
+  positionWorld,
+  smoothstep,
+  vec3,
+} from 'three/tsl';
+import {
   BoxGeometry,
   BufferAttribute,
   type BufferGeometry,
@@ -28,10 +38,25 @@ const WHEEL: RGB = [0.15, 0.15, 0.17];
 const DARK_STEEL: RGB = [0.2, 0.22, 0.25];
 const CABIN_WALL: RGB = [0.9, 0.9, 0.88];
 /**
- * Station colours (hood / roof, then trim). Picked per lift from its id, so a resort's
- * stations aren't all one colour but both ends of a lift match.
+ * Pull a colour toward its own luminance (desaturate). `k` = 1 leaves it unchanged, 0 makes
+ * it grey. Real station housings are painted in muted, weathered colours, not pure saturated
+ * hues, so the raw palette is toned down (`LIVERY_SATURATION`) before use — otherwise the
+ * vivid "sky blue" read as an oddly teal roof against the snow (arlberg).
  */
-const LIVERIES: [RGB, RGB][] = [
+export function mute(c: RGB, k: number): RGB {
+  const l = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+  return [l + (c[0] - l) * k, l + (c[1] - l) * k, l + (c[2] - l) * k];
+}
+
+/** How much of each raw livery's saturation to keep (lower = greyer, more plausible). */
+export const LIVERY_SATURATION = 0.6;
+
+/**
+ * Station colours (hood / roof, then trim). Picked per lift from its id, so a resort's
+ * stations aren't all one colour but both ends of a lift match. The hood/roof colour is
+ * desaturated by `LIVERY_SATURATION` so no station reads as an implausibly vivid roof.
+ */
+const RAW_LIVERIES: [RGB, RGB][] = [
   [
     [0.62, 0.12, 0.1],
     [0.82, 0.8, 0.76],
@@ -57,6 +82,11 @@ const LIVERIES: [RGB, RGB][] = [
     [0.88, 0.88, 0.86],
   ], // sky blue
 ];
+
+const LIVERIES: [RGB, RGB][] = RAW_LIVERIES.map(([paint, trim]) => [
+  mute(paint, LIVERY_SATURATION),
+  trim,
+]);
 
 export function livery(seed: number): [RGB, RGB] {
   // Integer hash, so neighbouring ids don't run through the palette in order.
@@ -485,6 +515,30 @@ function hut(b: TerminalBuilder, u0: number, u1: number, v0: number, v1: number)
  * All terminals merged into one mesh (one draw call), plus their collision obstacles.
  * `rails` gives each terminal's rail height above its pad.
  */
+/** Snow settles on the flat tops of a station, the same as it does on building roofs. */
+const TERMINAL_SNOW = vec3(0.93, 0.95, 0.98);
+
+/**
+ * Station material: the per-vertex livery colour, but with snow lying on upward-facing faces
+ * (roofs, platforms, ledges) — the same convention buildings use (`mix(snow, …)`). Without it
+ * a station's flat concrete platform and painted roof read as bare grey pads against the snow,
+ * with a hard seam where the pad meets the slope. A touch of noise keeps the snow from looking
+ * dead-flat. Vertical walls (normal.y ≈ 0) keep their paint, so the livery still shows.
+ */
+export function createTerminalMaterial(): MeshStandardNodeMaterial {
+  const material = new MeshStandardNodeMaterial({ roughness: 0.7, metalness: 0.15 });
+  const paint = attribute('color', 'vec3');
+  const snowAmt = smoothstep(0.45, 0.82, normalWorld.y);
+  // Subtle brightness break-up so settled snow isn't a uniform white plane.
+  const grain = mx_noise_float(positionWorld.mul(0.6)).mul(0.05);
+  const snow = TERMINAL_SNOW.mul(float(0.97).add(grain));
+  material.colorNode = mix(paint, snow, snowAmt);
+  // Snow is rougher and non-metallic; paint keeps the base look.
+  material.roughnessNode = mix(float(0.7), float(0.92), snowAmt);
+  material.metalnessNode = float(0.15).mul(snowAmt.oneMinus());
+  return material;
+}
+
 export function createTerminals(
   terminals: { terminal: Terminal; rail: number; seed?: number }[],
   ground: (x: number, z: number) => number,
@@ -501,10 +555,7 @@ export function createTerminals(
   const geometry = parts.length ? mergeGeometries(parts)! : new BoxGeometry(0, 0, 0);
   geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
-  const mesh = new Mesh(
-    geometry,
-    new MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.15 }),
-  );
+  const mesh = new Mesh(geometry, createTerminalMaterial());
   mesh.name = 'lift-terminals';
   mesh.castShadow = true;
   mesh.receiveShadow = true;

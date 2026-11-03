@@ -43,6 +43,8 @@ export class SnowSpray {
     this.mesh = new InstancedMesh(new IcosahedronGeometry(0.028, 0), material, CAPACITY);
     this.mesh.name = 'snow-spray';
     this.mesh.count = 0;
+    // Hidden while no particles are live, so a 0-instance draw is never issued.
+    this.mesh.visible = false;
     this.mesh.frustumCulled = false;
     for (let i = 0; i < CAPACITY; i++) {
       this.particles.push({
@@ -113,6 +115,7 @@ export class SnowSpray {
       i++;
     }
     this.mesh.count = this.live;
+    this.mesh.visible = this.live > 0;
     if (this.live > 0) {
       const matrices = this.mesh.instanceMatrix;
       matrices.clearUpdateRanges();

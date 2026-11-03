@@ -72,6 +72,8 @@ export class SnowTrails {
     this.mesh = new InstancedMesh(geometry, material, CAPACITY);
     this.mesh.name = 'snow-trails';
     this.mesh.count = 0;
+    // Hidden until the first instance exists, so a 0-instance draw is never issued.
+    this.mesh.visible = false;
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 1;
     // Make the colour buffer exist up front.
@@ -124,6 +126,7 @@ export class SnowTrails {
     this.written.push(i);
     this.next = (this.next + 1) % CAPACITY;
     this.mesh.count = Math.max(this.mesh.count, i + 1);
+    this.mesh.visible = true;
     track.last.copy(at);
   }
 

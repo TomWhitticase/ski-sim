@@ -401,13 +401,37 @@ def extract_buildings(
 
 
 DUPLICATE_OVERLAP = 0.5
+# Partial overlaps below the merge threshold still read as intersecting blocks (OSM maps
+# separate buildings whose footprints clip into each other, as at Arlberg). Above this share
+# of the smaller footprint the smaller building yields the shared ground: its footprint is
+# clipped to the larger one so their walls no longer z-fight. Kept only if the result stays a
+# single polygon retaining most of its area; otherwise the pair is left as-is (never worse).
+CLIP_OVERLAP = 0.12
+MIN_CLIP_RETAIN = 0.5
+MIN_CLIP_AREA = 12.0
+
+
+def _clip_footprint(small: Polygon, big: Polygon) -> Polygon | None:
+    """`small` with `big` subtracted (a hair of buffer so coincident edges clear). Returns
+    the clipped polygon if it stays a single polygon keeping enough of its area, else None."""
+    from shapely import make_valid
+
+    clipped = make_valid(small.difference(big.buffer(0.05, join_style="mitre")))
+    if clipped.geom_type == "MultiPolygon":
+        clipped = max(clipped.geoms, key=lambda g: g.area)
+    if clipped.geom_type != "Polygon" or clipped.is_empty:
+        return None
+    if clipped.area < MIN_CLIP_AREA or clipped.area < MIN_CLIP_RETAIN * small.area:
+        return None
+    return clipped
 
 
 def dedupe_buildings(buildings: list[dict]) -> list[dict]:
     """Drop footprints mapped twice in OSM (e.g. a station area and a building with the
     same outline). Coincident walls and roofs would z-fight. Of each duplicate pair the
     larger footprint is kept, taking the taller top and the lift-station type if either
-    had it."""
+    had it. Partial overlaps below the merge threshold are instead resolved by clipping the
+    smaller building's footprint to the larger one (so intersecting blocks stop z-fighting)."""
     from shapely import make_valid
     from shapely.strtree import STRtree
 
@@ -416,6 +440,7 @@ def dedupe_buildings(buildings: list[dict]) -> list[dict]:
     order = sorted(range(len(buildings)), key=lambda i: -polygons[i].area)
     tree = STRtree(polygons)
     dropped: set[int] = set()
+    clipped_count = 0
     for i in order:
         if i in dropped:
             continue
@@ -423,16 +448,30 @@ def dedupe_buildings(buildings: list[dict]) -> list[dict]:
             j = int(j)
             if j == i or j in dropped:
                 continue
-            small = min(polygons[i].area, polygons[j].area)
-            if polygons[i].intersection(polygons[j]).area > DUPLICATE_OVERLAP * small:
-                keep, other = buildings[i], buildings[j]
+            # `i` is processed largest-first, but a query hit `j` may be the larger of the
+            # pair; clip whichever footprint is smaller.
+            big, sml = (i, j) if polygons[i].area >= polygons[j].area else (j, i)
+            small = polygons[sml].area
+            overlap = polygons[i].intersection(polygons[j]).area
+            if overlap > DUPLICATE_OVERLAP * small:
+                keep, other = buildings[big], buildings[sml]
                 keep["top"] = max(keep["top"], other["top"])
                 keep["base"] = min(keep["base"], other["base"])
                 if other["type"] == "lift_station":
                     keep["type"] = "lift_station"
-                dropped.add(j)
+                dropped.add(sml)
+            elif overlap > CLIP_OVERLAP * small:
+                clip = _clip_footprint(polygons[sml], polygons[big])
+                if clip is not None:
+                    polygons[sml] = clip
+                    buildings[sml]["footprint"] = np.round(
+                        np.asarray(clip.exterior.coords)[:-1], 2
+                    ).tolist()
+                    clipped_count += 1
     if dropped:
         log.info("Merged %d duplicate building footprints", len(dropped))
+    if clipped_count:
+        log.info("Clipped %d overlapping building footprints", clipped_count)
     return [b for k, b in enumerate(buildings) if k not in dropped]
 
 
